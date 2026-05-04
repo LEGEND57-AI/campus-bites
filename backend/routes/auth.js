@@ -32,6 +32,7 @@ const generateEmailTemplate = (otp, type = "verify") => {
   return `
   <div style="background:#f1f5f9;padding:20px;font-family:Arial">
     <div style="max-width:500px;margin:auto;background:white;border-radius:12px;overflow:hidden">
+      
       <div style="background:linear-gradient(90deg,#3B82F6,#06B6D4);padding:20px;color:white;text-align:center">
         <h2>🍔 CampusBites</h2>
       </div>
@@ -50,6 +51,7 @@ const generateEmailTemplate = (otp, type = "verify") => {
           OTP valid for 15 minutes
         </p>
       </div>
+
     </div>
   </div>
   `;
@@ -58,82 +60,48 @@ const generateEmailTemplate = (otp, type = "verify") => {
 // ================= REGISTER =================
 router.post('/register', async (req, res) => {
   let { name, email, phone, password } = req.body;
-
-  if (!name || !email || !password) {
-    return res.status(400).json({ error: 'Missing required fields' });
-  }
-
   email = email.trim().toLowerCase();
 
   try {
-    console.log("🔥 Register API hit");
-
-    // Check existing
-    const { data: existingUser, error: checkError } = await supabase
+    const { data: existingUser } = await supabase
       .from('users')
       .select('*')
       .eq('email', email)
       .maybeSingle();
 
-    if (checkError) {
-      console.error("Check error:", checkError);
-      return res.status(500).json({ error: checkError.message });
-    }
-
     if (existingUser) {
       return res.status(400).json({ error: 'User already exists' });
     }
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const expiry = new Date(Date.now() + 15 * 60 * 1000).toISOString();
     const now = new Date().toISOString();
 
-    // Insert user
-    const { error: insertError } = await supabase.from('users').insert([{
+    await supabase.from('users').insert([{
       name,
       email,
       phone,
       password_hash: hashedPassword,
       otp,
       otp_expiry: expiry,
-      otp_last_sent_at: now,
+      otp_last_sent_at: now,   // 🔥 NEW
       is_verified: false,
       role: 'student'
     }]);
 
-    if (insertError) {
-      console.error("Insert error:", insertError);
-      return res.status(500).json({ error: insertError.message });
-    }
-
-    // Send email (IMPORTANT: wrapped in try)
-    try {
-      await emailTransporter.sendMail({
-        from: `"CampusBites" <${process.env.EMAIL_USER}>`,
-        to: email,
-        subject: "Verify your account",
-        html: generateEmailTemplate(otp, "verify")
-      });
-    } catch (mailErr) {
-      console.error("Email error:", mailErr);
-      // ❗ Email fail hone pe bhi account create ho gaya hai
-    }
-
-    return res.status(200).json({
-      message: 'OTP sent',
-      email
+    await emailTransporter.sendMail({
+      from: `"CampusBites" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: "Verify your account",
+      html: generateEmailTemplate(otp, "verify")
     });
+
+    res.json({ message: 'OTP sent', email });
 
   } catch (err) {
-    console.error("Register crash:", err);
-    return res.status(500).json({
-      error: 'Registration failed',
-      details: err.message
-    });
+    res.status(500).json({ error: 'Registration failed' });
   }
 });
 
@@ -143,19 +111,15 @@ router.post('/verify-otp', async (req, res) => {
   email = email.trim().toLowerCase();
 
   try {
-    const { data: user, error } = await supabase
+    const { data: user } = await supabase
       .from('users')
       .select('*')
       .eq('email', email)
       .single();
 
-    if (error || !user) {
-      return res.status(400).json({ error: 'User not found' });
-    }
-
     const now = new Date().toISOString();
 
-    if (user.otp !== otp) {
+    if (!user || user.otp !== otp) {
       return res.status(400).json({ error: 'Invalid OTP' });
     }
 
@@ -170,15 +134,14 @@ router.post('/verify-otp', async (req, res) => {
       otp_last_sent_at: null
     }).eq('email', email);
 
-    return res.json({ message: 'Verified' });
+    res.json({ message: 'Verified' });
 
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: 'Verification failed' });
+  } catch {
+    res.status(500).json({ error: 'Verification failed' });
   }
 });
 
-// ================= RESEND OTP =================
+// ================= RESEND OTP (🔥 FIXED) =================
 router.post('/resend-otp', async (req, res) => {
   let { email } = req.body;
   email = email.trim().toLowerCase();
@@ -197,8 +160,10 @@ router.post('/resend-otp', async (req, res) => {
       ? new Date(user.otp_last_sent_at)
       : null;
 
+    // 🔥 60 SEC COOLDOWN
     if (lastSent) {
       const diff = (nowTime - lastSent) / 1000;
+
       if (diff < 60) {
         return res.status(400).json({
           error: `Please wait ${Math.ceil(60 - diff)}s`
@@ -213,23 +178,19 @@ router.post('/resend-otp', async (req, res) => {
     await supabase.from('users').update({
       otp,
       otp_expiry: expiry,
-      otp_last_sent_at: now
+      otp_last_sent_at: now   // 🔥 UPDATE TIME
     }).eq('email', email);
 
-    try {
-      await emailTransporter.sendMail({
-        from: `"CampusBites" <${process.env.EMAIL_USER}>`,
-        to: email,
-        subject: "New OTP",
-        html: generateEmailTemplate(otp, "resend")
-      });
-    } catch (mailErr) {
-      console.error(mailErr);
-    }
+    await emailTransporter.sendMail({
+      from: `"CampusBites" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: "New OTP",
+      html: generateEmailTemplate(otp, "resend")
+    });
 
     res.json({ message: 'OTP resent' });
 
-  } catch (err) {
+  } catch {
     res.status(500).json({ error: 'Resend failed' });
   }
 });
@@ -255,23 +216,19 @@ router.post('/forgot-password', async (req, res) => {
     await supabase.from('users').update({
       otp,
       otp_expiry: expiry,
-      otp_last_sent_at: now
+      otp_last_sent_at: now   // 🔥 ADD
     }).eq('email', email);
 
-    try {
-      await emailTransporter.sendMail({
-        from: `"CampusBites" <${process.env.EMAIL_USER}>`,
-        to: email,
-        subject: "Reset Password OTP",
-        html: generateEmailTemplate(otp, "reset")
-      });
-    } catch (mailErr) {
-      console.error(mailErr);
-    }
+    await emailTransporter.sendMail({
+      from: `"CampusBites" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: "Reset Password OTP",
+      html: generateEmailTemplate(otp, "reset")
+    });
 
     res.json({ message: 'Reset OTP sent', email });
 
-  } catch (err) {
+  } catch {
     res.status(500).json({ error: 'Failed' });
   }
 });
@@ -280,18 +237,13 @@ router.post('/forgot-password', async (req, res) => {
 router.post('/reset-password', async (req, res) => {
   let { email, newPassword } = req.body;
 
-  try {
-    const hashed = await bcrypt.hash(newPassword, 10);
+  const hashed = await bcrypt.hash(newPassword, 10);
 
-    await supabase.from('users').update({
-      password_hash: hashed
-    }).eq('email', email);
+  await supabase.from('users').update({
+    password_hash: hashed
+  }).eq('email', email);
 
-    res.json({ message: "Password updated" });
-
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to update password' });
-  }
+  res.json({ message: "Password updated" });
 });
 
 // ================= LOGIN =================
@@ -323,7 +275,7 @@ router.post('/login', async (req, res) => {
 
     res.json({ token, user });
 
-  } catch (err) {
+  } catch {
     res.status(500).json({ error: 'Login failed' });
   }
 });

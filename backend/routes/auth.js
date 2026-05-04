@@ -59,49 +59,49 @@ const generateEmailTemplate = (otp, type = "verify") => {
 
 // ================= REGISTER =================
 router.post('/register', async (req, res) => {
-  let { name, email, phone, password } = req.body;
-  email = email.trim().toLowerCase();
-
   try {
-    const { data: existingUser } = await supabase
-      .from('users')
-      .select('*')
-      .eq('email', email)
-      .maybeSingle();
+    const { name, email, phone, password } = req.body;
 
-    if (existingUser) {
-      return res.status(400).json({ error: 'User already exists' });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiry = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-    const now = new Date().toISOString();
-
-    await supabase.from('users').insert([{
-      name,
+    // 🔥 STEP 1: Create auth user
+    const { data, error } = await supabase.auth.signUp({
       email,
-      phone,
-      password_hash: hashedPassword,
-      otp,
-      otp_expiry: expiry,
-      otp_last_sent_at: now,   // 🔥 NEW
-      is_verified: false,
-      role: 'student'
-    }]);
-
-    await emailTransporter.sendMail({
-      from: `"CampusBites" <${process.env.EMAIL_USER}>`,
-      to: email,
-      subject: "Verify your account",
-      html: generateEmailTemplate(otp, "verify")
+      password,
     });
 
-    res.json({ message: 'OTP sent', email });
+    if (error) {
+      console.error("Signup error:", error);
+      return res.status(400).json({ error: error.message });
+    }
+
+    const user = data.user;
+
+    // 🔥 STEP 2: Insert into users table (SAFE)
+    const { error: insertError } = await supabase.from('users').insert([
+      {
+        id: user.id, // 🔥 VERY IMPORTANT (match auth user)
+        name,
+        email,
+        phone,
+      },
+    ]);
+
+    // ❗ INSERT FAIL HO TO BHI RESPONSE DENA HAI
+    if (insertError) {
+      console.error("Insert error:", insertError);
+    }
+
+    // ✅ ALWAYS SEND RESPONSE
+    return res.status(200).json({
+      message: 'User registered successfully',
+      user,
+    });
 
   } catch (err) {
-    res.status(500).json({ error: 'Registration failed' });
+    console.error("Register crash:", err);
+    return res.status(500).json({
+      error: 'Internal server error',
+      details: err.message,
+    });
   }
 });
 

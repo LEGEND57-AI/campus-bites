@@ -1,8 +1,14 @@
 import { useEffect, useState } from 'react';
 import { adminAPI, categoryAPI, uploadAPI } from '../../services/api';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
-import { Plus, Edit, Trash2 } from 'lucide-react';
+import {
+  Plus,
+  Edit,
+  Trash2,
+  X,
+  UploadCloud,
+} from 'lucide-react';
 
 const AdminMenu = () => {
   const [items, setItems] = useState([]);
@@ -18,12 +24,21 @@ const AdminMenu = () => {
     price: '',
     image_url: '',
     category_id: '',
-    available: true
+    available: true,
   });
 
   useEffect(() => {
     fetchMenu();
     fetchCategories();
+  }, []);
+
+  useEffect(() => {
+    const handleEsc = (e) => {
+      if (e.key === 'Escape') closeModal();
+    };
+
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
   }, []);
 
   const fetchMenu = async () => {
@@ -46,52 +61,92 @@ const AdminMenu = () => {
     }
   };
 
-  // 🔥 IMAGE UPLOAD
+  const resetForm = () => {
+    setFormData({
+      name: '',
+      description: '',
+      price: '',
+      image_url: '',
+      category_id: '',
+      available: true,
+    });
+
+    setEditingItem(null);
+  };
+
+  const closeModal = () => {
+    setShowModal(false);
+    resetForm();
+  };
+
+  const openAdd = () => {
+    resetForm();
+    setShowModal(true);
+  };
+
+  const openEdit = (item) => {
+    setEditingItem(item);
+
+    setFormData({
+      name: item.name || '',
+      description: item.description || '',
+      price: item.price || '',
+      image_url: item.image_url || '',
+      category_id: item.category_id || '',
+      available: item.available ?? true,
+    });
+
+    setShowModal(true);
+  };
+
   const handleImageUpload = async (file) => {
+    if (!file) return;
+
     try {
       setUploading(true);
+
       const { data } = await uploadAPI.uploadImage(file);
 
-      setFormData(prev => ({
+      setFormData((prev) => ({
         ...prev,
-        image_url: data.url
+        image_url: data.url,
       }));
 
-      toast.success("Image uploaded");
-    } catch {
-      toast.error("Upload failed");
+      toast.success('Image uploaded successfully');
+    } catch (err) {
+      console.error(err);
+      toast.error('Upload failed');
     } finally {
       setUploading(false);
     }
   };
 
-  // 🔥 SUBMIT
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!formData.name) return toast.error("Enter name");
-    if (!formData.price) return toast.error("Enter price");
-    if (!formData.category_id) return toast.error("Select category");
-    if (!formData.image_url) return toast.error("Upload image first");
+    if (!formData.name.trim()) return toast.error('Enter item name');
+    if (!formData.price) return toast.error('Enter price');
+    if (!formData.category_id) return toast.error('Select category');
+    if (!formData.image_url) return toast.error('Upload image first');
 
     try {
       const payload = {
         ...formData,
-        price: Number(formData.price) // ✅ FIX
+        price: parseFloat(formData.price),
       };
 
       if (editingItem) {
         await adminAPI.updateMenu(editingItem.id, payload);
-        toast.success('Item updated');
+        toast.success('Item updated successfully');
       } else {
         await adminAPI.createMenu(payload);
-        toast.success('Item added');
+        toast.success('Item added successfully');
       }
 
       fetchMenu();
-      setShowModal(false);
-      resetForm();
-    } catch {
+      closeModal();
+    } catch (err) {
+      console.error(err);
       toast.error('Operation failed');
     }
   };
@@ -100,7 +155,7 @@ const AdminMenu = () => {
     if (window.confirm('Delete this item?')) {
       try {
         await adminAPI.deleteMenu(id);
-        toast.success('Deleted');
+        toast.success('Item deleted');
         fetchMenu();
       } catch {
         toast.error('Delete failed');
@@ -108,80 +163,83 @@ const AdminMenu = () => {
     }
   };
 
-  const resetForm = () => {
-    setFormData({
-      name: '',
-      description: '',
-      price: '',
-      image_url: '',
-      category_id: '',
-      available: true
-    });
-    setEditingItem(null);
-  };
-
-  const openEdit = (item) => {
-    setEditingItem(item);
-    setFormData({
-      name: item.name || '',
-      description: item.description || '',
-      price: item.price || '',
-      image_url: item.image_url || '',
-      category_id: item.category_id || '',
-      available: item.available ?? true
-    });
-    setShowModal(true);
-  };
-
-  if (loading) return <div>Loading...</div>;
+  if (loading) {
+    return (
+      <div className="text-center py-20 text-gray-500 text-lg">
+        Loading menu...
+      </div>
+    );
+  }
 
   return (
     <div>
-
       {/* HEADER */}
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold">Menu Management</h2>
+      <div className="flex justify-between items-center mb-8">
+        <h2 className="text-4xl font-bold text-slate-800">
+          Menu Management
+        </h2>
+
         <button
-          onClick={() => { resetForm(); setShowModal(true); }}
-          className="btn-primary flex items-center gap-2"
+          onClick={openAdd}
+          className="flex items-center gap-2 px-6 py-3 rounded-2xl
+                     bg-gradient-to-r from-blue-500 to-indigo-600
+                     text-white font-semibold shadow-lg hover:scale-105
+                     transition-all"
         >
-          <Plus size={18} /> Add Item
+          <Plus size={20} />
+          Add Item
         </button>
       </div>
 
       {/* GRID */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {items.map(item => (
-          <motion.div key={item.id} className="glass-card rounded-xl overflow-hidden shadow-md">
-            
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+        {items.map((item) => (
+          <motion.div
+            key={item.id}
+            whileHover={{ y: -6 }}
+            className="bg-white rounded-3xl overflow-hidden
+                       shadow-lg hover:shadow-2xl transition-all"
+          >
             <img
-              src={item.image_url || "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=400"}
-              className="h-40 w-full object-cover"
+              src={
+                item.image_url ||
+                'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=400'
+              }
+              alt={item.name}
+              className="h-44 w-full object-cover"
             />
 
             <div className="p-4">
-              <h3 className="font-bold text-lg">{item.name}</h3>
+              <h3 className="font-bold text-2xl text-slate-800 leading-tight">
+                {item.name}
+              </h3>
 
-              {/* ✅ PRICE FIX */}
-              <p className="text-blue-600 font-bold">
-                ₹{Number(item.price).toFixed(2)}
+              <p className="text-blue-600 font-bold text-3xl mt-2">
+                ₹{Number(item.price || 0).toFixed(2)}
               </p>
 
-              <p className="text-sm text-gray-500 mt-1">
-                {item.description}
+              <p className="text-gray-500 mt-3 min-h-[45px] text-base leading-relaxed">
+                {item.description || 'No description available'}
               </p>
 
-              <p className="text-xs text-gray-400 mt-2">
-                {categories.find(c => c.id === item.category_id)?.name}
-              </p>
+              <span className="inline-block mt-3 px-4 py-1 rounded-full
+                               bg-slate-100 text-slate-500 text-sm">
+                {categories.find((c) => c.id == item.category_id)?.name}
+              </span>
 
-              <div className="flex gap-3 mt-3">
-                <button onClick={() => openEdit(item)}>
-                  <Edit size={18} />
+              <div className="flex gap-4 mt-4">
+                <button
+                  onClick={() => openEdit(item)}
+                  className="text-blue-500 hover:text-blue-700"
+                >
+                  <Edit size={24} />
                 </button>
 
-                <button onClick={() => handleDelete(item.id)}>
-                  <Trash2 size={18} />
+                <button
+                  onClick={() => handleDelete(item.id)}
+                  className="text-red-500 hover:text-red-700"
+                >
+                  <Trash2 size={24} />
                 </button>
               </div>
             </div>
@@ -190,78 +248,199 @@ const AdminMenu = () => {
       </div>
 
       {/* MODAL */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center">
-          <div className="bg-white p-6 rounded-xl w-96">
+      <AnimatePresence>
+        {showModal && (
+          <motion.div
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm
+                       flex items-center justify-center z-50 px-4"
+            onClick={closeModal}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              onClick={(e) => e.stopPropagation()}
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-3xl shadow-2xl
+                         w-full max-w-xl overflow-hidden"
+            >
+              {/* HEADER */}
+              <div className="bg-gradient-to-r from-blue-500 to-indigo-600
+                              text-white px-6 py-4 flex justify-between items-center">
+                <h3 className="text-xl font-bold">
+                  {editingItem ? 'Edit Menu Item' : 'Add New Menu Item'}
+                </h3>
 
-            <form onSubmit={handleSubmit} className="space-y-3">
+                <button
+                  onClick={closeModal}
+                  className="hover:bg-white/20 p-2 rounded-full transition"
+                >
+                  <X size={22} />
+                </button>
+              </div>
 
-              <input
-                placeholder="Name"
-                className="w-full border p-2 rounded"
-                value={formData.name}
-                onChange={e => setFormData({...formData, name: e.target.value})}
-              />
-
-              {/* 🔥 PRICE FIXED */}
-              <input
-                placeholder="Price (₹)"
-                type="number"
-                step="0.01"
-                min="0"
-                className="w-full border p-2 rounded"
-                value={formData.price}
-                onChange={e => setFormData({...formData, price: e.target.value})}
-              />
-
-              <textarea
-                placeholder="Description"
-                className="w-full border p-2 rounded"
-                value={formData.description}
-                onChange={(e) =>
-                  setFormData({...formData, description: e.target.value})
-                }
-              />
-
-              {/* IMAGE */}
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) => handleImageUpload(e.target.files[0])}
-                className="w-full"
-              />
-
-              {uploading && <p>Uploading...</p>}
-
-              {formData.image_url && (
-                <img src={formData.image_url} className="h-20 rounded" />
-              )}
-
-              {/* CATEGORY */}
-              <select
-                value={formData.category_id}
-                onChange={e => setFormData({...formData, category_id: e.target.value})}
-                className="w-full border p-2 rounded"
+              {/* FORM */}
+              <form
+                onSubmit={handleSubmit}
+                className="p-6 space-y-5 max-h-[80vh] overflow-y-auto"
               >
-                <option value="">Select Category</option>
-                {categories.map(cat => (
-                  <option key={cat.id} value={cat.id}>
-                    {cat.name}
-                  </option>
-                ))}
-              </select>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-600 mb-2">
+                    Item Name
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Enter item name"
+                    className="w-full border border-gray-200 rounded-2xl p-3
+                               focus:ring-2 focus:ring-blue-500 outline-none"
+                    value={formData.name}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        name: e.target.value,
+                      })
+                    }
+                  />
+                </div>
 
-              <button className="btn-primary w-full">
-                Save
-              </button>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-600 mb-2">
+                    Price (₹)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="Enter price"
+                    className="w-full border border-gray-200 rounded-2xl p-3
+                               focus:ring-2 focus:ring-blue-500 outline-none"
+                    value={formData.price}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        price: e.target.value,
+                      })
+                    }
+                  />
+                </div>
 
-            </form>
-          </div>
-        </div>
-      )}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-600 mb-2">
+                    Description
+                  </label>
+                  <textarea
+                    rows="3"
+                    placeholder="Enter description"
+                    className="w-full border border-gray-200 rounded-2xl p-3
+                               focus:ring-2 focus:ring-blue-500 outline-none resize-none"
+                    value={formData.description}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        description: e.target.value,
+                      })
+                    }
+                  />
+                </div>
 
+                <div>
+                  <label className="block text-sm font-semibold text-gray-600 mb-3">
+                    Upload Image
+                  </label>
+
+                  <label
+                    className="border-2 border-dashed border-gray-300 rounded-2xl
+                               p-6 flex flex-col items-center justify-center
+                               cursor-pointer hover:border-blue-500 transition"
+                  >
+                    <UploadCloud className="w-8 h-8 text-gray-400 mb-2" />
+                    <span className="text-gray-500 text-sm">
+                      Click to upload image
+                    </span>
+
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) =>
+                        handleImageUpload(e.target.files[0])
+                      }
+                      className="hidden"
+                    />
+                  </label>
+
+                  {uploading && (
+                    <p className="text-blue-500 mt-3 text-sm">
+                      Uploading image...
+                    </p>
+                  )}
+
+                  {formData.image_url && (
+                    <div className="mt-4">
+                      <img
+                        src={formData.image_url}
+                        alt="Preview"
+                        className="w-24 h-24 rounded-2xl object-cover border"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-600 mb-2">
+                    Category
+                  </label>
+                  <select
+                    value={formData.category_id}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        category_id: e.target.value,
+                      })
+                    }
+                    className="w-full border border-gray-200 rounded-2xl p-3
+                               focus:ring-2 focus:ring-blue-500 outline-none"
+                  >
+                    <option value="">Select Category</option>
+
+                    {categories.map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-3 pt-3">
+                  <button
+                    type="submit"
+                    className="w-full py-3 rounded-2xl
+                               bg-gradient-to-r from-blue-500 to-indigo-600
+                               text-white font-bold text-base
+                               hover:shadow-xl transition"
+                  >
+                    {editingItem ? 'Update Item' : 'Save Item'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={closeModal}
+                    className="w-full py-3 rounded-2xl border
+                               text-gray-600 font-semibold
+                               hover:bg-gray-100 transition"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
 
 export default AdminMenu;
+

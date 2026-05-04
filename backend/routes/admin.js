@@ -23,8 +23,10 @@ router.get('/orders', async (req, res) => {
       .order('created_at', { ascending: false });
 
     if (error) throw error;
+
     res.json(data);
   } catch (err) {
+    console.error('Orders fetch error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -48,40 +50,64 @@ router.patch('/orders/:id/status', async (req, res) => {
 
     if (error) throw error;
 
-    res.json({ success: true, status });
+    res.json({
+      success: true,
+      status
+    });
   } catch (err) {
+    console.error('Order status update error:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ---------- Menu ----------
+// ---------- Menu (ONLY AVAILABLE ITEMS) ----------
 router.get('/menu', async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('food_items')
       .select('*')
+      .eq('available', true)
       .order('id');
 
     if (error) throw error;
 
     res.json(data);
   } catch (err) {
+    console.error('Menu fetch error:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
 // ---------- Add Menu ----------
 router.post('/menu', async (req, res) => {
-  const { name, description, price, image_url, category_id, available = true } = req.body;
+  const {
+    name,
+    description,
+    price,
+    image_url,
+    category_id,
+    available = true
+  } = req.body;
 
   if (!name || !price || !category_id) {
-    return res.status(400).json({ error: 'Missing required fields' });
+    return res.status(400).json({
+      error: 'Missing required fields'
+    });
   }
 
   try {
     const { data, error } = await supabase
       .from('food_items')
-      .insert([{ name, description, price, image_url, category_id, available }])
+      .insert([
+        {
+          name,
+          description,
+          price,
+          image_url,
+          category_id,
+          available
+        }
+      ])
       .select()
       .single();
 
@@ -89,6 +115,7 @@ router.post('/menu', async (req, res) => {
 
     res.status(201).json(data);
   } catch (err) {
+    console.error('Add menu item error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -96,11 +123,12 @@ router.post('/menu', async (req, res) => {
 // ---------- Update Menu ----------
 router.put('/menu/:id', async (req, res) => {
   const { id } = req.params;
+  const updates = req.body;
 
   try {
     const { data, error } = await supabase
       .from('food_items')
-      .update(req.body)
+      .update(updates)
       .eq('id', id)
       .select()
       .single();
@@ -109,51 +137,59 @@ router.put('/menu/:id', async (req, res) => {
 
     res.json(data);
   } catch (err) {
+    console.error('Update menu item error:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ---------- Delete ----------
+// ---------- Soft Delete Menu ----------
 router.delete('/menu/:id', async (req, res) => {
   const { id } = req.params;
 
   try {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('food_items')
-      .delete()
-      .eq('id', id);
+      .update({ available: false })
+      .eq('id', id)
+      .select();
 
     if (error) throw error;
 
-    res.json({ success: true });
+    res.json({
+      success: true,
+      message: 'Item deleted successfully',
+      data
+    });
   } catch (err) {
+    console.error('Delete menu item error:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ---------- 🔥 ADVANCED ANALYTICS (FIXED PRO VERSION) ----------
+// ---------- Advanced Analytics ----------
 router.get('/analytics', async (req, res) => {
   try {
-    const range = req.query.range || "7days";
+    const range = req.query.range || '7days';
 
     let startDate = new Date();
 
-    if (range === "today") {
+    if (range === 'today') {
       startDate.setHours(0, 0, 0, 0);
-    } else if (range === "7days") {
+    } else if (range === '7days') {
       startDate.setDate(startDate.getDate() - 6);
-    } else if (range === "30days") {
+    } else if (range === '30days') {
       startDate.setDate(startDate.getDate() - 29);
     }
 
     const startISO = startDate.toISOString();
 
-    // ---------- BASIC ----------
+    // ---------- Orders Today ----------
     const { count: ordersToday } = await supabase
       .from('orders')
       .select('*', { count: 'exact', head: true })
       .gte('created_at', startISO);
 
+    // ---------- Revenue ----------
     const { data: revenueData } = await supabase
       .from('orders')
       .select('total_amount')
@@ -161,27 +197,34 @@ router.get('/analytics', async (req, res) => {
       .gte('created_at', startISO);
 
     const totalRevenue =
-      revenueData?.reduce((sum, o) => sum + o.total_amount, 0) || 0;
+      revenueData?.reduce((sum, order) => sum + Number(order.total_amount), 0) || 0;
 
+    // ---------- Active Orders ----------
     const { count: activeOrders } = await supabase
       .from('orders')
       .select('*', { count: 'exact', head: true })
       .in('status', ['Pending', 'Accepted', 'Preparing'])
       .gte('created_at', startISO);
 
-    // ---------- ORDER ITEMS ----------
+    // ---------- Order Items ----------
     const { data: orderItems } = await supabase
       .from('order_items')
-      .select(`quantity, food_items(name, category_id)`)
+      .select(`
+        quantity,
+        food_items(name, category_id)
+      `)
       .not('food_items', 'is', null);
 
-    // ---------- ITEMS ----------
+    // ---------- Popular / Low Items ----------
     const itemMap = new Map();
 
     orderItems?.forEach(item => {
       const name = item.food_items?.name;
       if (name) {
-        itemMap.set(name, (itemMap.get(name) || 0) + item.quantity);
+        itemMap.set(
+          name,
+          (itemMap.get(name) || 0) + item.quantity
+        );
       }
     });
 
@@ -195,24 +238,30 @@ router.get('/analytics', async (req, res) => {
       .sort((a, b) => a.qty - b.qty)
       .slice(0, 5);
 
-    // ---------- CATEGORY ----------
+    // ---------- Top Categories ----------
     const categoryMap = new Map();
 
     orderItems?.forEach(item => {
-      const cat = item.food_items?.category_id;
-      if (cat) {
-        categoryMap.set(cat, (categoryMap.get(cat) || 0) + item.quantity);
+      const categoryId = item.food_items?.category_id;
+      if (categoryId) {
+        categoryMap.set(
+          categoryId,
+          (categoryMap.get(categoryId) || 0) + item.quantity
+        );
       }
     });
 
-    const { data: categories } = await supabase.from('categories').select('*');
+    const { data: categories } = await supabase
+      .from('categories')
+      .select('*');
 
-    const topCategories = categories?.map(cat => ({
-      name: cat.name,
-      qty: categoryMap.get(cat.id) || 0
-    }));
+    const topCategories =
+      categories?.map(category => ({
+        name: category.name,
+        qty: categoryMap.get(category.id) || 0
+      })) || [];
 
-    // ---------- STATUS ----------
+    // ---------- Status Breakdown ----------
     const { data: statusData } = await supabase
       .from('orders')
       .select('status')
@@ -226,49 +275,62 @@ router.get('/analytics', async (req, res) => {
       Accepted: 0
     };
 
-    statusData?.forEach(o => {
-      if (statusBreakdown[o.status] !== undefined) {
-        statusBreakdown[o.status]++;
+    statusData?.forEach(order => {
+      if (statusBreakdown[order.status] !== undefined) {
+        statusBreakdown[order.status]++;
       }
     });
 
-    // ---------- 🔥 REVENUE PER DAY (FIXED) ----------
-    const days = range === "30days" ? 30 : range === "7days" ? 7 : 1;
+    // ---------- Revenue By Day ----------
+    const days =
+      range === '30days'
+        ? 30
+        : range === '7days'
+        ? 7
+        : 1;
 
     const dateMap = new Map();
 
-    // 🔥 generate all dates
     for (let i = 0; i < days; i++) {
       const d = new Date();
       d.setDate(d.getDate() - i);
+
       const key = d.toISOString().split('T')[0];
+
       dateMap.set(key, 0);
     }
 
-    const { data: ordersAll } = await supabase
+    const { data: allOrders } = await supabase
       .from('orders')
       .select('created_at, total_amount')
       .eq('status', 'Ready')
       .gte('created_at', startISO);
 
-    ordersAll?.forEach(o => {
-      const date = o.created_at.split('T')[0];
+    allOrders?.forEach(order => {
+      const date = order.created_at.split('T')[0];
+
       if (dateMap.has(date)) {
-        dateMap.set(date, dateMap.get(date) + o.total_amount);
+        dateMap.set(
+          date,
+          dateMap.get(date) + Number(order.total_amount)
+        );
       }
     });
 
     const revenueByDay = Array.from(dateMap.entries())
       .map(([date, revenue]) => ({
         date,
-        revenue: Number(revenue.toFixed(2)) // 🔥 FIX
+        revenue: Number(revenue.toFixed(2))
       }))
-      .sort((a, b) => new Date(a.date) - new Date(b.date));
+      .sort(
+        (a, b) =>
+          new Date(a.date) - new Date(b.date)
+      );
 
-    // ---------- FINAL ----------
+    // ---------- Final Response ----------
     res.json({
       ordersToday: ordersToday || 0,
-      totalRevenue,
+      totalRevenue: Number(totalRevenue.toFixed(2)),
       activeOrders: activeOrders || 0,
       popularItems,
       lowItems,
@@ -276,7 +338,6 @@ router.get('/analytics', async (req, res) => {
       statusBreakdown,
       revenueByDay
     });
-
   } catch (err) {
     console.error('Analytics error:', err);
     res.status(500).json({ error: err.message });

@@ -1,17 +1,28 @@
 import express from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
 import { supabase } from '../db.js';
 
 const router = express.Router();
 
 // ================= EMAIL =================
-const resend = new Resend(process.env.RESEND_API_KEY);
+const emailTransporter = nodemailer.createTransport({
+  host: "smtp.gmail.com",
+  port: 465,
+  secure: true,
+  connectionTimeout: 30000,
+  greetingTimeout: 30000,
+  socketTimeout: 30000,
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
 
 const sendOtpEmailInBackground = ({ to, subject, otp, type }) => {
-  resend.emails.send({
-    from: process.env.EMAIL_FROM || 'CampusBites <onboarding@resend.dev>',
+  emailTransporter.sendMail({
+    from: `"CampusBites" <${process.env.EMAIL_USER}>`,
     to,
     subject,
     html: generateEmailTemplate(otp, type)

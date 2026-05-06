@@ -15,6 +15,17 @@ const emailTransporter = nodemailer.createTransport({
   },
 });
 
+const sendOtpEmailInBackground = ({ to, subject, otp, type }) => {
+  emailTransporter.sendMail({
+    from: `"CampusBites" <${process.env.EMAIL_USER}>`,
+    to,
+    subject,
+    html: generateEmailTemplate(otp, type)
+  }).catch((err) => {
+    console.error(`${subject} email failed:`, err.message);
+  });
+};
+
 // ================= EMAIL TEMPLATE =================
 const generateEmailTemplate = (otp, type = "verify") => {
   const titleMap = {
@@ -91,14 +102,14 @@ router.post('/register', async (req, res) => {
       role: 'student'
     }]);
 
-    await emailTransporter.sendMail({
-      from: `"CampusBites" <${process.env.EMAIL_USER}>`,
+    res.json({ message: 'OTP sent', email });
+
+    sendOtpEmailInBackground({
       to: email,
       subject: "Verify your account",
-      html: generateEmailTemplate(otp, "verify")
+      otp,
+      type: "verify"
     });
-
-    res.json({ message: 'OTP sent', email });
 
   } catch (err) {
     res.status(500).json({ error: 'Registration failed' });
@@ -181,14 +192,14 @@ router.post('/resend-otp', async (req, res) => {
       otp_last_sent_at: now   // 🔥 UPDATE TIME
     }).eq('email', email);
 
-    await emailTransporter.sendMail({
-      from: `"CampusBites" <${process.env.EMAIL_USER}>`,
+    res.json({ message: 'OTP resent' });
+
+    sendOtpEmailInBackground({
       to: email,
       subject: "New OTP",
-      html: generateEmailTemplate(otp, "resend")
+      otp,
+      type: "resend"
     });
-
-    res.json({ message: 'OTP resent' });
 
   } catch {
     res.status(500).json({ error: 'Resend failed' });
@@ -219,14 +230,14 @@ router.post('/forgot-password', async (req, res) => {
       otp_last_sent_at: now   // 🔥 ADD
     }).eq('email', email);
 
-    await emailTransporter.sendMail({
-      from: `"CampusBites" <${process.env.EMAIL_USER}>`,
+    res.json({ message: 'Reset OTP sent', email });
+
+    sendOtpEmailInBackground({
       to: email,
       subject: "Reset Password OTP",
-      html: generateEmailTemplate(otp, "reset")
+      otp,
+      type: "reset"
     });
-
-    res.json({ message: 'Reset OTP sent', email });
 
   } catch {
     res.status(500).json({ error: 'Failed' });

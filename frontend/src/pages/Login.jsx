@@ -129,7 +129,7 @@ const Login = () => {
               disabled={isResetting}
               className="text-sm text-blue-600 hover:underline disabled:opacity-50"
             >
-              {isResetting ? "Sending..." : "Forgot Password?"}
+              {isResetting ? "Sending OTP..." : "Forgot Password?"}
             </button>
           </div>
 

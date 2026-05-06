@@ -123,7 +123,7 @@ const Signup = () => {
             disabled={isLoading}
             className="w-full btn-primary py-3 text-lg disabled:opacity-70"
           >
-            {isLoading ? 'Creating account...' : 'Sign Up'}
+            {isLoading ? 'Sending OTP...' : 'Sign Up'}
           </motion.button>
 
         </form>

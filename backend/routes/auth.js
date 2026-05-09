@@ -12,6 +12,14 @@ const emailTransporter = nodemailer.createTransport({
   port: 587,
   secure: false,
 
+  // 🔥 PERFORMANCE
+  pool: true,
+
+  // 🔥 TIMEOUTS
+  connectionTimeout: 15000,
+  greetingTimeout: 15000,
+  socketTimeout: 20000,
+
   auth: {
     user: process.env.BREVO_EMAIL,
     pass: process.env.BREVO_PASS,
@@ -140,12 +148,18 @@ router.post('/register', async (req, res) => {
     }
 
     // SEND OTP MAIL
-    await emailTransporter.sendMail({
-      from: `"CampusBites" <campusbites.app01@gmail.com>`,
-      to: email,
-      subject: "Verify your account",
-      html: generateEmailTemplate(otp, "verify")
-    });
+    await Promise.race([
+      emailTransporter.sendMail({
+        from: `"CampusBites" <campusbites.app01@gmail.com>`,
+        to: email,
+        subject: "Verify your account",
+        html: generateEmailTemplate(otp, "verify")
+      }),
+
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Email timeout")), 15000)
+      )
+    ]);
 
     res.status(200).json({
       message: 'OTP sent',
@@ -156,7 +170,7 @@ router.post('/register', async (req, res) => {
     console.error("Register error:", err);
 
     res.status(500).json({
-      error: 'Registration failed'
+      error: err.message || 'Registration failed'
     });
   }
 });
@@ -255,12 +269,18 @@ router.post('/resend-otp', async (req, res) => {
       })
       .eq('email', email);
 
-    await emailTransporter.sendMail({
-      from: `"CampusBites" <campusbites.app01@gmail.com>`,
-      to: email,
-      subject: "New OTP",
-      html: generateEmailTemplate(otp, "resend")
-    });
+    await Promise.race([
+      emailTransporter.sendMail({
+        from: `"CampusBites" <campusbites.app01@gmail.com>`,
+        to: email,
+        subject: "New OTP",
+        html: generateEmailTemplate(otp, "resend")
+      }),
+
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Email timeout")), 15000)
+      )
+    ]);
 
     res.json({
       message: 'OTP resent'
@@ -270,7 +290,7 @@ router.post('/resend-otp', async (req, res) => {
     console.error(err);
 
     res.status(500).json({
-      error: 'Resend failed'
+      error: err.message || 'Resend failed'
     });
   }
 });
@@ -313,12 +333,18 @@ router.post('/forgot-password', async (req, res) => {
       })
       .eq('email', email);
 
-    await emailTransporter.sendMail({
-      from: `"CampusBites" <campusbites.app01@gmail.com>`,
-      to: email,
-      subject: "Reset Password OTP",
-      html: generateEmailTemplate(otp, "reset")
-    });
+    await Promise.race([
+      emailTransporter.sendMail({
+        from: `"CampusBites" <campusbites.app01@gmail.com>`,
+        to: email,
+        subject: "Reset Password OTP",
+        html: generateEmailTemplate(otp, "reset")
+      }),
+
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Email timeout")), 15000)
+      )
+    ]);
 
     res.json({
       message: 'Reset OTP sent',
@@ -329,7 +355,7 @@ router.post('/forgot-password', async (req, res) => {
     console.error(err);
 
     res.status(500).json({
-      error: 'Failed'
+      error: err.message || 'Failed'
     });
   }
 });

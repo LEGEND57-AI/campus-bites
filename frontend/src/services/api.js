@@ -32,7 +32,6 @@ api.interceptors.response.use(
     if (error.response) {
       console.error('API Error:', error.response.data);
 
-      // 🔥 OPTIONAL: Auto logout on 401
       if (error.response.status === 401) {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
@@ -77,7 +76,7 @@ export const userAPI = {
 // ---------------- ADMIN ----------------
 export const adminAPI = {
 
-  // 🔥 ANALYTICS (UPDATED WITH RANGE)
+  // Analytics
   getAnalytics: (range = "7days") =>
     api.get(`/admin/analytics?range=${range}`),
 
@@ -97,9 +96,15 @@ export const adminAPI = {
 
   deleteMenu: (id) =>
     api.delete(`/admin/menu/${id}`),
+
+  // 🔥 NEW STOCK TOGGLE
+  updateAvailability: (id, available) =>
+    api.patch(`/admin/menu/${id}/availability`, {
+      available
+    }),
 };
 
-// ---------------- 🔥 UPLOAD ----------------
+// ---------------- UPLOAD ----------------
 export const uploadAPI = {
   uploadImage: (file) => {
     const formData = new FormData();

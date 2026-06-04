@@ -1,63 +1,93 @@
-import { Plus } from "lucide-react";
+import { Plus, AlertCircle } from "lucide-react";
 
 const FoodCard = ({ item, onAddToCart }) => {
-  return (
-    <div className="glass-card card-hover overflow-hidden flex flex-col h-full">
+  const isAvailable = item.available !== false;
 
-      {/* IMAGE */}
-      <div className="h-44 w-full overflow-hidden group">
-        <img
-          src={item.image_url || "https://via.placeholder.com/300"}
-          alt={item.name}
-          className="w-full h-full object-cover transition duration-300 group-hover:scale-105"
-        />
+  return (<div className="glass-card card-hover overflow-hidden flex flex-col h-full">
+
+    {/* IMAGE */}
+    <div className="h-44 w-full overflow-hidden group relative">
+
+      {!isAvailable && (
+        <div
+          className="absolute top-3 right-3 z-20
+                   bg-red-600 text-white
+                   px-3 py-1 rounded-full
+                   text-xs font-bold shadow-lg
+                   flex items-center gap-1"
+        >
+          <AlertCircle size={12} />
+          OUT OF STOCK
+        </div>
+      )}
+
+      <img
+        src={item.image_url || "https://via.placeholder.com/300"}
+        alt={item.name}
+        className={`w-full h-full object-cover transition duration-300 group-hover:scale-105 ${!isAvailable
+            ? "grayscale opacity-60"
+            : ""
+          }`}
+      />
+    </div>
+
+    {/* CONTENT */}
+    <div className="p-4 flex flex-col flex-grow">
+
+      {/* TITLE + PRICE */}
+      <div className="flex justify-between items-start gap-2">
+        <h3 className="font-semibold text-slate-800 text-sm line-clamp-1">
+          {item.name}
+        </h3>
+
+        <span className="text-blue-600 font-bold text-sm">
+          ₹{Number(item.price).toFixed(2)}
+        </span>
       </div>
 
-      {/* CONTENT */}
-      <div className="p-4 flex flex-col flex-grow">
+      {/* DESCRIPTION */}
+      <p className="text-xs text-gray-500 mt-1 line-clamp-2">
+        {item.description || "Tasty & fresh food"}
+      </p>
 
-        {/* TITLE + PRICE */}
-        <div className="flex justify-between items-start gap-2">
-          <h3 className="font-semibold text-slate-800 text-sm line-clamp-1">
-            {item.name}
-          </h3>
+      {/* CATEGORY */}
+      <span className="mt-2 px-2.5 py-1 text-[10px] rounded-full bg-gray-100 text-gray-600 w-fit">
+        {item.categories?.name || "Food"}
+      </span>
 
-          <span className="text-blue-600 font-bold text-sm">
-            ₹{Number(item.price).toFixed(2)}
-          </span>
-        </div>
+      {/* BOTTOM SECTION */}
+      <div className="flex items-center justify-between mt-auto pt-4">
 
-        {/* DESCRIPTION */}
-        <p className="text-xs text-gray-500 mt-1 line-clamp-2">
-          {item.description || "Tasty & fresh food"}
-        </p>
-
-        {/* CATEGORY */}
-        <span className="mt-2 px-2.5 py-1 text-[10px] rounded-full bg-gray-100 text-gray-600 w-fit">
-          {item.categories?.name || "Food"}
+        <span
+          className={`text-[11px] ${isAvailable
+              ? "text-gray-400"
+              : "text-red-500 font-semibold"
+            }`}
+        >
+          {isAvailable
+            ? "Add to cart"
+            : "Currently Unavailable"}
         </span>
 
-        {/* BOTTOM SECTION */}
-        <div className="flex items-center justify-between mt-auto pt-4">
-
-          <span className="text-[11px] text-gray-400">
-            Add to cart
-          </span>
-
-          {/* 🔥 FINAL BUTTON FIX */}
-          <button
-            onClick={() => onAddToCart(item)}
-            className="bg-blue-600 text-white p-2.5 rounded-full shadow-md 
-                       hover:bg-blue-700 hover:scale-110 active:scale-95 
-                       transition-all duration-200 flex items-center justify-center"
-          >
-            <Plus size={16} />
-          </button>
-
-        </div>
+        <button
+          disabled={!isAvailable}
+          onClick={() => onAddToCart(item)}
+          className={`p-2.5 rounded-full shadow-md
+                   transition-all duration-200
+                   flex items-center justify-center ${isAvailable
+              ? "bg-blue-600 text-white hover:bg-blue-700 hover:scale-110 active:scale-95"
+              : "bg-gray-300 text-gray-500 cursor-not-allowed"
+            }`}
+        >
+          <Plus size={16} />
+        </button>
 
       </div>
+
     </div>
+  </div>
+
+
   );
 };
 

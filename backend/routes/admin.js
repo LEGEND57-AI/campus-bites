@@ -66,15 +66,42 @@ router.get('/menu', async (req, res) => {
     const { data, error } = await supabase
       .from('food_items')
       .select('*')
-      .eq('available', true)
       .order('id');
-
     if (error) throw error;
 
     res.json(data);
   } catch (err) {
     console.error('Menu fetch error:', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------- Toggle Availability ----------
+router.patch('/menu/:id/availability', async (req, res) => {
+  const { id } = req.params;
+  const { available } = req.body;
+
+  try {
+    const { data, error } = await supabase
+      .from('food_items')
+      .update({ available })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    res.json({
+      success: true,
+      item: data
+    });
+
+  } catch (err) {
+    console.error('Availability update error:', err);
+
+    res.status(500).json({
+      error: err.message
+    });
   }
 });
 
@@ -142,29 +169,35 @@ router.put('/menu/:id', async (req, res) => {
   }
 });
 
-// ---------- Soft Delete Menu ----------
+// ---------- Permanent Delete Menu ----------
 router.delete('/menu/:id', async (req, res) => {
   const { id } = req.params;
 
   try {
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('food_items')
-      .update({ available: false })
-      .eq('id', id)
-      .select();
+      .delete()
+      .eq('id', id);
+
 
     if (error) throw error;
 
     res.json({
       success: true,
-      message: 'Item deleted successfully',
-      data
+      message: 'Item permanently deleted'
     });
-  } catch (err) {
-    console.error('Delete menu item error:', err);
-    res.status(500).json({ error: err.message });
+    
+
+} catch (err) {
+console.error('Delete menu item error:', err);
+
+    res.status(500).json({
+      error: err.message
+    });
+
   }
 });
+
 
 // ---------- Advanced Analytics ----------
 router.get('/analytics', async (req, res) => {
@@ -286,8 +319,8 @@ router.get('/analytics', async (req, res) => {
       range === '30days'
         ? 30
         : range === '7days'
-        ? 7
-        : 1;
+          ? 7
+          : 1;
 
     const dateMap = new Map();
 

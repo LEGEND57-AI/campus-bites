@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { adminAPI, categoryAPI, uploadAPI } from '../../services/api';
 import { motion, AnimatePresence } from 'framer-motion';
+import Swal from 'sweetalert2';
 import toast from 'react-hot-toast';
 import {
   Plus,
@@ -8,8 +9,9 @@ import {
   Trash2,
   X,
   UploadCloud,
+  PackageCheck,
+  PackageX,
 } from 'lucide-react';
-
 const AdminMenu = () => {
   const [items, setItems] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -17,6 +19,7 @@ const AdminMenu = () => {
   const [showModal, setShowModal] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [uploading, setUploading] = useState(false);
+
 
   const [formData, setFormData] = useState({
     name: '',
@@ -152,14 +155,57 @@ const AdminMenu = () => {
   };
 
   const handleDelete = async (id) => {
-    if (window.confirm('Delete this item?')) {
-      try {
-        await adminAPI.deleteMenu(id);
-        toast.success('Item deleted');
-        fetchMenu();
-      } catch {
-        toast.error('Delete failed');
-      }
+    const result = await Swal.fire({
+      title: 'Delete Menu Item?',
+      text: 'This action cannot be undone.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#dc2626',
+      cancelButtonColor: '#6b7280',
+      confirmButtonText: 'Yes, Delete',
+      cancelButtonText: 'Cancel',
+      reverseButtons: true,
+    });
+    if (!result.isConfirmed) return;
+    try {
+      await adminAPI.deleteMenu(id);
+      await Swal.fire({
+        title: 'Deleted!',
+        text: 'Menu item removed successfully.',
+        icon: 'success',
+        timer: 1500,
+        showConfirmButton: false,
+      });
+      fetchMenu();
+
+    } catch (err) {
+      console.error(err);
+      Swal.fire({
+        title: 'Error',
+        text: 'Failed to delete menu item.',
+        icon: 'error',
+      });
+    }
+  };
+
+  const handleAvailability = async (item) => {
+    try {
+      await adminAPI.updateAvailability(
+        item.id,
+        !item.available
+      );
+
+      toast.success(
+        item.available
+          ? 'Marked as Out of Stock'
+          : 'Marked as In Stock'
+      );
+
+      fetchMenu();
+
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to update stock');
     }
   };
 
@@ -200,14 +246,32 @@ const AdminMenu = () => {
             className="bg-white rounded-3xl overflow-hidden
                        shadow-lg hover:shadow-2xl transition-all"
           >
-            <img
-              src={
-                item.image_url ||
-                'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=400'
-              }
-              alt={item.name}
-              className="h-44 w-full object-cover"
-            />
+            <div className="relative">
+
+              {!item.available && (
+                <div
+                  className="absolute top-3 right-3 z-10
+                 bg-red-600 text-white
+                 px-3 py-1 rounded-full
+                 text-xs font-bold shadow-lg"
+                >
+                  OUT OF STOCK
+                </div>
+              )}
+
+              <img
+                src={
+                  item.image_url ||
+                  'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=400'
+                }
+                alt={item.name}
+                className={`h-44 w-full object-cover ${!item.available
+                  ? 'opacity-60 grayscale'
+                  : ''
+                  }`}
+              />
+
+            </div>
 
             <div className="p-4">
               <h3 className="font-bold text-2xl text-slate-800 leading-tight">
@@ -227,10 +291,11 @@ const AdminMenu = () => {
                 {categories.find((c) => c.id == item.category_id)?.name}
               </span>
 
-              <div className="flex gap-4 mt-4">
+              <div className="flex items-center gap-3 mt-4">
                 <button
                   onClick={() => openEdit(item)}
                   className="text-blue-500 hover:text-blue-700"
+                  title="Edit"
                 >
                   <Edit size={24} />
                 </button>
@@ -238,8 +303,29 @@ const AdminMenu = () => {
                 <button
                   onClick={() => handleDelete(item.id)}
                   className="text-red-500 hover:text-red-700"
+                  title="Delete"
                 >
                   <Trash2 size={24} />
+                </button>
+
+                <button
+                  onClick={() => handleAvailability(item)}
+                  className={`flex items-center gap-2 px-3 py-1 rounded-full text-sm font-semibold transition ${item.available
+                    ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                    : 'bg-red-100 text-red-700 hover:bg-red-200'
+                    }`}
+                >
+                  {item.available ? (
+                    <>
+                      <PackageCheck size={16} />
+                      In Stock
+                    </>
+                  ) : (
+                    <>
+                      <PackageX size={16} />
+                      Out of Stock
+                    </>
+                  )}
                 </button>
               </div>
             </div>
@@ -443,4 +529,5 @@ const AdminMenu = () => {
 };
 
 export default AdminMenu;
+
 

@@ -1,14 +1,15 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, ShoppingBag, UtensilsCrossed, BarChart3, LogOut } from 'lucide-react';
+import { LayoutDashboard, ShoppingBag, UtensilsCrossed, BarChart3, Tags, LogOut } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 const Sidebar = () => {
   const { logout } = useAuth();
   const navItems = [
-    { path: '/admin', icon: LayoutDashboard, label: 'Dashboard' },
-    { path: '/admin/orders', icon: ShoppingBag, label: 'Orders' },
-    { path: '/admin/menu', icon: UtensilsCrossed, label: 'Menu' },
-    { path: '/admin/analytics', icon: BarChart3, label: 'Analytics' },
+    {path: '/admin',icon: LayoutDashboard,label: 'Dashboard'},
+    {path: '/admin/orders',icon: ShoppingBag,label: 'Orders'},
+    {path: '/admin/menu',icon: UtensilsCrossed,label: 'Menu'},
+    {path: '/admin/categories',icon: Tags,label: 'Categories'},
+    {path: '/admin/analytics',icon: BarChart3,label: 'Analytics'},
   ];
 
   return (

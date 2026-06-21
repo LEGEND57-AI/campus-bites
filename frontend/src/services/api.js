@@ -1,9 +1,9 @@
 import axios from 'axios';
 
-// Base URL
-const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000') + '/api';
+// Base API URL
+const API_URL = `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api`;
 
-// Axios instance
+// Axios Instance
 const api = axios.create({
   baseURL: API_URL,
   headers: {
@@ -11,7 +11,9 @@ const api = axios.create({
   },
 });
 
-// 🔐 Attach token automatically
+
+// ================= REQUEST INTERCEPTOR =================
+
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
@@ -25,11 +27,15 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// ❌ Global error handling
+
+// ================= RESPONSE INTERCEPTOR =================
+
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+
     if (error.response) {
+
       console.error('API Error:', error.response.data);
 
       if (error.response.status === 401) {
@@ -38,84 +44,192 @@ api.interceptors.response.use(
       }
 
     } else {
+
       console.error('Network Error:', error.message);
+
     }
 
     return Promise.reject(error);
+
   }
 );
 
-// ---------------- AUTH ----------------
+
+// ================= AUTH =================
+
 export const authAPI = {
-  register: (data) => api.post('/auth/register', data),
-  login: (data) => api.post('/auth/login', data),
+
+  register: (data) =>
+    api.post('/auth/register', data),
+
+  login: (data) =>
+    api.post('/auth/login', data),
+
 };
 
-// ---------------- CATEGORY ----------------
+
+// ================= CATEGORY =================
+
 export const categoryAPI = {
-  getAll: () => api.get('/food/categories'),
+
+  // Student Menu Categories
+  getAll: () =>
+    api.get('/food/categories'),
+
+
+  // Admin Category Management
+  getAdminCategories: () =>
+    api.get('/categories'),
+
+
+  // Add Category with image
+  createCategory: (name, image_url) =>
+    api.post('/categories', {
+      name,
+      image_url,
+    }),
+
+
+  // Edit Category with image
+  updateCategory: (id, name, image_url) =>
+    api.put(`/categories/${id}`, {
+      name,
+      image_url,
+    }),
+
+
+  // Delete Category
+  deleteCategory: (id) =>
+    api.delete(`/categories/${id}`),
+
 };
 
-// ---------------- FOOD ----------------
+
+// ================= FOOD =================
+
 export const foodAPI = {
-  getItems: (params) => api.get('/food/items', { params }),
+
+  getItems: (params) =>
+    api.get('/food/items', { params }),
+
 };
 
-// ---------------- ORDERS ----------------
+
+// ================= ORDERS =================
+
 export const orderAPI = {
-  placeOrder: (items) => api.post('/orders', { items }),
-  getOrders: () => api.get('/orders'),
+
+  placeOrder: (data) =>
+    api.post('/orders', data),
+
+  getOrders: () =>
+    api.get('/orders'),
+
 };
 
-// ---------------- USER ----------------
+
+// ================= PAYMENT (RAZORPAY) =================
+
+export const paymentAPI = {
+
+  // Create Razorpay Order
+  createOrder: (amount) =>
+    api.post('/payment/create-order', {
+      amount,
+    }),
+  verifyPayment: (data) =>
+    api.post('/payment/verify', data),
+};
+
+
+// ================= USER =================
+
 export const userAPI = {
-  getProfile: () => api.get('/user/profile'),
-  updateProfile: (data) => api.put('/user/profile', data),
+
+  getProfile: () =>
+    api.get('/user/profile'),
+
+  updateProfile: (data) =>
+    api.put('/user/profile', data),
+
 };
 
-// ---------------- ADMIN ----------------
+
+// ================= ADMIN =================
+
 export const adminAPI = {
 
   // Analytics
-  getAnalytics: (range = "7days") =>
+  getAnalytics: (range = 'today') =>
     api.get(`/admin/analytics?range=${range}`),
 
+
   // Orders
-  getOrders: () => api.get('/admin/orders'),
+  getOrders: () =>
+    api.get('/admin/orders'),
+
 
   updateOrderStatus: (id, status) =>
-    api.patch(`/admin/orders/${id}/status`, { status }),
+    api.patch(`/admin/orders/${id}/status`, {
+      status,
+    }),
 
-  // Menu
-  getMenu: () => api.get('/admin/menu'),
 
-  createMenu: (data) => api.post('/admin/menu', data),
+  // Cash Payment Receive
+  markPaymentReceived: (id) =>
+    api.patch(`/admin/orders/${id}/payment`),
+
+
+  // Menu Management
+  getMenu: () =>
+    api.get('/admin/menu'),
+
+
+  createMenu: (data) =>
+    api.post('/admin/menu', data),
+
 
   updateMenu: (id, data) =>
     api.put(`/admin/menu/${id}`, data),
 
+
   deleteMenu: (id) =>
     api.delete(`/admin/menu/${id}`),
 
-  // 🔥 NEW STOCK TOGGLE
+
+  // Stock Toggle
   updateAvailability: (id, available) =>
     api.patch(`/admin/menu/${id}/availability`, {
-      available
+      available,
     }),
+
 };
 
-// ---------------- UPLOAD ----------------
+
+// ================= UPLOAD =================
+
 export const uploadAPI = {
+
   uploadImage: (file) => {
+
     const formData = new FormData();
+
     formData.append('file', file);
 
+
     return api.post('/upload', formData, {
+
       headers: {
         'Content-Type': 'multipart/form-data',
       },
+
     });
+
   },
+
 };
+
+
+// Export Axios Instance
 
 export default api;

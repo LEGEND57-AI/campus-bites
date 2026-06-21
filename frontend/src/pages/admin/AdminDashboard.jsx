@@ -52,11 +52,17 @@ const AdminDashboard = () => {
     try {
       const { data } = await adminAPI.getOrders();
 
-      const sorted = data
-        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+      const today = new Date().toDateString();
+
+      const todayOrders = data
+        .filter(order =>
+          new Date(order.created_at).toDateString() === today
+        )
+        .sort((a, b) => b.token_number - a.token_number)
         .slice(0, 5);
 
-      setRecentOrders(sorted);
+      setRecentOrders(todayOrders);
+
     } catch (err) {
       console.error(err);
       toast.error('Failed to load recent orders');
@@ -71,24 +77,28 @@ const AdminDashboard = () => {
     })}`;
   };
 
+  const formatToken = (token) => {
+    return `#${String(token || 0).padStart(2, "0")}`;
+  };
+
   const cards = [
-    { 
-      title: 'Orders Today', 
-      value: stats.ordersToday, 
-      icon: ShoppingCart, 
-      color: 'text-blue-500' 
+    {
+      title: 'Orders Today',
+      value: stats.ordersToday,
+      icon: ShoppingCart,
+      color: 'text-blue-500'
     },
-    { 
-      title: 'Total Revenue', 
+    {
+      title: 'Total Revenue',
       value: formatCurrency(stats.totalRevenue), // ✅ FIXED
-      icon: DollarSign, 
-      color: 'text-green-500' 
+      icon: DollarSign,
+      color: 'text-green-500'
     },
-    { 
-      title: 'Active Orders', 
-      value: stats.activeOrders, 
-      icon: Clock, 
-      color: 'text-orange-500' 
+    {
+      title: 'Active Orders',
+      value: stats.activeOrders,
+      icon: Clock,
+      color: 'text-orange-500'
     },
   ];
 
@@ -149,7 +159,7 @@ const AdminDashboard = () => {
 
       {/* RECENT ORDERS */}
       <div className="mt-8 bg-white rounded-xl shadow p-6">
-        <h3 className="text-lg font-semibold mb-4">Recent Orders</h3>
+        <h3 className="text-lg font-semibold mb-4">🎟 Today's Tokens</h3>
 
         {recentOrders.length === 0 ? (
           <p className="text-gray-400">No recent orders</p>
@@ -162,7 +172,9 @@ const AdminDashboard = () => {
                 className="flex justify-between items-center border-b pb-2 cursor-pointer hover:bg-gray-50 p-3 rounded-lg transition"
               >
                 <div>
-                  <p className="font-medium">Order #{order.id}</p>
+                  <p className="font-bold text-blue-600">
+                    🎟 Token {formatToken(order.token_number)}
+                  </p>
                   <p className="text-xs text-gray-400">
                     {new Date(order.created_at).toLocaleString()}
                   </p>

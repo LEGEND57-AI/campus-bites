@@ -1,116 +1,136 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
+import { authAPI } from '../services/api';
+import api from '../services/api';
 import toast from 'react-hot-toast';
 
-const CartContext = createContext();
-export const useCart = () => useContext(CartContext);
+const AuthContext = createContext();
+export const useAuth = () => useContext(AuthContext);
 
-const CART_STORAGE_KEY = 'campusbites_cart';
+export const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-export const CartProvider = ({ children }) => {
-
-  // 🔥 FIX 1: load cart directly from localStorage
-  const [items, setItems] = useState(() => {
-    try {
-      const savedCart = localStorage.getItem(CART_STORAGE_KEY);
-      return savedCart ? JSON.parse(savedCart) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  const [total, setTotal] = useState(0);
-
-  // 🔥 FIX 2: save + calculate total
+  // 🔄 LOAD USER
   useEffect(() => {
-    localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items));
+    const token = localStorage.getItem('token');
+    const storedUser = localStorage.getItem('user');
 
-    const newTotal = items.reduce(
-      (sum, item) => sum + item.price * item.quantity,
-      0
-    );
+    if (token && storedUser && storedUser !== "undefined") {
+      try {
+        const parsedUser = JSON.parse(storedUser);
+        setUser(parsedUser);
+      } catch {
+        localStorage.removeItem('user');
+        localStorage.removeItem('token');
+      }
+    }
 
-    setTotal(Number(newTotal.toFixed(2)));
-  }, [items]);
+    setLoading(false);
+  }, []);
 
-  // 🔥 ADD TO CART
-  const addToCart = (foodItem) => {
-    setItems((prevItems) => {
-      const existingItem = prevItems.find((item) => item.id === foodItem.id);
+  // 🔐 LOGIN
+  const login = async (email, password) => {
+    try {
+      const { data } = await authAPI.login({ email, password });
 
-      let updatedItems;
-
-      if (existingItem) {
-        updatedItems = prevItems.map((item) =>
-          item.id === foodItem.id
-            ? { ...item, quantity: item.quantity + 1 }
-            : item
-        );
-
-        toast.success(`Added another ${foodItem.name}`, {
-          id: `cart-${foodItem.id}`,
-        });
-
-      } else {
-        updatedItems = [...prevItems, { ...foodItem, quantity: 1 }];
-
-        toast.success(`${foodItem.name} added to cart`, {
-          id: `cart-${foodItem.id}`,
-        });
+      if (!data?.user) {
+        toast.error('Invalid response from server');
+        return { success: false };
       }
 
-      return updatedItems;
-    });
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('user', JSON.stringify(data.user));
+
+      setUser(data.user);
+      toast.success('Welcome back!');
+
+      return { success: true, user: data.user };
+
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Login failed');
+      return { success: false };
+    }
   };
 
-  // 🔥 UPDATE QUANTITY
-  const updateQuantity = (id, delta) => {
-    setItems((prevItems) => {
-      const item = prevItems.find((i) => i.id === id);
-      if (!item) return prevItems;
+  // 📝 REGISTER
+  const register = async (name, email, phone, password) => {
+    try {
+      const { data } = await authAPI.register({
+        name,
+        email,
+        phone,
+        password
+      });
 
-      const newQuantity = item.quantity + delta;
+      toast.success("OTP sent! Check email 📩");
 
-      if (newQuantity <= 0) {
-        toast.success('Item removed from cart', { id: `remove-${id}` });
-        return prevItems.filter((i) => i.id !== id);
-      }
+      return {
+        success: true,
+        email: data.email
+      };
 
-      return prevItems.map((i) =>
-        i.id === id ? { ...i, quantity: newQuantity } : i
-      );
-    });
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Registration failed');
+      return { success: false };
+    }
   };
 
-  // 🔥 REMOVE ITEM
-  const removeItem = (id) => {
-    setItems((prevItems) => prevItems.filter((i) => i.id !== id));
-    toast.success('Item removed from cart', { id: `remove-${id}` });
+  // 🔑 FORGOT PASSWORD
+  const requestPasswordReset = async (email) => {
+    try {
+      await api.post('/auth/forgot-password', { email });
+
+      toast.success('OTP sent to your email 📩');
+      return true;
+
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Failed to send OTP');
+      return false;
+    }
   };
 
-  // 🔥 CLEAR CART
-  const clearCart = () => {
-    setItems([]);
-    toast.success('Cart cleared', { id: 'clear-cart' });
+  // 🔄 RESET PASSWORD
+  const confirmPasswordReset = async (email, newPassword) => {
+    try {
+      await api.post('/auth/reset-password', {
+        email,
+        newPassword
+      });
+
+      toast.success('Password updated! Please login.');
+      return true;
+
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Reset failed');
+      return false;
+    }
   };
 
-  // 🔥 TOTAL COUNT
-  const getItemCount = () => {
-    return items.reduce((sum, item) => sum + item.quantity, 0);
+  // 🚪 LOGOUT
+  const logout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    setUser(null);
+    toast.success('Logged out successfully');
   };
+
+  // 🛡 ADMIN CHECK
+  const isAdmin = () => user?.role === 'admin';
 
   return (
-    <CartContext.Provider
+    <AuthContext.Provider
       value={{
-        items,
-        total,
-        addToCart,
-        updateQuantity,
-        removeItem,
-        clearCart,
-        getItemCount,
+        user,
+        loading,
+        login,
+        register,
+        logout,
+        requestPasswordReset,
+        confirmPasswordReset,
+        isAdmin,
       }}
     >
       {children}
-    </CartContext.Provider>
+    </AuthContext.Provider>
   );
 };

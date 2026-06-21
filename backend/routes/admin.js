@@ -10,6 +10,7 @@ router.use(authenticate, isAdmin);
 router.get('/orders', async (req, res) => {
   try {
     const { data, error } = await supabase
+    
       .from('orders')
       .select(`
         *,
@@ -29,6 +30,45 @@ router.get('/orders', async (req, res) => {
     console.error('Orders fetch error:', err);
     res.status(500).json({ error: err.message });
   }
+});
+
+// ---------- Receive Cash Payment ----------
+router.patch('/orders/:id/payment', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+
+    const { data, error } = await supabase
+      .from('orders')
+      .update({
+        payment_status: 'PAID',
+        status: 'Accepted'
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+
+    if (error) throw error;
+
+
+    res.json({
+      success: true,
+      message: 'Payment received successfully',
+      order: data
+    });
+
+
+  } catch (err) {
+
+    console.error('Payment update error:', err);
+
+    res.status(500).json({
+      error: err.message
+    });
+
+  }
+
 });
 
 // ---------- Update Order Status ----------
@@ -202,8 +242,7 @@ console.error('Delete menu item error:', err);
 // ---------- Advanced Analytics ----------
 router.get('/analytics', async (req, res) => {
   try {
-    const range = req.query.range || '7days';
-
+    const range = req.query.range || 'today';
     let startDate = new Date();
 
     if (range === 'today') {

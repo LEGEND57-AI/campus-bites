@@ -1,49 +1,31 @@
 import express from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import SibApiV3Sdk from 'sib-api-v3-sdk';
+import nodemailer from 'nodemailer';
 import { supabase } from '../db.js';
 
 const router = express.Router();
 
-// ================= BREVO API =================
-const defaultClient = SibApiV3Sdk.ApiClient.instance;
+// ================= EMAIL =================
+const emailTransporter = nodemailer.createTransport({
+  host: "smtp-relay.brevo.com",
+  port: 587,
+  secure: false,
 
-const apiKey = defaultClient.authentications['api-key'];
-apiKey.apiKey = process.env.BREVO_API_KEY;
+  auth: {
+    user: process.env.BREVO_EMAIL,
+    pass: process.env.BREVO_PASS,
+  },
+});
 
-const emailApi = new SibApiV3Sdk.TransactionalEmailsApi();
-
-// ================= SEND EMAIL =================
-const sendEmail = async ({
-  to,
-  subject,
-  htmlContent
-}) => {
-  try {
-    await emailApi.sendTransacEmail({
-      sender: {
-        email: 'campusbites.app01@gmail.com',
-        name: 'CampusBites'
-      },
-
-      to: [
-        {
-          email: to
-        }
-      ],
-
-      subject,
-      htmlContent
-    });
-
-    console.log(`✅ Email sent to ${to}`);
-
-  } catch (err) {
-    console.error("❌ Brevo Email Error:", err.response?.body || err.message);
-    throw new Error('Failed to send email');
+// ================= SMTP TEST =================
+emailTransporter.verify(function (error, success) {
+  if (error) {
+    console.log("❌ SMTP ERROR:", error);
+  } else {
+    console.log("✅ SMTP READY");
   }
-};
+});
 
 // ================= EMAIL TEMPLATE =================
 const generateEmailTemplate = (otp, type = "verify") => {
@@ -100,11 +82,21 @@ router.post('/register', async (req, res) => {
   email = email.trim().toLowerCase();
 
   try {
-    const { data: existingUser } = await supabase
+    console.log("🔥 Register API hit");
+
+    const { data: existingUser, error: existingError } = await supabase
       .from('users')
       .select('*')
       .eq('email', email)
       .maybeSingle();
+
+    if (existingError) {
+      console.error(existingError);
+
+      return res.status(500).json({
+        error: 'Database error'
+      });
+    }
 
     if (existingUser) {
       return res.status(400).json({
@@ -124,6 +116,7 @@ router.post('/register', async (req, res) => {
 
     const now = new Date().toISOString();
 
+    // SAVE USER FIRST
     const { error: insertError } = await supabase
       .from('users')
       .insert([{
@@ -146,10 +139,12 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    await sendEmail({
+    // SEND OTP MAIL
+    await emailTransporter.sendMail({
+      from: `"CampusBites" <campusbites.app01@gmail.com>`,
       to: email,
-      subject: 'Verify your account',
-      htmlContent: generateEmailTemplate(otp, "verify")
+      subject: "Verify your account",
+      html: generateEmailTemplate(otp, "verify")
     });
 
     res.status(200).json({
@@ -158,10 +153,10 @@ router.post('/register', async (req, res) => {
     });
 
   } catch (err) {
-    console.error(err);
+    console.error("Register error:", err);
 
     res.status(500).json({
-      error: err.message || 'Registration failed'
+      error: 'Registration failed'
     });
   }
 });
@@ -173,13 +168,13 @@ router.post('/verify-otp', async (req, res) => {
   email = email.trim().toLowerCase();
 
   try {
-    const { data: user } = await supabase
+    const { data: user, error } = await supabase
       .from('users')
       .select('*')
       .eq('email', email)
       .single();
 
-    if (!user) {
+    if (error || !user) {
       return res.status(400).json({
         error: 'User not found'
       });
@@ -229,13 +224,13 @@ router.post('/resend-otp', async (req, res) => {
   email = email.trim().toLowerCase();
 
   try {
-    const { data: user } = await supabase
+    const { data: user, error } = await supabase
       .from('users')
       .select('*')
       .eq('email', email)
       .single();
 
-    if (!user) {
+    if (error || !user) {
       return res.status(400).json({
         error: 'User not found'
       });
@@ -260,10 +255,11 @@ router.post('/resend-otp', async (req, res) => {
       })
       .eq('email', email);
 
-    await sendEmail({
+    await emailTransporter.sendMail({
+      from: `"CampusBites" <campusbites.app01@gmail.com>`,
       to: email,
-      subject: 'New OTP',
-      htmlContent: generateEmailTemplate(otp, "resend")
+      subject: "New OTP",
+      html: generateEmailTemplate(otp, "resend")
     });
 
     res.json({
@@ -274,7 +270,7 @@ router.post('/resend-otp', async (req, res) => {
     console.error(err);
 
     res.status(500).json({
-      error: err.message || 'Resend failed'
+      error: 'Resend failed'
     });
   }
 });
@@ -286,13 +282,13 @@ router.post('/forgot-password', async (req, res) => {
   email = email.trim().toLowerCase();
 
   try {
-    const { data: user } = await supabase
+    const { data: user, error } = await supabase
       .from('users')
       .select('*')
       .eq('email', email)
       .single();
 
-    if (!user) {
+    if (error || !user) {
       return res.status(400).json({
         error: 'User not found'
       });
@@ -317,10 +313,11 @@ router.post('/forgot-password', async (req, res) => {
       })
       .eq('email', email);
 
-    await sendEmail({
+    await emailTransporter.sendMail({
+      from: `"CampusBites" <campusbites.app01@gmail.com>`,
       to: email,
-      subject: 'Reset Password OTP',
-      htmlContent: generateEmailTemplate(otp, "reset")
+      subject: "Reset Password OTP",
+      html: generateEmailTemplate(otp, "reset")
     });
 
     res.json({
@@ -332,7 +329,7 @@ router.post('/forgot-password', async (req, res) => {
     console.error(err);
 
     res.status(500).json({
-      error: err.message || 'Failed'
+      error: 'Failed'
     });
   }
 });
@@ -373,13 +370,13 @@ router.post('/login', async (req, res) => {
   email = email.trim().toLowerCase();
 
   try {
-    const { data: user } = await supabase
+    const { data: user, error } = await supabase
       .from('users')
       .select('*')
       .eq('email', email)
       .single();
 
-    if (!user || !user.is_verified) {
+    if (error || !user || !user.is_verified) {
       return res.status(401).json({
         error: 'Invalid credentials'
       });

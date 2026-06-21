@@ -25,6 +25,7 @@ import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminOrders from "./pages/admin/AdminOrders";
 import AdminMenu from "./pages/admin/AdminMenu";
 import AdminAnalytics from "./pages/admin/AdminAnalytics";
+import AdminCategories from "./pages/admin/AdminCategories";
 
 function App() {
   return (
@@ -92,6 +93,7 @@ function App() {
           <Route index element={<AdminDashboard />} />
           <Route path="orders" element={<AdminOrders />} />
           <Route path="menu" element={<AdminMenu />} />
+          <Route path="categories" element={<AdminCategories />} />
           <Route path="analytics" element={<AdminAnalytics />} />
         </Route>
 

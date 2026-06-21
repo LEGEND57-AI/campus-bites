@@ -9,6 +9,7 @@ import userRoutes from './routes/user.js';
 import adminRoutes from './routes/admin.js';
 import categoryRoutes from './routes/category.js';
 import uploadRoutes from './routes/upload.js';
+import paymentRoutes from "./routes/payment.js";
 
 dotenv.config();
 
@@ -53,6 +54,7 @@ app.use('/api/user', userRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use("/api/payment", paymentRoutes);
 
 // ================== SERVER ==================
 

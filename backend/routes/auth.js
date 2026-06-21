@@ -1,44 +1,58 @@
-import express from 'express';
-import bcrypt from 'bcrypt';
-import jwt from 'jsonwebtoken';
-import nodemailer from 'nodemailer';
-import { supabase } from '../db.js';
+import express from "express";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+import SibApiV3Sdk from "sib-api-v3-sdk";
+import { supabase } from "../db.js";
 
 const router = express.Router();
 
-// ================= EMAIL =================
-const emailTransporter = nodemailer.createTransport({
-  host: "smtp-relay.brevo.com",
-  port: 587,
-  secure: false,
+// ================= BREVO API =================
 
-  auth: {
-    user: process.env.BREVO_EMAIL,
-    pass: process.env.BREVO_PASS,
-  },
-});
+const client = SibApiV3Sdk.ApiClient.instance;
 
-// ================= SMTP TEST =================
-emailTransporter.verify(function (error, success) {
-  if (error) {
-    console.log("❌ SMTP ERROR:", error);
-  } else {
-    console.log("✅ SMTP READY");
+const apiKey = client.authentications["api-key"];
+
+apiKey.apiKey = process.env.BREVO_API_KEY;
+
+const brevoApi = new SibApiV3Sdk.TransactionalEmailsApi();
+
+const sendEmail = async (to, subject, html) => {
+  try {
+    await brevoApi.sendTransacEmail({
+      sender: {
+        name: "CampusBites",
+        email: "campusbites.app01@gmail.com",
+      },
+
+      to: [
+        {
+          email: to,
+        },
+      ],
+
+      subject,
+      htmlContent: html,
+    });
+
+    console.log("✅ Email sent");
+  } catch (error) {
+    console.error("❌ Brevo API Error:", error);
+    throw new Error("Failed to send email");
   }
-});
+};
 
 // ================= EMAIL TEMPLATE =================
 const generateEmailTemplate = (otp, type = "verify") => {
   const titleMap = {
     verify: "Verify Your Account",
     resend: "New OTP Requested",
-    reset: "Reset Your Password"
+    reset: "Reset Your Password",
   };
 
   const subtitleMap = {
     verify: "Use this OTP to complete your signup",
     resend: "Here is your new OTP",
-    reset: "Use this OTP to reset your password"
+    reset: "Use this OTP to reset your password",
   };
 
   return `
@@ -70,12 +84,12 @@ const generateEmailTemplate = (otp, type = "verify") => {
 };
 
 // ================= REGISTER =================
-router.post('/register', async (req, res) => {
+router.post("/register", async (req, res) => {
   let { name, email, phone, password } = req.body;
 
   if (!name || !email || !password) {
     return res.status(400).json({
-      error: 'Missing required fields'
+      error: "Missing required fields",
     });
   }
 
@@ -85,41 +99,36 @@ router.post('/register', async (req, res) => {
     console.log("🔥 Register API hit");
 
     const { data: existingUser, error: existingError } = await supabase
-      .from('users')
-      .select('*')
-      .eq('email', email)
+      .from("users")
+      .select("*")
+      .eq("email", email)
       .maybeSingle();
 
     if (existingError) {
       console.error(existingError);
 
       return res.status(500).json({
-        error: 'Database error'
+        error: "Database error",
       });
     }
 
     if (existingUser) {
       return res.status(400).json({
-        error: 'User already exists'
+        error: "User already exists",
       });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const otp = Math.floor(
-      100000 + Math.random() * 900000
-    ).toString();
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
-    const expiry = new Date(
-      Date.now() + 15 * 60 * 1000
-    ).toISOString();
+    const expiry = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
     const now = new Date().toISOString();
 
     // SAVE USER FIRST
-    const { error: insertError } = await supabase
-      .from('users')
-      .insert([{
+    const { error: insertError } = await supabase.from("users").insert([
+      {
         name,
         email,
         phone,
@@ -128,55 +137,54 @@ router.post('/register', async (req, res) => {
         otp_expiry: expiry,
         otp_last_sent_at: now,
         is_verified: false,
-        role: 'student'
-      }]);
+        role: "student",
+      },
+    ]);
 
     if (insertError) {
       console.error(insertError);
 
       return res.status(500).json({
-        error: 'Failed to create account'
+        error: "Failed to create account",
       });
     }
 
     // SEND OTP MAIL
-    await emailTransporter.sendMail({
-      from: `"CampusBites" <campusbites.app01@gmail.com>`,
-      to: email,
-      subject: "Verify your account",
-      html: generateEmailTemplate(otp, "verify")
-    });
+    await sendEmail(
+      email,
+      "Verify your account",
+      generateEmailTemplate(otp, "verify")
+    );
 
     res.status(200).json({
-      message: 'OTP sent',
-      email
+      message: "OTP sent",
+      email,
     });
-
   } catch (err) {
     console.error("Register error:", err);
 
     res.status(500).json({
-      error: 'Registration failed'
+      error: "Registration failed",
     });
   }
 });
 
 // ================= VERIFY OTP =================
-router.post('/verify-otp', async (req, res) => {
+router.post("/verify-otp", async (req, res) => {
   let { email, otp } = req.body;
 
   email = email.trim().toLowerCase();
 
   try {
     const { data: user, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('email', email)
+      .from("users")
+      .select("*")
+      .eq("email", email)
       .single();
 
     if (error || !user) {
       return res.status(400).json({
-        error: 'User not found'
+        error: "User not found",
       });
     }
 
@@ -184,158 +192,145 @@ router.post('/verify-otp', async (req, res) => {
 
     if (user.otp !== otp) {
       return res.status(400).json({
-        error: 'Invalid OTP'
+        error: "Invalid OTP",
       });
     }
 
     if (user.otp_expiry < now) {
       return res.status(400).json({
-        error: 'OTP expired'
+        error: "OTP expired",
       });
     }
 
     await supabase
-      .from('users')
+      .from("users")
       .update({
         is_verified: true,
         otp: null,
         otp_expiry: null,
-        otp_last_sent_at: null
+        otp_last_sent_at: null,
       })
-      .eq('email', email);
+      .eq("email", email);
 
     res.json({
-      message: 'Verified'
+      message: "Verified",
     });
-
   } catch (err) {
     console.error(err);
 
     res.status(500).json({
-      error: 'Verification failed'
+      error: "Verification failed",
     });
   }
 });
 
 // ================= RESEND OTP =================
-router.post('/resend-otp', async (req, res) => {
+router.post("/resend-otp", async (req, res) => {
   let { email } = req.body;
 
   email = email.trim().toLowerCase();
 
   try {
     const { data: user, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('email', email)
+      .from("users")
+      .select("*")
+      .eq("email", email)
       .single();
 
     if (error || !user) {
       return res.status(400).json({
-        error: 'User not found'
+        error: "User not found",
       });
     }
 
-    const otp = Math.floor(
-      100000 + Math.random() * 900000
-    ).toString();
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
-    const expiry = new Date(
-      Date.now() + 15 * 60 * 1000
-    ).toISOString();
+    const expiry = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
     const now = new Date().toISOString();
 
     await supabase
-      .from('users')
+      .from("users")
       .update({
         otp,
         otp_expiry: expiry,
-        otp_last_sent_at: now
+        otp_last_sent_at: now,
       })
-      .eq('email', email);
+      .eq("email", email);
 
-    await emailTransporter.sendMail({
-      from: `"CampusBites" <campusbites.app01@gmail.com>`,
-      to: email,
-      subject: "New OTP",
-      html: generateEmailTemplate(otp, "resend")
-    });
+    await sendEmail(
+      email,
+      "New OTP",
+      generateEmailTemplate(otp, "resend")
+    );
 
     res.json({
-      message: 'OTP resent'
+      message: "OTP resent",
     });
-
   } catch (err) {
     console.error(err);
 
     res.status(500).json({
-      error: 'Resend failed'
+      error: "Resend failed",
     });
   }
 });
 
 // ================= FORGOT PASSWORD =================
-router.post('/forgot-password', async (req, res) => {
+router.post("/forgot-password", async (req, res) => {
   let { email } = req.body;
 
   email = email.trim().toLowerCase();
 
   try {
     const { data: user, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('email', email)
+      .from("users")
+      .select("*")
+      .eq("email", email)
       .single();
 
     if (error || !user) {
       return res.status(400).json({
-        error: 'User not found'
+        error: "User not found",
       });
     }
 
-    const otp = Math.floor(
-      100000 + Math.random() * 900000
-    ).toString();
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
-    const expiry = new Date(
-      Date.now() + 15 * 60 * 1000
-    ).toISOString();
+    const expiry = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
     const now = new Date().toISOString();
 
     await supabase
-      .from('users')
+      .from("users")
       .update({
         otp,
         otp_expiry: expiry,
-        otp_last_sent_at: now
+        otp_last_sent_at: now,
       })
-      .eq('email', email);
+      .eq("email", email);
 
-    await emailTransporter.sendMail({
-      from: `"CampusBites" <campusbites.app01@gmail.com>`,
-      to: email,
-      subject: "Reset Password OTP",
-      html: generateEmailTemplate(otp, "reset")
-    });
+    await sendEmail(
+      email,
+      "Reset Password OTP",
+      generateEmailTemplate(otp, "reset")
+    );
 
     res.json({
-      message: 'Reset OTP sent',
-      email
+      message: "Reset OTP sent",
+      email,
     });
-
   } catch (err) {
     console.error(err);
 
     res.status(500).json({
-      error: 'Failed'
+      error: "Failed",
     });
   }
 });
 
 // ================= RESET PASSWORD =================
-router.post('/reset-password', async (req, res) => {
+router.post("/reset-password", async (req, res) => {
   try {
     let { email, newPassword } = req.body;
 
@@ -344,64 +339,60 @@ router.post('/reset-password', async (req, res) => {
     const hashed = await bcrypt.hash(newPassword, 10);
 
     await supabase
-      .from('users')
+      .from("users")
       .update({
-        password_hash: hashed
+        password_hash: hashed,
       })
-      .eq('email', email);
+      .eq("email", email);
 
     res.json({
-      message: "Password updated"
+      message: "Password updated",
     });
-
   } catch (err) {
     console.error(err);
 
     res.status(500).json({
-      error: 'Failed to update password'
+      error: "Failed to update password",
     });
   }
 });
 
 // ================= LOGIN =================
-router.post('/login', async (req, res) => {
+router.post("/login", async (req, res) => {
   let { email, password } = req.body;
 
   email = email.trim().toLowerCase();
 
   try {
     const { data: user, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('email', email)
+      .from("users")
+      .select("*")
+      .eq("email", email)
       .single();
 
     if (error || !user || !user.is_verified) {
       return res.status(401).json({
-        error: 'Invalid credentials'
+        error: "Invalid credentials",
       });
     }
 
-    const valid = await bcrypt.compare(
-      password,
-      user.password_hash
-    );
+    const valid = await bcrypt.compare(password, user.password_hash);
 
     if (!valid) {
       return res.status(401).json({
-        error: 'Invalid credentials'
+        error: "Invalid credentials",
       });
     }
 
     const token = jwt.sign(
       {
         userId: user.id,
-        role: user.role
+        role: user.role,
       },
       process.env.JWT_SECRET,
       {
-        expiresIn: '7d'
-      }
+        expiresIn: "7d",
+      },
     );
 
     const safeUser = { ...user };
@@ -410,14 +401,13 @@ router.post('/login', async (req, res) => {
 
     res.json({
       token,
-      user: safeUser
+      user: safeUser,
     });
-
   } catch (err) {
     console.error(err);
 
     res.status(500).json({
-      error: 'Login failed'
+      error: "Login failed",
     });
   }
 });

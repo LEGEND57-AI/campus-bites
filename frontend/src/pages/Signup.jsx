@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useAuth } from "../context/AuthContext";
+import { GoogleLogin } from "@react-oauth/google";
 
 import {
   User,
@@ -28,9 +29,10 @@ const Signup = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  const { register } = useAuth();
+  const { register, googleLogin } = useAuth();
   const navigate = useNavigate();
 
+  // 🔥 NORMAL SIGNUP
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -55,6 +57,38 @@ const Signup = () => {
     navigate(
       `/verify-otp?email=${encodeURIComponent(result.email)}`
     );
+  };
+
+
+  // 🔥 GOOGLE SIGNUP HANDLER
+  const [googleLoading, setGoogleLoading] = useState(false);
+
+  const handleGoogleSuccess = async (response) => {
+    try {
+      setGoogleLoading(true);
+
+      const result = await googleLogin(response.credential);
+
+      if (!result.success) {
+        toast.error("Google signup failed");
+        return;
+      }
+
+      toast.success("Welcome to CampusCraves 🚀");
+
+      navigate("/");
+
+    } catch (error) {
+      console.error(error);
+      toast.error("Something went wrong");
+
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
+  const handleGoogleError = () => {
+    toast.error("Google Sign Up failed");
   };
 
   return (
@@ -545,29 +579,47 @@ const Signup = () => {
               </div>
 
 
+              {/* GOOGLE LOGIN */}
 
-              {/* GOOGLE BUTTON */}
+              <div className="flex justify-center">
 
-              <button
-                type="button"
-                className="
-                w-full h-12 rounded-2xl
-                border border-slate-200
-                flex items-center justify-center gap-3
-                hover:bg-slate-50 transition"
-              >
+                {
+                  googleLoading ? (
 
-                <img
-                  src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg"
-                  alt="Google"
-                  className="w-5 h-5"
-                />
+                    <button
+                      disabled
+                      className="
+          w-full
+          h-12
+          rounded-2xl
+          border
+          border-slate-200
+          bg-slate-100
+          text-slate-500
+          font-medium
+        "
+                    >
 
-                <span className="font-medium text-slate-700">
-                  Continue with Google
-                </span>
+                      Signing with Google...
 
-              </button>
+                    </button>
+
+                  ) : (
+
+                    <GoogleLogin
+                      onSuccess={handleGoogleSuccess}
+                      onError={handleGoogleError}
+                      theme="outline"
+                      size="large"
+                      text="continue_with"
+                      shape="pill"
+                      width="380"
+                    />
+
+                  )
+                }
+
+              </div>
 
 
             </form>
@@ -609,5 +661,6 @@ const Signup = () => {
   );
 
 };
+
 
 export default Signup;

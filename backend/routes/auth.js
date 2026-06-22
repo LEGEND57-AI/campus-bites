@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import SibApiV3Sdk from "sib-api-v3-sdk";
 import { supabase } from "../db.js";
+import { OAuth2Client } from "google-auth-library";
 
 const router = express.Router();
 
@@ -40,6 +41,12 @@ const sendEmail = async (to, subject, html) => {
     throw new Error("Failed to send email");
   }
 };
+
+// ================= GOOGLE AUTH =================
+
+const googleClient = new OAuth2Client(
+  process.env.GOOGLE_CLIENT_ID
+);
 
 // ================= EMAIL TEMPLATE =================
 const generateEmailTemplate = (otp, type = "verify") => {
@@ -355,6 +362,211 @@ router.post("/reset-password", async (req, res) => {
       error: "Failed to update password",
     });
   }
+});
+
+// ================= GOOGLE LOGIN =================
+
+router.post("/google", async (req, res) => {
+
+  try {
+
+    const { credential } = req.body;
+
+
+    if (!credential) {
+
+      return res.status(400).json({
+        error: "Google credential missing",
+      });
+
+    }
+
+
+    // VERIFY GOOGLE TOKEN
+
+    const ticket =
+      await googleClient.verifyIdToken({
+
+        idToken: credential,
+
+        audience: process.env.GOOGLE_CLIENT_ID,
+
+      });
+
+
+    const payload = ticket.getPayload();
+
+
+    const {
+
+      email,
+      name,
+      picture,
+
+    } = payload;
+
+
+    if (!email) {
+
+      return res.status(400).json({
+
+        error: "Google account email not found",
+
+      });
+
+    }
+
+
+    // CHECK USER IN DATABASE
+
+    const {
+
+      data: existingUser,
+
+      error: userError,
+
+    } = await supabase
+
+      .from("users")
+
+      .select("*")
+
+      .eq("email", email.toLowerCase())
+
+      .maybeSingle();
+
+
+    if (userError) {
+
+      console.error(userError);
+
+
+      return res.status(500).json({
+
+        error: "Database error",
+
+      });
+
+    }
+
+    let user = existingUser;
+
+
+    // ================= CREATE NEW USER =================
+
+    if (!user) {
+
+      const { data: newUser, error: insertError } =
+        await supabase
+
+          .from("users")
+
+          .insert([
+            {
+              name: name || "CampusCraves User",
+
+              email: email.toLowerCase(),
+
+              phone: null,
+
+              password_hash: null,
+
+              is_verified: true,
+
+              role: "student",
+            },
+          ])
+
+          .select()
+
+          .single();
+
+
+      if (insertError) {
+
+        console.error(insertError);
+
+
+        return res.status(500).json({
+
+          error: "Failed to create Google user",
+
+        });
+
+      }
+
+
+      user = newUser;
+
+    }
+
+
+    // ================= GENERATE JWT =================
+
+
+    const token = jwt.sign(
+
+      {
+        userId: user.id,
+
+        role: user.role,
+      },
+
+      process.env.JWT_SECRET,
+
+      {
+        expiresIn: "7d",
+      }
+
+    );
+
+
+    // REMOVE PASSWORD
+
+
+    const safeUser = {
+
+      ...user,
+
+    };
+
+
+    delete safeUser.password_hash;
+
+
+    // SUCCESS RESPONSE
+
+
+    res.json({
+
+      token,
+
+      user: safeUser,
+
+    });
+
+
+  } catch (error) {
+
+
+    console.error(
+
+      "Google login error:",
+
+      error
+
+    );
+
+
+    res.status(500).json({
+
+      error: "Google authentication failed",
+
+    });
+
+
+  }
+
 });
 
 // ================= LOGIN =================

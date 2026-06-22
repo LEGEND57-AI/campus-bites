@@ -106,6 +106,61 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // 🔥 GOOGLE LOGIN
+  const googleLogin = async (credential) => {
+
+    try {
+      const { data } = await api.post(
+        '/auth/google',
+        {
+          credential
+        }
+      );
+
+      if (!data?.user) {
+        toast.error(
+          'Google authentication failed'
+        );
+        return {
+          success: false
+        };
+      }
+
+      // SAVE TOKEN
+      localStorage.setItem(
+        'token',
+        data.token
+      );
+
+      // SAVE USER
+      localStorage.setItem(
+        'user',
+        JSON.stringify(data.user)
+      );
+
+      // UPDATE STATE
+      setUser(
+        data.user
+      );
+
+      return {
+        success: true,
+        user: data.user
+      };
+
+    } catch (error) {
+
+      toast.error(
+        error.response?.data?.error ||
+        'Google login failed'
+      );
+
+      return {
+        success: false
+      };
+    }
+  };
+
   // 🚪 LOGOUT
   const logout = () => {
     localStorage.removeItem('token');
@@ -118,19 +173,26 @@ export const AuthProvider = ({ children }) => {
   const isAdmin = () => user?.role === 'admin';
 
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        loading,
-        login,
-        register,
-        logout,
-        requestPasswordReset,
-        confirmPasswordReset,
-        isAdmin,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
-  );
+  <AuthContext.Provider
+    value={{
+      user,
+      loading,
+
+      // 🔐 Authentication
+      login,
+      register,
+      googleLogin,
+      logout,
+
+      // 🔑 Password Recovery
+      requestPasswordReset,
+      confirmPasswordReset,
+
+      // 🛡 Role Check
+      isAdmin,
+    }}
+  >
+    {children}
+  </AuthContext.Provider>
+);
 };

@@ -40,6 +40,7 @@ const CartPage = () => {
 
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState(PAYMENT_METHODS.CASH);
+  const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
 
   const handleRazorpayPayment = async () => {
 
@@ -81,6 +82,8 @@ const CartPage = () => {
 
         // Payment Success
         handler: async function (response) {
+
+          setIsVerifyingPayment(true);
 
           try {
 
@@ -140,7 +143,11 @@ const CartPage = () => {
               }
             });
 
-          } catch (error) {
+          }
+
+          catch (error) {
+
+            setIsVerifyingPayment(false);
 
             console.error(
               "Payment verification failed:",
@@ -261,6 +268,30 @@ const CartPage = () => {
       setIsPlacingOrder(false);
     }
   };
+
+
+
+  if (isVerifyingPayment) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-white">
+
+        <div className="text-center">
+
+          <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4"></div>
+
+          <h2 className="text-xl font-bold text-gray-800">
+            Verifying Payment...
+          </h2>
+
+          <p className="text-gray-500 mt-2">
+            Creating your order. Please wait.
+          </p>
+
+        </div>
+
+      </div>
+    );
+  }
 
   if (items.length === 0) {
     return (
@@ -418,6 +449,7 @@ const CartPage = () => {
       </div>
     </div>
   );
+
 };
 
 export default CartPage;

@@ -128,15 +128,33 @@ router.post("/verify", async (req, res) => {
 
         }
 
+        // Check if this payment was already used
+        const { data: existingOrder } = await supabase
+            .from("orders")
+            .select("id")
+            .eq("payment_id", razorpay_payment_id)
+            .maybeSingle();
 
-        // Payment is genuine
-        console.log(
-            "Payment verified successfully"
+        if (existingOrder) {
+            return res.status(400).json({
+                error: "Order already created for this payment"
+            });
+        }
+
+        // Fetch payment from Razorpay
+        const payment = await razorpay.payments.fetch(
+            razorpay_payment_id
         );
 
+        // Verify payment is captured
+        if (payment.status !== "captured") {
+            return res.status(400).json({
+                error: "Payment not captured"
+            });
+        }
 
-        // Next:
-        // Calculate food price
+        console.log("Payment verified successfully");
+
         // Create order
 
         // Validate items

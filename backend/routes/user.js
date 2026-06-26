@@ -11,14 +11,26 @@ router.get('/profile', async (req, res) => {
   try {
     const { data: user, error } = await supabase
       .from('users')
-      .select('id, email, name, phone')
+      .select(`
+id,
+email,
+name,
+phone
+`)
       .eq('id', req.user.id)
       .single();
 
     if (error) throw error;
     res.json(user);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch profile' });
+
+    console.error("PROFILE ERROR:", error);
+
+    res.status(500).json({
+      error: "Failed to fetch profile",
+      message: error.message,
+    });
+
   }
 });
 
@@ -32,22 +44,40 @@ router.put('/profile', [
   }
 
   try {
-    const { name, phone } = req.body;
+    const {
+      name,
+      phone
+    } = req.body;
+
     const updates = {};
     if (name) updates.name = name;
+
     if (phone) updates.phone = phone;
+
 
     const { data: user, error } = await supabase
       .from('users')
       .update(updates)
       .eq('id', req.user.id)
-      .select('id, email, name, phone')
+      .select(`
+id,
+email,
+name,
+phone
+`)
       .single();
 
     if (error) throw error;
     res.json(user);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to update profile' });
+
+    console.error("PROFILE ERROR:", error);
+
+    res.status(500).json({
+      error: "Failed to fetch profile",
+      message: error.message,
+    });
+
   }
 });
 

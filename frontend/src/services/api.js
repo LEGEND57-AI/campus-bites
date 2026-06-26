@@ -112,6 +112,9 @@ export const foodAPI = {
   getItems: (params) =>
     api.get('/food/items', { params }),
 
+  getPopular: () =>
+    api.get('/food/popular'),
+
 };
 
 

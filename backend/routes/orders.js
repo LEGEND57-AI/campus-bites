@@ -136,10 +136,15 @@ router.get('/', async (req, res) => {
       .select(`
         *,
         order_items (
-          quantity,
-          price_at_time,
-          food_items (id, name, image_url)
-        )
+  id,
+  quantity,
+  price_at_time,
+  food_items (
+    id,
+    name,
+    image_url
+  )
+)
       `)
       .eq('user_id', req.user.id)
       .order('created_at', { ascending: false });

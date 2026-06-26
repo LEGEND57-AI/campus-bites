@@ -73,7 +73,7 @@ const CartPage = () => {
 
         currency: order.currency,
 
-        name: "CampusBites",
+        name: "CampusCraves",
 
         description: "Food Order Payment",
 

@@ -15,9 +15,13 @@ import ResetPassword from "./pages/ResetPassword";
 
 // 🔐 STUDENT PAGES
 import Dashboard from "./pages/Dashboard";
+import Menu from "./pages/Menu";
+import Orders from "./pages/Orders";
 import CartPage from "./pages/CartPage";
-import ProfilePage from "./pages/ProfilePage";
+import Profile from "./pages/Profile";
 import OrderSuccess from "./pages/OrderSuccess";
+import TrackOrder from "./pages/TrackOrder";
+
 
 // 🔐 ADMIN PAGES
 import AdminLayout from "./pages/admin/Layout";
@@ -55,6 +59,24 @@ function App() {
         />
 
         <Route
+          path="/menu"
+          element={
+            <ProtectedRoute>
+              <Menu />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/orders"
+          element={
+            <ProtectedRoute>
+              <Orders />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
           path="/cart"
           element={
             <ProtectedRoute>
@@ -67,7 +89,7 @@ function App() {
           path="/profile"
           element={
             <ProtectedRoute>
-              <ProfilePage />
+              <Profile />
             </ProtectedRoute>
           }
         />
@@ -77,6 +99,15 @@ function App() {
           element={
             <ProtectedRoute>
               <OrderSuccess />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/track-order/:id"
+          element={
+            <ProtectedRoute>
+              <TrackOrder />
             </ProtectedRoute>
           }
         />

@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "jspdf": "^4.2.1",
     "sib-api-v3-sdk": "^8.5.0",
     "sweetalert2": "^11.26.25"
   }

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from "react";
 import { useLocation, useNavigate } from 'react-router-dom';
 
 const OrderSuccess = () => {
@@ -6,12 +6,26 @@ const OrderSuccess = () => {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const tokenNumber = location.state?.tokenNumber;
-  const total = location.state?.total;
-  const items = location.state?.items || [];
-  const paymentMethod = location.state?.paymentMethod;
+  const {
+    tokenNumber,
+    total,
+    items = [],
+    paymentMethod,
+  } = location.state;
 
   const isCash = paymentMethod === "CASH";
+
+  useEffect(() => {
+
+    if (!location.state) {
+      navigate("/orders");
+    }
+
+  }, [location.state, navigate]);
+
+  if (!location.state) {
+    return null;
+  }
 
 
   return (
@@ -174,10 +188,9 @@ const OrderSuccess = () => {
 
 
             {
-              items.map((item, index) => (
+              items.map((item) => (
 
-                <div
-                  key={index}
+                <div key={item.id || item.name}
                   className="flex justify-between text-sm"
                 >
 
@@ -245,7 +258,7 @@ const OrderSuccess = () => {
         {/* Button */}
 
         <button
-          onClick={() => navigate("/profile")}
+          onClick={() => navigate("/orders")}
           className="
             mt-4
             w-full

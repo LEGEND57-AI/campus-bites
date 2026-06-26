@@ -1,94 +1,344 @@
-import { Plus, AlertCircle } from "lucide-react";
+import {
+  Plus,
+  Heart,
+  AlertCircle
+} from "lucide-react";
 
-const FoodCard = ({ item, onAddToCart }) => {
-  const isAvailable = item.available !== false;
+const FoodCard = ({
+  item,
+  onAddToCart,
+}) => {
 
-  return (<div className="glass-card card-hover overflow-hidden flex flex-col h-full">
+  const isAvailable =
+    item.available !== false;
 
-    {/* IMAGE */}
-    <div className="h-44 w-full overflow-hidden group relative">
 
-      {!isAvailable && (
-        <div
-          className="absolute top-3 right-3 z-20
-                   bg-red-600 text-white
-                   px-3 py-1 rounded-full
-                   text-xs font-bold shadow-lg
-                   flex items-center gap-1"
+  return (
+
+    <div
+      className="
+        bg-white
+        rounded-[24px]
+        overflow-hidden
+
+        border
+        border-gray-100
+
+        shadow-sm
+        hover:shadow-xl
+
+        transition-all
+        duration-300
+
+        hover:-translate-y-1
+
+        flex
+        flex-col
+      "
+    >
+
+
+      {/* IMAGE SECTION */}
+      <div
+        className="
+          relative
+          h-40
+          lg:h-44
+
+          overflow-hidden
+          group
+        "
+      >
+
+
+        {/* Favorite Button */}
+        <button
+          className="
+            absolute
+            top-3
+            right-3
+
+            z-20
+
+            w-9
+            h-9
+
+            rounded-full
+            bg-white/90
+
+            flex
+            items-center
+            justify-center
+
+            shadow-md
+
+            hover:bg-red-50
+
+            transition
+          "
         >
-          <AlertCircle size={12} />
-          OUT OF STOCK
-        </div>
-      )}
 
-      <img
-        src={item.image_url || "https://via.placeholder.com/300"}
-        alt={item.name}
-        className={`w-full h-full object-cover transition duration-300 group-hover:scale-105 ${!isAvailable
-            ? "grayscale opacity-60"
-            : ""
-          }`}
-      />
-    </div>
+          <Heart
+            size={18}
+            className="
+              text-gray-500
+              hover:text-red-500
+            "
+          />
 
-    {/* CONTENT */}
-    <div className="p-4 flex flex-col flex-grow">
+        </button>
 
-      {/* TITLE + PRICE */}
-      <div className="flex justify-between items-start gap-2">
-        <h3 className="font-semibold text-slate-800 text-sm line-clamp-1">
+
+        {/* Out of Stock */}
+        {
+          !isAvailable && (
+
+            <div
+              className="
+                absolute
+                top-3
+                left-3
+
+                z-20
+
+                bg-red-600
+                text-white
+
+                px-3
+                py-1
+
+                rounded-full
+
+                text-xs
+                font-semibold
+
+                flex
+                items-center
+                gap-1
+
+                shadow-lg
+              "
+            >
+
+              <AlertCircle size={12} />
+
+              OUT OF STOCK
+
+            </div>
+
+          )
+        }
+
+
+        {/* Food Image */}
+        <img
+          src={
+            item.image_url ||
+            "https://via.placeholder.com/300"
+          }
+
+          alt={item.name}
+
+          className={`
+            w-full
+            h-full
+            object-cover
+
+            transition-transform
+            duration-300
+
+            group-hover:scale-105
+
+            ${!isAvailable
+              ? "grayscale opacity-60"
+              : ""
+            }
+          `}
+        />
+
+      </div>
+
+      {/* CONTENT */}
+      <div
+        className="
+          p-4
+          flex
+          flex-col
+          flex-1
+        "
+      >
+
+        {/* Food Name */}
+        <h3
+          className="
+            text-[17px]
+            font-bold
+            text-gray-900
+            line-clamp-1
+          "
+        >
           {item.name}
         </h3>
 
-        <span className="text-blue-600 font-bold text-sm">
-          ₹{Number(item.price).toFixed(2)}
-        </span>
+
+        {/* Description */}
+        <p
+          className="
+            mt-1
+            text-sm
+            text-gray-500
+            line-clamp-2
+          "
+        >
+          {
+            item.description ||
+            "Tasty & fresh food"
+          }
+        </p>
+
+
+        {/* Category */}
+        <div className="mt-3">
+
+          <span
+            className="
+              px-3
+              py-1
+
+              rounded-full
+
+              text-xs
+              text-gray-600
+
+              bg-gray-100
+            "
+          >
+
+            {
+              item.categories?.name ||
+              "Food"
+            }
+
+          </span>
+
+        </div>
+
+
+        {/* Bottom Area */}
+        <div
+          className="
+            mt-auto
+
+            pt-4
+
+            flex
+            items-center
+            justify-between
+          "
+        >
+
+
+          {/* Price */}
+          <div>
+
+            <p
+              className="
+                text-xl
+                font-bold
+                text-gray-900
+              "
+            >
+              ₹{Number(item.price).toFixed(2)}
+            </p>
+
+
+            {
+              !isAvailable && (
+
+                <p
+                  className="
+                    text-xs
+                    text-red-500
+                    font-medium
+                  "
+                >
+                  Currently unavailable
+                </p>
+
+              )
+            }
+
+          </div>
+
+
+          {/* Add Button */}
+          <button
+
+            disabled={!isAvailable}
+
+            onClick={() =>
+              onAddToCart(item)
+            }
+
+            className={`
+              px-5
+              h-10
+
+              rounded-full
+
+              text-sm
+              font-semibold
+
+              transition-all
+              duration-200
+
+              flex
+              items-center
+              justify-center
+              gap-1
+
+              ${isAvailable
+                ?
+                `
+                  bg-blue-600
+                  text-white
+
+                  hover:bg-blue-700
+                  hover:scale-105
+
+                  active:scale-95
+                  shadow-lg
+                  shadow-blue-500/30
+                  `
+                :
+                `
+                  bg-gray-200
+                  text-gray-400
+                  cursor-not-allowed
+                  `
+              }
+            `}
+
+          >
+
+            <Plus size={16} />
+
+            Add
+
+          </button>
+
+
+        </div>
+
+
       </div>
 
-      {/* DESCRIPTION */}
-      <p className="text-xs text-gray-500 mt-1 line-clamp-2">
-        {item.description || "Tasty & fresh food"}
-      </p>
-
-      {/* CATEGORY */}
-      <span className="mt-2 px-2.5 py-1 text-[10px] rounded-full bg-gray-100 text-gray-600 w-fit">
-        {item.categories?.name || "Food"}
-      </span>
-
-      {/* BOTTOM SECTION */}
-      <div className="flex items-center justify-between mt-auto pt-4">
-
-        <span
-          className={`text-[11px] ${isAvailable
-              ? "text-gray-400"
-              : "text-red-500 font-semibold"
-            }`}
-        >
-          {isAvailable
-            ? "Add to cart"
-            : "Currently Unavailable"}
-        </span>
-
-        <button
-          disabled={!isAvailable}
-          onClick={() => onAddToCart(item)}
-          className={`p-2.5 rounded-full shadow-md
-                   transition-all duration-200
-                   flex items-center justify-center ${isAvailable
-              ? "bg-blue-600 text-white hover:bg-blue-700 hover:scale-110 active:scale-95"
-              : "bg-gray-300 text-gray-500 cursor-not-allowed"
-            }`}
-        >
-          <Plus size={16} />
-        </button>
-
-      </div>
 
     </div>
-  </div>
-
 
   );
+
 };
+
 
 export default FoodCard;

@@ -48,10 +48,7 @@
 
   /* 🔵 Primary Button */
   .btn-primary {
-    @apply px-5 py-2.5 rounded-xl text-white font-medium 
-           bg-gradient-to-r from-blue-500 to-indigo-500 
-           hover:from-blue-600 hover:to-indigo-600 
-           transition duration-300 shadow-md hover:shadow-lg;
+    @apply px-5 py-2.5 rounded-xl text-white font-medium bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 transition duration-300 shadow-md hover:shadow-lg;
   }
 
   /* 🔷 Secondary Button */
@@ -66,9 +63,7 @@
 
   /* 🧾 Input */
   .input-premium {
-    @apply w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-white 
-           focus:border-blue-400 focus:ring-2 focus:ring-blue-200 
-           outline-none transition;
+    @apply w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-white focus:border-blue-400 focus:ring-2 focus:ring-blue-200 outline-none transition;
   }
 
   /* 🏷 Badge */
@@ -112,13 +107,31 @@
 @layer utilities {
 
   @keyframes gradientMove {
-    0% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
+    0% {
+      background-position: 0% 50%;
+    }
+
+    50% {
+      background-position: 100% 50%;
+    }
+
+    100% {
+      background-position: 0% 50%;
+    }
   }
 
   .animate-gradient {
     background-size: 200% 200%;
     animation: gradientMove 4s ease infinite;
   }
+}
+
+/* Hide horizontal category scrollbar */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }

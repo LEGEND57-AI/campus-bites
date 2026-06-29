@@ -1,11 +1,25 @@
 import express from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import rateLimit from "express-rate-limit";
 import SibApiV3Sdk from "sib-api-v3-sdk";
 import { supabase } from "../db.js";
 import { OAuth2Client } from "google-auth-library";
 
 const router = express.Router();
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+
+  max: 5,
+
+  standardHeaders: true,
+
+  legacyHeaders: false,
+
+  message: {
+    error: "Too many requests. Please try again after 15 minutes.",
+  },
+});
 
 // ================= BREVO API =================
 
@@ -91,7 +105,7 @@ const generateEmailTemplate = (otp, type = "verify") => {
 };
 
 // ================= REGISTER =================
-router.post("/register", async (req, res) => {
+router.post("/register", authLimiter, async (req, res) => {
   let { name, email, phone, password } = req.body;
 
   if (!name || !email || !password) {
@@ -177,8 +191,8 @@ router.post("/register", async (req, res) => {
 });
 
 // ================= VERIFY OTP =================
-router.post("/verify-otp", async (req, res) => {
-  let { email, otp } = req.body;
+router.post("/verify-otp", authLimiter, async (req, res) => {
+  let { email, otp, type } = req.body;
 
   email = email.trim().toLowerCase();
 
@@ -209,15 +223,28 @@ router.post("/verify-otp", async (req, res) => {
       });
     }
 
-    await supabase
-      .from("users")
-      .update({
-        is_verified: true,
-        otp: null,
-        otp_expiry: null,
-        otp_last_sent_at: null,
-      })
-      .eq("email", email);
+    if (type === "reset") {
+      await supabase
+        .from("users")
+        .update({
+          reset_verified: true,
+          reset_verified_at: new Date().toISOString(),
+          otp: null,
+          otp_expiry: null,
+          otp_last_sent_at: null,
+        })
+        .eq("email", email);
+    } else {
+      await supabase
+        .from("users")
+        .update({
+          is_verified: true,
+          otp: null,
+          otp_expiry: null,
+          otp_last_sent_at: null,
+        })
+        .eq("email", email);
+    }
 
     res.json({
       message: "Verified",
@@ -232,7 +259,7 @@ router.post("/verify-otp", async (req, res) => {
 });
 
 // ================= RESEND OTP =================
-router.post("/resend-otp", async (req, res) => {
+router.post("/resend-otp", authLimiter, async (req, res) => {
   let { email } = req.body;
 
   email = email.trim().toLowerCase();
@@ -284,7 +311,7 @@ router.post("/resend-otp", async (req, res) => {
 });
 
 // ================= FORGOT PASSWORD =================
-router.post("/forgot-password", async (req, res) => {
+router.post("/forgot-password", authLimiter, async (req, res) => {
   let { email } = req.body;
 
   email = email.trim().toLowerCase();
@@ -343,12 +370,35 @@ router.post("/reset-password", async (req, res) => {
 
     email = email.trim().toLowerCase();
 
+    const { data: user, error } = await supabase
+      .from("users")
+      .select("reset_verified")
+      .eq("email", email)
+      .single();
+
+    if (error || !user) {
+      return res.status(404).json({
+        error: "User not found",
+      });
+    }
+
+    if (!user.reset_verified) {
+      return res.status(403).json({
+        error: "Please verify OTP first",
+      });
+    }
+
     const hashed = await bcrypt.hash(newPassword, 10);
 
     await supabase
       .from("users")
       .update({
         password_hash: hashed,
+        reset_verified: false,
+        reset_verified_at: null,
+        otp: null,
+        otp_expiry: null,
+        otp_last_sent_at: null,
       })
       .eq("email", email);
 
@@ -570,7 +620,7 @@ router.post("/google", async (req, res) => {
 });
 
 // ================= LOGIN =================
-router.post("/login", async (req, res) => {
+router.post("/login", authLimiter, async (req, res) => {
   let { email, password } = req.body;
 
   email = email.trim().toLowerCase();

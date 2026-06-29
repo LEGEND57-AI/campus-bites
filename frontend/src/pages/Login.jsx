@@ -219,7 +219,10 @@ const Login = () => {
 
     <div className="
       min-h-screen
-      bg-[#eef2ff]
+      bg-gradient-to-br
+from-blue-50
+via-white
+to-slate-100
       flex
       items-center
       justify-center
@@ -246,18 +249,19 @@ const Login = () => {
           w-full
           max-w-6xl
           bg-white
-          rounded-[35px]
+          rounded-[28px]
+lg:rounded-[35px]
+shadow-[0_20px_60px_rgba(0,0,0,0.08)]
           overflow-hidden
-          shadow-2xl
           grid
           lg:grid-cols-2
         "
       >
 
-      {/* ================= LEFT SIDE ================= */}
+        {/* ================= LEFT SIDE ================= */}
 
-      <div
-        className="
+        <div
+          className="
             hidden
             lg:flex
             relative
@@ -271,12 +275,12 @@ const Login = () => {
             text-white
             overflow-hidden
           "
-      >
+        >
 
-        {/* BACKGROUND CIRCLES */}
+          {/* BACKGROUND CIRCLES */}
 
-        <div
-          className="
+          <div
+            className="
               absolute
               -top-24
               -right-24
@@ -285,10 +289,10 @@ const Login = () => {
               rounded-full
               bg-white/10
             "
-        />
+          />
 
-        <div
-          className="
+          <div
+            className="
               absolute
               -bottom-20
               -left-20
@@ -297,95 +301,95 @@ const Login = () => {
               rounded-full
               bg-cyan-300/15
             "
-        />
+          />
 
 
-        {/* BRAND NAME */}
+          {/* BRAND NAME */}
 
-        <div className="relative z-10 text-center">
+          <div className="relative z-10 text-center">
 
-          <h2 className="text-3xl font-black">
+            <h2 className="text-3xl font-black">
 
-            <span className="text-white">
-              Campus
-            </span>
+              <span className="text-white">
+                Campus
+              </span>
 
-            <span className="text-cyan-300">
-              {" "}Craves
-            </span>
+              <span className="text-cyan-300">
+                {" "}Craves
+              </span>
 
-          </h2>
+            </h2>
 
-        </div>
+          </div>
 
 
-        {/* HERO TEXT */}
+          {/* HERO TEXT */}
 
-        <div
-          className="
+          <div
+            className="
               relative
               z-10
               space-y-6
             "
-        >
+          >
 
-          <h1
-            className="
+            <h1
+              className="
                 text-[60px]
                 font-black
                 leading-[0.9]
                 tracking-tight
               "
-          >
+            >
 
-            Your Campus.
-            <br />
+              Your Campus.
+              <br />
 
-            Your Cravings.
-            <br />
+              Your Cravings.
+              <br />
 
-            <span className="text-cyan-300">
-              Delivered.
-            </span>
+              <span className="text-cyan-300">
+                Delivered.
+              </span>
 
-          </h1>
+            </h1>
 
 
-          <p
-            className="
+            <p
+              className="
                 text-lg
                 text-blue-100
                 max-w-[420px]
                 leading-relaxed
               "
-          >
+            >
 
-            Skip the lines. Order your favorite campus meals,
-            track your orders in real-time and enjoy seamless
-            cashless payments.
+              Skip the lines. Order your favorite campus meals,
+              track your orders in real-time and enjoy seamless
+              cashless payments.
 
-          </p>
+            </p>
 
-        </div>
+          </div>
 
 
-        {/* FEATURES */}
+          {/* FEATURES */}
 
-        <div
-          className="
+          <div
+            className="
               relative
               z-10
               space-y-5
             "
-        >
+          >
 
 
-          {/* QUICK ORDER */}
+            {/* QUICK ORDER */}
 
-          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4">
 
-            <div
-              className="
+              <div
+                className="
                   w-14
                   h-14
                   rounded-2xl
@@ -395,40 +399,40 @@ const Login = () => {
                   items-center
                   justify-center
                 "
-            >
+              >
 
-              <Zap size={28} />
+                <Zap size={28} />
+
+              </div>
+
+
+              <div>
+
+                <h3 className="text-lg font-bold">
+
+                  Quick Order
+
+                </h3>
+
+
+                <p className="text-sm text-blue-100">
+
+                  Place your meals in seconds
+
+                </p>
+
+              </div>
 
             </div>
 
 
-            <div>
+            {/* LIVE TRACKING */}
 
-              <h3 className="text-lg font-bold">
-
-                Quick Order
-
-              </h3>
+            <div className="flex items-center gap-4">
 
 
-              <p className="text-sm text-blue-100">
-
-                Place your meals in seconds
-
-              </p>
-
-            </div>
-
-          </div>
-
-
-          {/* LIVE TRACKING */}
-
-          <div className="flex items-center gap-4">
-
-
-            <div
-              className="
+              <div
+                className="
                   w-14
                   h-14
                   rounded-2xl
@@ -438,41 +442,41 @@ const Login = () => {
                   items-center
                   justify-center
                 "
-            >
+              >
 
-              <MapPin size={28} />
+                <MapPin size={28} />
+
+              </div>
+
+
+              <div>
+
+                <h3 className="text-lg font-bold">
+
+                  Live Tracking
+
+                </h3>
+
+
+                <p className="text-sm text-blue-100">
+
+                  Follow your order in real time
+
+                </p>
+
+              </div>
+
 
             </div>
 
 
-            <div>
+            {/* PAYMENT */}
 
-              <h3 className="text-lg font-bold">
-
-                Live Tracking
-
-              </h3>
+            <div className="flex items-center gap-4">
 
 
-              <p className="text-sm text-blue-100">
-
-                Follow your order in real time
-
-              </p>
-
-            </div>
-
-
-          </div>
-
-
-          {/* PAYMENT */}
-
-          <div className="flex items-center gap-4">
-
-
-            <div
-              className="
+              <div
+                className="
                   w-14
                   h-14
                   rounded-2xl
@@ -482,27 +486,30 @@ const Login = () => {
                   items-center
                   justify-center
                 "
-            >
+              >
 
-              <CreditCard size={28} />
+                <CreditCard size={28} />
 
-            </div>
-
-
-            <div>
-
-              <h3 className="text-lg font-bold">
-
-                Cashless Payment
-
-              </h3>
+              </div>
 
 
-              <p className="text-sm text-blue-100">
+              <div>
 
-                Secure, fast & hassle-free
+                <h3 className="text-lg font-bold">
 
-              </p>
+                  Cashless Payment
+
+                </h3>
+
+
+                <p className="text-sm text-blue-100">
+
+                  Secure, fast & hassle-free
+
+                </p>
+
+
+              </div>
 
 
             </div>
@@ -513,106 +520,112 @@ const Login = () => {
 
         </div>
 
+        {/* ================= RIGHT SIDE ================= */}
 
-      </div>
+        <div
+          className="
+flex
+items-center
+justify-center
+px-6
+sm:px-8
+lg:px-10
+py-8
+"
+        >
 
-      {/* ================= RIGHT SIDE ================= */}
-
-      <div
-        className="
-            flex
-            items-center
-            justify-center
-            p-5 sm:p-8 lg:p-10
-          "
-      >
-
-        <div className="w-full max-w-[500px]">
-
-
-          {/* MOBILE LOGO */}
-
-          <div className="lg:hidden flex justify-center mb-6">
-
-            <img
-              src={logo}
-              alt="CampusCraves"
-              className="w-28"
-            />
-
-          </div>
+          <div
+            className="
+    w-full
+    max-w-[420px]
+    mx-auto
+  "
+          >
 
 
-          {/* DESKTOP LOGO */}
+            {/* MOBILE LOGO */}
 
-          <div className="hidden lg:flex justify-center mb-4">
+            <div className="lg:hidden flex justify-center mb-5">
 
-            <img
-              src={logo}
-              alt="CampusCraves"
-              className="w-20 drop-shadow-lg"
-            />
+              <img
+                src={logo}
+                alt="CampusCraves"
+                className="w-16"
+              />
 
-          </div>
+            </div>
 
 
-          <h2 className="
+            {/* DESKTOP LOGO */}
+
+            <div className="hidden lg:flex justify-center mb-4">
+
+              <img
+                src={logo}
+                alt="CampusCraves"
+                className="w-20 drop-shadow-lg"
+              />
+
+            </div>
+
+
+            <h2 className="
               text-center
               text-3xl lg:text-4xl
               font-black
               text-slate-900
             ">
 
-            Ready to Crave? 😋
+              Ready to Crave? 😋
 
-          </h2>
+            </h2>
 
 
-          <p className="
+            <p className="
               text-center
               text-slate-500
               mt-2 text-lg
             ">
 
-            Sign in and discover your favorite campus meals.
+              Sign in and discover your favorite campus meals.
 
-          </p>
-
-
-          {/* ================= FORM ================= */}
-
-          <form
-            onSubmit={handleSubmit}
-            className="mt-8 space-y-5"
-          >
+            </p>
 
 
-            {/* EMAIL */}
+            {/* ================= FORM ================= */}
 
-            <div>
-
-              <label className="block text-sm font-semibold text-slate-800 mb-2">
-
-                Email Address
-
-              </label>
+            <form
+              onSubmit={handleSubmit}
+              className="mt-8 space-y-5"
+            >
 
 
-              <div className="relative">
+              {/* EMAIL */}
 
-                <Mail
-                  size={20}
-                  className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-                />
+              <div>
+
+                <label className="block text-sm font-semibold text-slate-800 mb-1">
+
+                  Email Address
+
+                </label>
 
 
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="student@campus.edu"
-                  required
-                  className="
+                <div className="relative">
+
+                  <Mail
+                    size={20}
+                    className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                  />
+
+
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="Enter your email address"
+                    required
+                    className="
                       w-full
                       h-12
                       rounded-2xl
@@ -627,39 +640,39 @@ const Login = () => {
                       focus:ring-blue-100
                       transition
                     "
-                />
+                  />
+
+                </div>
 
               </div>
 
-            </div>
+
+              {/* PASSWORD */}
+
+              <div>
+
+                <label className="block text-sm font-semibold text-slate-800 mb-1">
+
+                  Password
+
+                </label>
 
 
-            {/* PASSWORD */}
+                <div className="relative">
 
-            <div>
-
-              <label className="block text-sm font-semibold text-slate-800 mb-2">
-
-                Password
-
-              </label>
+                  <Lock
+                    size={20}
+                    className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                  />
 
 
-              <div className="relative">
-
-                <Lock
-                  size={20}
-                  className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-                />
-
-
-                <input
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  required
-                  className="
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter your password"
+                    required
+                    className="
                       w-full
                       h-12
                       rounded-2xl
@@ -674,13 +687,13 @@ const Login = () => {
                       focus:ring-blue-100
                       transition
                     "
-                />
+                  />
 
 
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="
                       absolute
                       right-4
                       top-1/2
@@ -688,12 +701,51 @@ const Login = () => {
                       text-slate-400
                       hover:text-blue-600
                     "
+                  >
+
+                    {
+                      showPassword
+                        ? <EyeOff size={20} />
+                        : <Eye size={20} />
+                    }
+
+                  </button>
+
+
+                </div>
+
+              </div>
+
+
+              {/* REMEMBER + FORGOT */}
+
+              <div className="flex items-center justify-between text-sm">
+
+
+                <label className="flex items-center gap-2 text-slate-600">
+
+                  <input
+                    type="checkbox"
+                    checked={remember}
+                    onChange={() => setRemember(!remember)}
+                  />
+
+                  Remember me
+
+                </label>
+
+
+                <button
+                  type="button"
+                  onClick={handleForgotPassword}
+                  disabled={isResetting}
+                  className="text-blue-600 font-semibold hover:underline"
                 >
 
                   {
-                    showPassword
-                      ? <EyeOff size={20} />
-                      : <Eye size={20} />
+                    isResetting
+                      ? "Sending OTP..."
+                      : "Forgot Password?"
                   }
 
                 </button>
@@ -701,54 +753,15 @@ const Login = () => {
 
               </div>
 
-            </div>
+
+              {/* LOGIN BUTTON */}
 
 
-            {/* REMEMBER + FORGOT */}
-
-            <div className="flex items-center justify-between text-sm">
-
-
-              <label className="flex items-center gap-2 text-slate-600">
-
-                <input
-                  type="checkbox"
-                  checked={remember}
-                  onChange={() => setRemember(!remember)}
-                />
-
-                Remember me
-
-              </label>
-
-
-              <button
-                type="button"
-                onClick={handleForgotPassword}
-                disabled={isResetting}
-                className="text-blue-600 font-semibold hover:underline"
-              >
-
-                {
-                  isResetting
-                    ? "Sending OTP..."
-                    : "Forgot Password?"
-                }
-
-              </button>
-
-
-            </div>
-
-
-            {/* LOGIN BUTTON */}
-
-
-            <motion.button
-              whileTap={{ scale: 0.97 }}
-              type="submit"
-              disabled={isLoading}
-              className="
+              <motion.button
+                whileTap={{ scale: 0.97 }}
+                type="submit"
+                disabled={isLoading}
+                className="
                   w-full
                   h-12
                   rounded-2xl
@@ -768,48 +781,48 @@ const Login = () => {
                   transition
                   disabled:opacity-60
                 "
-            >
+              >
 
-              {
-                isLoading
-                  ? "Signing In..."
-                  :
-                  <>
-                    Sign In
-                    <ArrowRight size={20} />
-                  </>
-              }
+                {
+                  isLoading
+                    ? "Signing In..."
+                    :
+                    <>
+                      Sign In
+                      <ArrowRight size={20} />
+                    </>
+                }
 
-            </motion.button>
-
-
-            {/* GOOGLE LOGIN */}
+              </motion.button>
 
 
-            <div className="flex items-center gap-4">
-
-              <div className="h-[1px] bg-slate-200 flex-1" />
-
-              <span className="text-slate-500 text-sm">
-
-                OR
-
-              </span>
-
-              <div className="h-[1px] bg-slate-200 flex-1" />
-
-            </div>
+              {/* GOOGLE LOGIN */}
 
 
-            <div className="flex justify-center">
+              <div className="flex items-center gap-4">
+
+                <div className="h-[1px] bg-slate-200 flex-1" />
+
+                <span className="text-slate-500 text-sm">
+
+                  OR
+
+                </span>
+
+                <div className="h-[1px] bg-slate-200 flex-1" />
+
+              </div>
 
 
-              {
-                googleLoading ? (
+              <div className="flex justify-center">
 
-                  <button
-                    disabled
-                    className="
+
+                {
+                  googleLoading ? (
+
+                    <button
+                      disabled
+                      className="
                         w-full
                         h-12
                         rounded-2xl
@@ -819,63 +832,65 @@ const Login = () => {
                         text-slate-500
                         font-medium
                       "
-                  >
+                    >
 
-                    Signing with Google...
+                      Signing with Google...
 
-                  </button>
+                    </button>
 
-                ) : (
+                  ) : (
 
-                  <GoogleLogin
-                    onSuccess={handleGoogleSuccess}
-                    onError={handleGoogleError}
-                    theme="outline"
-                    size="large"
-                    text="continue_with"
-                    shape="pill"
-                    width="380"
-                  />
+                    <div className="w-full">
+                      <GoogleLogin
+                        onSuccess={handleGoogleSuccess}
+                        onError={handleGoogleError}
+                        theme="outline"
+                        size="large"
+                        text="continue_with"
+                        shape="pill"
+                        width="100%"
+                      />
+                    </div>
 
-                )
-              }
-
-
-            </div>
-
-
-            {/* SIGNUP LINK */}
+                  )
+                }
 
 
-            <p className="text-center text-slate-500">
+              </div>
 
 
-              Don't have an account?
+              {/* SIGNUP LINK */}
 
 
-              <Link
-                to="/signup"
-                className="ml-2 font-bold text-blue-600 hover:underline"
-              >
-
-                Create Account
-
-              </Link>
+              <p className="text-center text-slate-500">
 
 
-            </p>
+                Don't have an account?
 
 
-          </form>
+                <Link
+                  to="/signup"
+                  className="ml-2 font-bold text-blue-600 hover:underline"
+                >
+
+                  Create Account
+
+                </Link>
+
+
+              </p>
+
+
+            </form>
+
+
+          </div>
 
 
         </div>
 
 
-      </div>
-
-
-    </motion.div>
+      </motion.div>
 
 
     </div>

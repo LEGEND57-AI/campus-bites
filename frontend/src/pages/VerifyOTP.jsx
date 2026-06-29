@@ -209,6 +209,7 @@ const VerifyOTP = () => {
       await api.post("/auth/verify-otp", {
         email,
         otp: finalOtp,
+        type,
       });
 
       toast.success("OTP verified successfully!");

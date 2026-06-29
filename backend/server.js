@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import helmet from "helmet";
 
 import authRoutes from './routes/auth.js';
 import foodRoutes from './routes/food.js';
@@ -17,15 +18,40 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // ✅ IMPROVED CORS (faster + no delay)
-app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-}));
+const allowedOrigins =
+  process.env.CORS_ORIGINS?.split(",") || [];
 
-// 🔥 VERY IMPORTANT (fix slow preflight)
-app.options('*', cors());
 
+const corsOptions = {
+  origin: (origin, callback) => {
+
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error("Not allowed by CORS"));
+  },
+
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+
+  allowedHeaders: ["Content-Type", "Authorization"],
+
+  credentials: true,
+};
+
+
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
+
+app.use(
+  helmet({
+    crossOriginResourcePolicy: false,
+  })
+);
 app.use(express.json());
 
 // ================== HEALTH ROUTES ==================

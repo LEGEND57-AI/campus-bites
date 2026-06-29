@@ -92,35 +92,53 @@ const Signup = () => {
   };
 
   return (
-    <div className="
+
+    <div
+      className="
       min-h-screen
-      bg-[#eef2ff]
+      bg-gradient-to-br
+      from-blue-50
+      via-white
+      to-slate-100
       flex
       items-center
       justify-center
-      p-3 sm:p-4
-    ">
+      p-3
+      sm:p-4
+    "
+    >
 
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
+        initial={{
+          opacity: 0,
+          y: 20,
+        }}
+        animate={{
+          opacity: 1,
+          y: 0,
+        }}
+        transition={{
+          duration: 0.5,
+        }}
         className="
-          w-full
-          max-w-6xl
-          bg-white
-          rounded-[35px]
-          overflow-hidden
-          shadow-2xl
-          grid
-          lg:grid-cols-2
-        "
+        w-full
+        max-w-6xl
+        bg-white
+        rounded-[28px]
+        lg:rounded-[35px]
+        shadow-[0_20px_60px_rgba(0,0,0,0.08)]
+        overflow-hidden
+        grid
+        lg:grid-cols-2
+      "
       >
 
-        {/* LEFT SIDE */}
+        {/* ================= LEFT SIDE ================= */}
 
-        <div className="
-          hidden lg:flex
+        <div
+          className="
+          hidden
+          lg:flex
           relative
           flex-col
           justify-between
@@ -131,145 +149,218 @@ const Signup = () => {
           p-10
           text-white
           overflow-hidden
-        ">
+        "
+        >
 
-          <div className="
+          {/* Background */}
+
+          <div
+            className="
             absolute
             -top-24
             -right-24
-            w-[260px]
-            h-[260px]
+            w-[280px]
+            h-[280px]
             rounded-full
             bg-white/10
-          "/>
+          "
+          />
 
-          <div className="
+          <div
+            className="
             absolute
             -bottom-20
             -left-20
-            w-[200px]
-            h-[200px]
+            w-[220px]
+            h-[220px]
             rounded-full
             bg-cyan-300/15
-          "/>
+          "
+          />
+
+          {/* Brand */}
 
           <div className="relative z-10 text-center">
 
             <h2 className="text-3xl font-black">
-              Campus
-              <span className="text-cyan-300">
-                Craves
+
+              <span className="text-white">
+                Campus
               </span>
+
+              <span className="text-cyan-300">
+                {" "}Craves
+              </span>
+
             </h2>
 
           </div>
 
+          {/* Hero */}
 
-          <div className="relative z-10">
+          <div
+            className="
+            relative
+            z-10
+            space-y-6
+          "
+          >
 
-            <h1 className="
-              text-[58px]
+            <h1
+              className="
+              text-[60px]
               font-black
               leading-[0.9]
-            ">
+              tracking-tight
+            "
+            >
+
               Your Campus.
               <br />
+
               Your Cravings.
               <br />
 
               <span className="text-cyan-300">
+
                 Delivered.
+
               </span>
 
             </h1>
 
-
-            <p className="
-              mt-6
+            <p
+              className="
               text-lg
               text-blue-100
               max-w-[420px]
-            ">
-              Skip the lines. Order your favorite meals,
-              track orders in real-time and enjoy
-              cashless convenience.
+              leading-relaxed
+            "
+            >
+
+              Skip the lines. Order your favorite campus meals,
+              track your orders in real-time and enjoy seamless
+              cashless payments.
+
             </p>
 
           </div>
 
+          {/* Features */}
 
-          <div className="
-            relative z-10
+          <div
+            className="
+            relative
+            z-10
             space-y-5
-          ">
+          "
+          >
 
             <div className="flex items-center gap-4">
 
-              <div className="
-                w-14 h-14
+              <div
+                className="
+                w-14
+                h-14
                 rounded-2xl
                 bg-white/15
-                flex items-center justify-center
-              ">
-                <Zap size={26} />
+                backdrop-blur-md
+                flex
+                items-center
+                justify-center
+              "
+              >
+
+                <Zap size={28} />
+
               </div>
 
               <div>
-                <h3 className="font-bold text-lg">
+
+                <h3 className="text-lg font-bold">
+
                   Quick Order
+
                 </h3>
 
-                <p className="text-blue-100">
-                  Place orders in seconds
+                <p className="text-sm text-blue-100">
+
+                  Place your meals in seconds
+
                 </p>
 
               </div>
 
             </div>
 
-
             <div className="flex items-center gap-4">
 
-              <div className="
-                w-14 h-14
+              <div
+                className="
+                w-14
+                h-14
                 rounded-2xl
                 bg-white/15
-                flex items-center justify-center
-              ">
-                <MapPin size={26} />
+                backdrop-blur-md
+                flex
+                items-center
+                justify-center
+              "
+              >
+
+                <MapPin size={28} />
+
               </div>
 
               <div>
-                <h3 className="font-bold text-lg">
+
+                <h3 className="text-lg font-bold">
+
                   Live Tracking
+
                 </h3>
 
-                <p className="text-blue-100">
-                  Track your order instantly
+                <p className="text-sm text-blue-100">
+
+                  Follow your order in real time
+
                 </p>
+
               </div>
 
             </div>
 
-
             <div className="flex items-center gap-4">
 
-              <div className="
-                w-14 h-14
+              <div
+                className="
+                w-14
+                h-14
                 rounded-2xl
                 bg-white/15
-                flex items-center justify-center
-              ">
-                <CreditCard size={26} />
+                backdrop-blur-md
+                flex
+                items-center
+                justify-center
+              "
+              >
+
+                <CreditCard size={28} />
+
               </div>
 
               <div>
-                <h3 className="font-bold text-lg">
+
+                <h3 className="text-lg font-bold">
+
                   Cashless Payment
+
                 </h3>
 
-                <p className="text-blue-100">
-                  Secure & fast payments
+                <p className="text-sm text-blue-100">
+
+                  Secure, fast & hassle-free
+
                 </p>
 
               </div>
@@ -280,6 +371,7 @@ const Signup = () => {
 
         </div>
 
+        {/* ================= RIGHT SIDE ================= */}
 
         {/* RIGHT SIDE */}
 
@@ -290,7 +382,7 @@ const Signup = () => {
           p-5 sm:p-8 lg:p-10
         ">
 
-          <div className="w-full max-w-[500px]">
+          <div className="w-full max-w-[460px] mx-auto px-2 sm:px-0">
 
             {/* MOBILE LOGO */}
 
@@ -335,12 +427,17 @@ const Signup = () => {
             </h2>
 
 
-            <p className="
-              text-center
-              text-slate-500
-              mt-2
-              text-lg
-            ">
+            <p
+              className="
+    mt-3
+    text-center
+    text-slate-500
+    text-lg
+    leading-8
+    max-w-[340px]
+    mx-auto
+  "
+            >
               Create your account and start your delicious journey.
             </p>
 
@@ -349,7 +446,12 @@ const Signup = () => {
 
             <form
               onSubmit={handleSubmit}
-              className="mt-6 space-y-4"
+              className="
+    mt-7
+    space-y-5
+    max-w-[380px]
+    mx-auto
+  "
             >
 
 
@@ -373,7 +475,7 @@ const Signup = () => {
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="Legend"
+                    placeholder="Enter your full name"
                     required
                     className="
                     w-full h-12 rounded-2xl
@@ -412,7 +514,7 @@ const Signup = () => {
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="student@campus.edu"
+                    placeholder="Enter your email address"
                     required
                     className="
                     w-full h-12 rounded-2xl
@@ -454,7 +556,7 @@ const Signup = () => {
                         setPhone(value);
                       }
                     }}
-                    placeholder="9876543210"
+                    placeholder="Enter your phone number"
                     maxLength={10}
                     required
                     className="
@@ -495,7 +597,7 @@ const Signup = () => {
                     type={showPassword ? "text" : "password"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
+                    placeholder="Enter your password"
                     required
                     className="
                     w-full h-12 rounded-2xl
@@ -606,15 +708,17 @@ const Signup = () => {
 
                   ) : (
 
-                    <GoogleLogin
-                      onSuccess={handleGoogleSuccess}
-                      onError={handleGoogleError}
-                      theme="outline"
-                      size="large"
-                      text="continue_with"
-                      shape="pill"
-                      width="380"
-                    />
+                    <div className="w-full">
+                      <GoogleLogin
+                        onSuccess={handleGoogleSuccess}
+                        onError={handleGoogleError}
+                        theme="outline"
+                        size="large"
+                        text="continue_with"
+                        shape="pill"
+                        width="100%"
+                      />
+                    </div>
 
                   )
                 }
@@ -628,11 +732,14 @@ const Signup = () => {
 
             {/* FOOTER */}
 
-            <p className="
-              text-center
-              text-slate-500
-              mt-5
-            ">
+            <p
+              className="
+  text-center
+  text-slate-500
+  mt-6
+  max-w-[360px]
+  mx-auto
+">
 
               Already have an account?
 

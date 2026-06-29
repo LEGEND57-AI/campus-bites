@@ -44,7 +44,6 @@ const Profile = () => {
 
             ]);
 
-            console.log("PROFILE DATA:", profileRes.data);
 
             setProfile(profileRes.data);
 

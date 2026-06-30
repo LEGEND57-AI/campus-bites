@@ -25,7 +25,6 @@ export const authenticate = async (req, res, next) => {
 
     req.user = user;
 
-    console.log("AUTH USER:", req.user); // debug
 
     next();
   } catch (error) {

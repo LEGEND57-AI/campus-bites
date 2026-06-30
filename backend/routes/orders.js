@@ -19,6 +19,12 @@ router.post('/', async (req, res) => {
       });
     }
 
+    if (items.length > 10) {
+      return res.status(400).json({
+        error: "Maximum 10 items allowed in one order."
+      });
+    }
+
 
     // Temporary block online payment
     if (paymentMethod === "RAZORPAY") {
@@ -27,6 +33,36 @@ router.post('/', async (req, res) => {
       });
     }
 
+    // Validate each item
+    for (const item of items) {
+      if (
+        !Number.isInteger(item.quantity) ||
+        item.quantity < 1 ||
+        item.quantity > 20
+      ) {
+        return res.status(400).json({
+          error: "Invalid quantity. Quantity must be between 1 and 20."
+        });
+      }
+
+      if (!Number.isInteger(item.foodItemId)) {
+        return res.status(400).json({
+          error: "Invalid food item."
+        });
+      }
+    }
+
+    const uniqueItems = new Set();
+
+    for (const item of items) {
+      if (uniqueItems.has(item.foodItemId)) {
+        return res.status(400).json({
+          error: "Duplicate food items are not allowed."
+        });
+      }
+
+      uniqueItems.add(item.foodItemId);
+    }
 
     // Get latest food prices
     const itemIds = items.map(item => item.foodItemId);
@@ -34,7 +70,7 @@ router.post('/', async (req, res) => {
     const { data: foodItems, error: fetchError } =
       await supabase
         .from('food_items')
-        .select('id, price, name')
+        .select('id, price, name, available')
         .in('id', itemIds);
 
 
@@ -55,6 +91,9 @@ router.post('/', async (req, res) => {
         throw new Error("Food item not found");
       }
 
+      if (!foodItem.available) {
+        throw new Error(`${foodItem.name} is currently unavailable`);
+      }
 
       totalAmount += foodItem.price * item.quantity;
 
@@ -66,6 +105,12 @@ router.post('/', async (req, res) => {
       };
 
     });
+
+    if (totalAmount > 5000) {
+      return res.status(400).json({
+        error: "Order amount exceeds maximum allowed limit."
+      });
+    }
 
     // Generate daily token
     const {
@@ -122,7 +167,23 @@ router.post('/', async (req, res) => {
   } catch (error) {
 
     console.error("Order Error:", error);
-    res.status(500).json({
+
+    const clientErrors = [
+      "Food item not found",
+      "Duplicate food items are not allowed.",
+      "Order amount exceeds maximum allowed limit."
+    ];
+
+    if (
+      clientErrors.includes(error.message) ||
+      error.message.includes("currently unavailable")
+    ) {
+      return res.status(400).json({
+        error: error.message
+      });
+    }
+
+    return res.status(500).json({
       error: "Failed to place order"
     });
 

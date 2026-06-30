@@ -114,6 +114,21 @@ router.post("/register", authLimiter, async (req, res) => {
     });
   }
 
+  if (password.length < 8) {
+    return res.status(400).json({
+      error: "Password must be at least 8 characters long."
+    });
+  }
+
+  const strongPassword =
+    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+
+  if (!strongPassword.test(password)) {
+    return res.status(400).json({
+      error: "Password must contain at least one uppercase letter, one lowercase letter and one number."
+    });
+  }
+
   email = email.trim().toLowerCase();
 
   try {
@@ -364,9 +379,25 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
 });
 
 // ================= RESET PASSWORD =================
-router.post("/reset-password", async (req, res) => {
+router.post("/reset-password", authLimiter, async (req, res) => {
   try {
     let { email, newPassword } = req.body;
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({
+        error: "Password must be at least 8 characters long."
+      });
+    }
+
+    const strongPassword =
+      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+
+    if (!strongPassword.test(newPassword)) {
+      return res.status(400).json({
+        error:
+          "Password must contain at least one uppercase letter, one lowercase letter and one number."
+      });
+    }
 
     email = email.trim().toLowerCase();
 
@@ -416,7 +447,7 @@ router.post("/reset-password", async (req, res) => {
 
 // ================= GOOGLE LOGIN =================
 
-router.post("/google", async (req, res) => {
+router.post("/google", authLimiter, async (req, res) => {
 
   try {
 
@@ -635,6 +666,12 @@ router.post("/login", authLimiter, async (req, res) => {
     if (error || !user || !user.is_verified) {
       return res.status(401).json({
         error: "Invalid credentials",
+      });
+    }
+
+    if (!user.password_hash) {
+      return res.status(401).json({
+        error: "This account uses Google Sign-In. Please continue with Google."
       });
     }
 

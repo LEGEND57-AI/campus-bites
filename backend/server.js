@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 
 import authRoutes from './routes/auth.js';
 import foodRoutes from './routes/food.js';
@@ -17,6 +18,15 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 300, // Max 300 requests per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    error: "Too many requests. Please try again later."
+  }
+});
 
 // ✅ IMPROVED CORS (faster + no delay)
 const allowedOrigins =
@@ -54,6 +64,7 @@ app.use(
   })
 );
 app.use(express.json());
+app.use("/api", apiLimiter);
 
 // ================== HEALTH ROUTES ==================
 

@@ -17,21 +17,89 @@ router.post("/create-order", async (req, res) => {
 
     try {
 
-        const { amount } = req.body;
+        const { items } = req.body;
 
 
         // Validation
-        if (!amount || amount <= 0) {
+        if (!items || items.length === 0) {
             return res.status(400).json({
-                error: "Invalid amount"
+                error: "Cart is empty"
             });
+        }
+
+        // Maximum items validation
+        if (items.length > 10) {
+            return res.status(400).json({
+                error: "Maximum 10 items allowed in one order."
+            });
+        }
+
+        // Validate each item
+        for (const item of items) {
+            if (
+                !Number.isInteger(item.quantity) ||
+                item.quantity < 1 ||
+                item.quantity > 20
+            ) {
+                return res.status(400).json({
+                    error: "Invalid quantity."
+                });
+            }
+
+            if (!Number.isInteger(item.foodItemId)) {
+                return res.status(400).json({
+                    error: "Invalid food item."
+                });
+            }
+        }
+
+        // Duplicate validation
+        const uniqueItems = new Set();
+
+        for (const item of items) {
+            if (uniqueItems.has(item.foodItemId)) {
+                return res.status(400).json({
+                    error: "Duplicate food items are not allowed."
+                });
+            }
+
+            uniqueItems.add(item.foodItemId);
+        }
+
+        // Get latest food prices
+        const itemIds = items.map(item => item.foodItemId);
+
+        const { data: foodItems, error: fetchError } = await supabase
+            .from("food_items")
+            .select("id, price, name, available")
+            .in("id", itemIds);
+
+        if (fetchError) throw fetchError;
+
+        let totalAmount = 0;
+
+        for (const item of items) {
+
+            const foodItem = foodItems.find(
+                fi => fi.id === item.foodItemId
+            );
+
+            if (!foodItem) {
+                throw new Error("Food item not found");
+            }
+
+            if (!foodItem.available) {
+                throw new Error(`${foodItem.name} is currently unavailable`);
+            }
+
+            totalAmount += foodItem.price * item.quantity;
         }
 
 
         const options = {
 
             // Razorpay uses paise
-            amount: Math.round(amount * 100),
+            amount: Math.round(totalAmount * 100),
 
             currency: "INR",
 
@@ -164,6 +232,45 @@ router.post("/verify", async (req, res) => {
             });
         }
 
+        // Maximum items validation
+        if (items.length > 10) {
+            return res.status(400).json({
+                error: "Maximum 10 items allowed in one order."
+            });
+        }
+
+        // Validate each item
+        for (const item of items) {
+            if (
+                !Number.isInteger(item.quantity) ||
+                item.quantity < 1 ||
+                item.quantity > 20
+            ) {
+                return res.status(400).json({
+                    error: "Invalid quantity."
+                });
+            }
+
+            if (!Number.isInteger(item.foodItemId)) {
+                return res.status(400).json({
+                    error: "Invalid food item."
+                });
+            }
+        }
+
+        // Duplicate validation
+        const uniqueItems = new Set();
+
+        for (const item of items) {
+            if (uniqueItems.has(item.foodItemId)) {
+                return res.status(400).json({
+                    error: "Duplicate food items are not allowed."
+                });
+            }
+
+            uniqueItems.add(item.foodItemId);
+        }
+
 
         // Get latest food prices
         const itemIds = items.map(item => item.foodItemId);
@@ -172,7 +279,7 @@ router.post("/verify", async (req, res) => {
         const { data: foodItems, error: fetchError } =
             await supabase
                 .from("food_items")
-                .select("id, price, name")
+                .select("id, price, name, available")
                 .in("id", itemIds);
 
 
@@ -189,14 +296,16 @@ router.post("/verify", async (req, res) => {
                 fi => fi.id === item.foodItemId
             );
 
-
             if (!foodItem) {
                 throw new Error("Food item not found");
             }
 
+            // ✅ YE 4 LINES YAHAN ADD KARNI HAI
+            if (!foodItem.available) {
+                throw new Error(`${foodItem.name} is currently unavailable`);
+            }
 
             totalAmount += foodItem.price * item.quantity;
-
 
             return {
                 food_item_id: item.foodItemId,
@@ -205,6 +314,13 @@ router.post("/verify", async (req, res) => {
             };
 
         });
+
+        // Verify payment amount matches calculated amount
+        if (payment.amount !== Math.round(totalAmount * 100)) {
+            return res.status(400).json({
+                error: "Payment amount mismatch"
+            });
+        }
 
         // Generate daily token
         const {

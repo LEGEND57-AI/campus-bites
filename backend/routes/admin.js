@@ -10,7 +10,7 @@ router.use(authenticate, isAdmin);
 router.get('/orders', async (req, res) => {
   try {
     const { data, error } = await supabase
-    
+
       .from('orders')
       .select(`
         *,
@@ -120,6 +120,11 @@ router.get('/menu', async (req, res) => {
 router.patch('/menu/:id/availability', async (req, res) => {
   const { id } = req.params;
   const { available } = req.body;
+  if (typeof available !== "boolean") {
+    return res.status(400).json({
+      error: "Invalid availability value"
+    });
+  }
 
   try {
     const { data, error } = await supabase
@@ -162,6 +167,12 @@ router.post('/menu', async (req, res) => {
     });
   }
 
+  if (typeof price !== "number" || price <= 0) {
+    return res.status(400).json({
+      error: "Invalid price"
+    });
+  }
+
   try {
     const { data, error } = await supabase
       .from('food_items')
@@ -190,7 +201,31 @@ router.post('/menu', async (req, res) => {
 // ---------- Update Menu ----------
 router.put('/menu/:id', async (req, res) => {
   const { id } = req.params;
-  const updates = req.body;
+  const {
+    name,
+    description,
+    price,
+    image_url,
+    category_id,
+    available
+  } = req.body;
+
+  if (price !== undefined) {
+    if (typeof price !== "number" || price <= 0) {
+      return res.status(400).json({
+        error: "Invalid price"
+      });
+    }
+  }
+
+  const updates = {};
+
+  if (name !== undefined) updates.name = name;
+  if (description !== undefined) updates.description = description;
+  if (price !== undefined) updates.price = price;
+  if (image_url !== undefined) updates.image_url = image_url;
+  if (category_id !== undefined) updates.category_id = category_id;
+  if (available !== undefined) updates.available = available;
 
   try {
     const { data, error } = await supabase
@@ -226,10 +261,10 @@ router.delete('/menu/:id', async (req, res) => {
       success: true,
       message: 'Item permanently deleted'
     });
-    
 
-} catch (err) {
-console.error('Delete menu item error:', err);
+
+  } catch (err) {
+    console.error('Delete menu item error:', err);
 
     res.status(500).json({
       error: err.message

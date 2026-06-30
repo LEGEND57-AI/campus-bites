@@ -424,6 +424,42 @@ export const downloadReceipt = (order) => {
 
     order.order_items?.forEach((item) => {
 
+        const itemHeight = 30;
+
+        if (y + itemHeight > pageHeight - 20) {
+
+            pdf.addPage();
+
+            pdf.setFillColor(...LIGHT);
+            pdf.rect(0, 0, pageWidth, pageHeight, "F");
+
+            pdf.setFillColor(...WHITE);
+            pdf.roundedRect(
+                10,
+                10,
+                pageWidth - 20,
+                pageHeight - 20,
+                8,
+                8,
+                "F"
+            );
+
+            y = 20;
+
+            pdf.setFont("helvetica", "bold");
+            pdf.setFontSize(15);
+            pdf.setTextColor(...DARK);
+
+            pdf.text(
+                "Ordered Items (Continued)",
+                20,
+                y
+            );
+
+            y += 10;
+
+        }
+
         const qty = Number(item.quantity || 0);
         const price = Number(item.price_at_time || 0);
         const total = qty * price;
@@ -526,28 +562,31 @@ export const downloadReceipt = (order) => {
 
     // Divider
 
-    y += 4;
+    // Required space for summary section
+    const summaryHeight = 120;
 
-    console.log(y);
+    // Agar summary fit nahi hogi
+    if (y + summaryHeight > pageHeight - 20) {
 
-    // Start second page
-    pdf.addPage();
+        pdf.addPage();
 
-    pdf.setFillColor(...LIGHT);
-    pdf.rect(0, 0, pageWidth, pageHeight, "F");
+        pdf.setFillColor(...LIGHT);
+        pdf.rect(0, 0, pageWidth, pageHeight, "F");
 
-    pdf.setFillColor(255, 255, 255);
-    pdf.roundedRect(
-        10,
-        10,
-        pageWidth - 20,
-        pageHeight - 20,
-        8,
-        8,
-        "F"
-    );
+        pdf.setFillColor(...WHITE);
+        pdf.roundedRect(
+            10,
+            10,
+            pageWidth - 20,
+            pageHeight - 20,
+            8,
+            8,
+            "F"
+        );
 
-    y = 20;
+        y = 20;
+
+    }
 
     // =========================================
     // PREMIUM BILL SUMMARY

@@ -7,7 +7,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import toast from "react-hot-toast";
 
 import { useAuth } from "../../context/AuthContext";
@@ -16,8 +16,10 @@ import { useCart } from "../../context/CartContext";
 const DashboardHeader = ({
   searchQuery,
   setSearchQuery,
+  showSearch = false,
 }) => {
   const navigate = useNavigate();
+  const location = useLocation();
 
   const { user } = useAuth();
   const { getItemCount } = useCart();
@@ -58,26 +60,38 @@ const DashboardHeader = ({
         </button>
 
         {/* Search */}
-        <div className="relative w-[500px]">
-          <Search
-            size={18}
-            className="
+        {showSearch && (
+          <div className="relative w-[500px]">
+            <Search
+              size={18}
+              className="
               absolute
               left-4
               top-1/2
               -translate-y-1/2
               text-slate-400
             "
-          />
+            />
 
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) =>
-              setSearchQuery(e.target.value)
-            }
-            placeholder="Search for food, drinks, snacks..."
-            className="
+
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => {
+
+                if (!setSearchQuery) return;
+
+                const value = e.target.value;
+
+                setSearchQuery(value);
+
+                if (location.pathname === "/") {
+                  navigate(`/menu?search=${encodeURIComponent(value)}`);
+                }
+
+              }}
+              placeholder="Search for food, drinks, snacks..."
+              className="
               w-full
               h-14
               pl-12
@@ -87,10 +101,10 @@ const DashboardHeader = ({
               outline-none
               focus:border-blue-500
             "
-          />
+            />
 
-          <div
-            className="
+            <div
+              className="
             absolute
             right-4
             top-1/2
@@ -102,10 +116,11 @@ const DashboardHeader = ({
             rounded-lg
             px-2 py-1
           "
-          >
-            Ctrl + K
+            >
+              Ctrl + K
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Right Side */}
         <div className="flex items-center gap-6">

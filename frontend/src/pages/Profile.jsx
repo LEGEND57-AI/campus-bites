@@ -17,8 +17,6 @@ const Profile = () => {
 
     const navigate = useNavigate();
 
-    const [searchQuery, setSearchQuery] = useState("");
-
     const [profile, setProfile] = useState(null);
 
     const [orders, setOrders] = useState([]);
@@ -96,10 +94,7 @@ const Profile = () => {
 
                 <div className="flex-1 min-w-0">
 
-                    <DashboardHeader
-                        searchQuery={searchQuery}
-                        setSearchQuery={setSearchQuery}
-                    />
+                    <DashboardHeader />
 
                     <motion.main
                         initial={{

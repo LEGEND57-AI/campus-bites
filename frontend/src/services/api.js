@@ -158,6 +158,24 @@ export const userAPI = {
 };
 
 
+// ================= FAVORITES =================
+
+export const favoriteAPI = {
+
+  getAll: () =>
+    api.get("/favorites"),
+
+  add: (food_item_id) =>
+    api.post("/favorites", {
+      food_item_id,
+    }),
+
+  remove: (food_item_id) =>
+    api.delete(`/favorites/${food_item_id}`),
+
+};
+
+
 // ================= ADMIN =================
 
 export const adminAPI = {

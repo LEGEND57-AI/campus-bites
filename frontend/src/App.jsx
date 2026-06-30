@@ -17,6 +17,7 @@ import ResetPassword from "./pages/ResetPassword";
 import Dashboard from "./pages/Dashboard";
 import Menu from "./pages/Menu";
 import Orders from "./pages/Orders";
+import Favorite from "./pages/Favorite";
 import CartPage from "./pages/CartPage";
 import Profile from "./pages/Profile";
 import OrderSuccess from "./pages/OrderSuccess";
@@ -72,6 +73,15 @@ function App() {
           element={
             <ProtectedRoute>
               <Orders />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/favorites"
+          element={
+            <ProtectedRoute>
+              <Favorite />
             </ProtectedRoute>
           }
         />

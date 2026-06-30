@@ -1,7 +1,10 @@
 import React from "react";
 import { motion } from "framer-motion";
 
+import { useAuth } from "../../context/AuthContext";
+
 const HeroBanner = () => {
+    const { user } = useAuth();
     return (
         <motion.div
             initial={{ opacity: 0, y: 25 }}
@@ -68,7 +71,7 @@ const HeroBanner = () => {
                 <div className="max-w-[55%] lg:max-w-[45%]">
 
                     <p className="text-blue-100 text-xs lg:text-base mb-2">
-                        Hey LEGEND57 👋
+                        Hey {user?.name || "Student"} 👋
                     </p>
 
                     <h1

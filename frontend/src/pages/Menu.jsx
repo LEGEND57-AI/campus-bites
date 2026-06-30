@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
+import { Search } from "lucide-react";
 import toast from "react-hot-toast";
 
 import { useCart } from "../context/CartContext";
@@ -14,10 +16,20 @@ import CategoryFilter from "../components/CategoryFilter";
 import LoadingSkeleton from "../components/LoadingSkeleton";
 
 const Menu = () => {
+  const [searchParams] = useSearchParams();
+  useEffect(() => {
+
+    const search = searchParams.get("search") || "";
+
+    setSearchQuery(search);
+
+  }, [searchParams]);
   const [foodItems, setFoodItems] = useState([]);
   const [categories, setCategories] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState("all");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState(
+    searchParams.get("search") || ""
+  );
   const [loading, setLoading] = useState(true);
 
   const { addToCart } = useCart();
@@ -71,10 +83,7 @@ const Menu = () => {
 
         <div className="flex-1 min-w-0">
 
-          <DashboardHeader
-            searchQuery={searchQuery}
-            setSearchQuery={setSearchQuery}
-          />
+          <DashboardHeader />
 
           <main className="px-4 md:px-6 lg:px-8 py-5 pb-24">
 
@@ -87,6 +96,48 @@ const Menu = () => {
               <p className="text-gray-500 mt-2">
                 Discover delicious meals and snacks on campus.
               </p>
+            </div>
+
+            {/* SEARCH BAR */}
+            <div className="mb-8">
+
+              <div className="relative">
+
+                <Search
+                  size={20}
+                  className="
+        absolute
+        left-4
+        top-1/2
+        -translate-y-1/2
+        text-gray-400
+      "
+                />
+
+                <input
+                  type="text"
+                  placeholder="Search food, drinks, snacks..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="
+        w-full
+        h-12
+        lg:h-14
+        pl-12
+        pr-4
+        rounded-2xl
+        border
+        border-gray-200
+        bg-white
+        outline-none
+        focus:border-blue-500
+        focus:ring-4
+        focus:ring-blue-100
+      "
+                />
+
+              </div>
+
             </div>
 
             {/* CATEGORY FILTER */}

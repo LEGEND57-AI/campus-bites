@@ -3,14 +3,63 @@ import {
   Heart,
   AlertCircle
 } from "lucide-react";
+import { useState } from "react";
+import { useFavorite } from "../context/FavoriteContext";
+import { favoriteAPI } from "../services/api";
+import Logo from "../assets/CampusCraves-Logo.png";
 
 const FoodCard = ({
   item,
   onAddToCart,
 }) => {
+  const {
+    favorites,
+    loadFavorites,
+  } = useFavorite();
+  const [loading, setLoading] = useState(false);
+
+  const isFavorite = favorites.some(
+    (fav) => fav.id === item.id
+  );
 
   const isAvailable =
     item.available !== false;
+
+  const handleFavorite = async (e) => {
+
+    e.stopPropagation();
+
+    if (loading) return;
+
+    setLoading(true);
+
+    try {
+
+      if (isFavorite) {
+
+        await favoriteAPI.remove(item.id);
+
+      } else {
+
+        await favoriteAPI.add(item.id);
+
+      }
+
+      await loadFavorites();
+
+    } catch (error) {
+
+      console.error(error);
+
+    } finally {
+
+      setLoading(false);
+
+    }
+
+  };
+
+
 
 
   return (
@@ -53,37 +102,43 @@ const FoodCard = ({
 
         {/* Favorite Button */}
         <button
+          disabled={loading}
+          onClick={(e) => handleFavorite(e)}
           className="
-            absolute
-            top-3
-            right-3
+  absolute
+  top-3
+  right-3
 
-            z-20
+  z-20
 
-            w-9
-            h-9
+  w-9
+  h-9
 
-            rounded-full
-            bg-white/90
+  rounded-full
+  bg-white/90
 
-            flex
-            items-center
-            justify-center
+  flex
+  items-center
+  justify-center
 
-            shadow-md
+  shadow-md
 
-            hover:bg-red-50
+  hover:bg-red-50
 
-            transition
-          "
+  transition
+
+  disabled:opacity-60
+  disabled:cursor-not-allowed
+"
         >
 
           <Heart
             size={18}
-            className="
-              text-gray-500
-              hover:text-red-500
-            "
+            className={
+              isFavorite
+                ? "fill-red-500 text-red-500"
+                : "text-gray-500 hover:text-red-500"
+            }
           />
 
         </button>
@@ -132,28 +187,24 @@ const FoodCard = ({
 
         {/* Food Image */}
         <img
-          src={
-            item.image_url ||
-            "https://via.placeholder.com/300"
-          }
+          src={item.image_url || Logo}
+          onError={(e) => {
+            e.currentTarget.src = Logo;
+          }}
 
           alt={item.name}
 
           className={`
-            w-full
-            h-full
-            object-cover
+  w-full
+  h-full
+  ${item.image_url ? "object-cover" : "object-contain p-6 bg-white"}
 
-            transition-transform
-            duration-300
+  transition-transform
+  duration-300
+  group-hover:scale-105
 
-            group-hover:scale-105
-
-            ${!isAvailable
-              ? "grayscale opacity-60"
-              : ""
-            }
-          `}
+  ${!isAvailable ? "grayscale opacity-60" : ""}
+`}
         />
 
       </div>
@@ -276,9 +327,7 @@ const FoodCard = ({
 
             disabled={!isAvailable}
 
-            onClick={() =>
-              onAddToCart(item)
-            }
+            onClick={() => onAddToCart(item)}
 
             className={`
               px-5

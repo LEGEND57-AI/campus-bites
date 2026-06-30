@@ -6,6 +6,7 @@ import App from './App';
 import './index.css';
 
 import { AuthProvider } from './context/AuthContext';
+import { FavoriteProvider } from './context/FavoriteContext';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 
 
@@ -16,7 +17,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     >
       <BrowserRouter>
         <AuthProvider>
-          <App />
+          <FavoriteProvider>
+            <App />
+          </FavoriteProvider>
         </AuthProvider>
       </BrowserRouter>
     </GoogleOAuthProvider>

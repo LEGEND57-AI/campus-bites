@@ -1,13 +1,12 @@
 import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Search } from "lucide-react";
 import toast from "react-hot-toast";
+import { useNavigate } from "react-router-dom";
 
 import { useCart } from "../context/CartContext";
 import { foodAPI, categoryAPI } from "../services/api";
 
 import FoodCard from "../components/FoodCard";
-import CategoryFilter from "../components/CategoryFilter";
 import LoadingSkeleton from "../components/LoadingSkeleton";
 
 import Sidebar from "../components/dashboard/Sidebar";
@@ -16,11 +15,11 @@ import HeroBanner from "../components/dashboard/HeroBanner";
 import MobileBottomNav from "../components/dashboard/MobileBottomNav";
 
 const Dashboard = () => {
+  const navigate = useNavigate();
   const [foodItems, setFoodItems] = useState([]);
   const [popularItems, setPopularItems] = useState([]);
   const [categories, setCategories] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState("all");
-  const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
 
   const { addToCart } = useCart();
@@ -34,15 +33,15 @@ const Dashboard = () => {
 
   useEffect(() => {
     fetchFoodItems();
-  }, [selectedCategory, searchQuery]);
+  }, []);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      fetchFoodItems();
-    }, 5000);
+  const interval = setInterval(() => {
+    fetchFoodItems();
+  }, 5000);
 
-    return () => clearInterval(interval);
-  }, [selectedCategory, searchQuery]);
+  return () => clearInterval(interval);
+}, []);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -65,13 +64,6 @@ const Dashboard = () => {
     try {
       const params = {};
 
-      if (selectedCategory !== "all") {
-        params.categoryId = selectedCategory;
-      }
-
-      if (searchQuery) {
-        params.search = searchQuery;
-      }
 
       const { data } = await foodAPI.getItems(params);
 
@@ -100,6 +92,7 @@ const Dashboard = () => {
   };
 
 
+
   return (
     <div className="min-h-screen bg-[#F3F6FB] p-3 lg:p-5">
 
@@ -123,10 +116,7 @@ const Dashboard = () => {
         <div className="flex-1 min-w-0">
 
           {/* Header */}
-          <DashboardHeader
-            searchQuery={searchQuery}
-            setSearchQuery={setSearchQuery}
-          />
+          <DashboardHeader />
 
 
           {/* Main Area */}
@@ -146,68 +136,6 @@ const Dashboard = () => {
             <div className="mt-6">
 
 
-              {/* Mobile Search */}
-              <div className="lg:hidden mb-5">
-
-                <div className="
-                  relative
-                  bg-white
-                  border
-                  border-gray-200
-                  rounded-2xl
-                  shadow-sm
-                ">
-
-                  <Search
-                    size={18}
-                    className="
-                      absolute
-                      left-4
-                      top-1/2
-                      -translate-y-1/2
-                      text-gray-400
-                    "
-                  />
-
-                  <input
-                    type="text"
-                    placeholder="Search food, drinks, snacks..."
-                    value={searchQuery}
-                    onChange={(e) =>
-                      setSearchQuery(e.target.value)
-                    }
-                    className="
-                      w-full
-                      pl-12
-                      pr-4
-                      py-3
-                      rounded-2xl
-                      outline-none
-                    "
-                  />
-
-                </div>
-
-              </div>
-
-
-              {/* Categories */}
-              {
-                categories.length > 0 && (
-                  <div className="mb-7">
-
-                    <div className="relative z-20">
-                      <CategoryFilter
-                        categories={categories}
-                        selectedCategory={selectedCategory}
-                        onSelectCategory={setSelectedCategory}
-                      />
-                    </div>
-
-                  </div>
-                )
-              }
-
 
               {/* Section Heading */}
               <div className="
@@ -219,34 +147,45 @@ const Dashboard = () => {
 
                 <div>
 
-                  <h2 className="
-                    text-2xl
-                    font-bold
-                    text-gray-900
-                  ">
+                  <h2 className="text-2xl font-bold text-gray-900">
                     Popular Right Now 🔥
                   </h2>
 
-                  <p className="
-                    text-gray-500
-                    text-sm
-                    mt-1
-                  ">
+                  <p className="text-gray-500 text-sm mt-1">
                     Fresh picks loved by students
                   </p>
+
+                  <button
+                    onClick={() => navigate("/menu")}
+                    className="
+    md:hidden
+    mt-3
+    text-blue-600
+    font-semibold
+  "
+                  >
+                    View Full Menu →
+                  </button>
 
                 </div>
 
 
-                <button className="
-                  hidden md:block
-                  text-blue-600
-                  font-semibold
-                  hover:text-blue-700
-                ">
-
-                  View All →
-
+                <button
+                  onClick={() => navigate("/menu")}
+                  className="
+    hidden
+    md:flex
+    items-center
+    gap-2
+    text-blue-600
+    font-semibold
+    hover:text-blue-700
+    transition-all
+    duration-200
+  "
+                >
+                  View Full Menu
+                  <span className="text-lg">→</span>
                 </button>
 
               </div>

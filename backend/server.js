@@ -2,7 +2,9 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import helmet from "helmet";
-import rateLimit from "express-rate-limit";
+import {
+  menuLimiter,
+} from "./middleware/rateLimiter.js";
 
 import authRoutes from './routes/auth.js';
 import foodRoutes from './routes/food.js';
@@ -19,15 +21,7 @@ dotenv.config();
 const app = express();
 app.set("trust proxy", 1);
 const PORT = process.env.PORT || 5000;
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 300, // Max 300 requests per IP
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    error: "Too many requests. Please try again later."
-  }
-});
+
 
 // ✅ IMPROVED CORS (faster + no delay)
 const allowedOrigins =
@@ -65,7 +59,7 @@ app.use(
   })
 );
 app.use(express.json());
-app.use("/api", apiLimiter);
+
 
 // ================== HEALTH ROUTES ==================
 
@@ -87,7 +81,7 @@ app.get('/api/health', (req, res) => {
 // ================== API ROUTES ==================
 
 app.use('/api/auth', authRoutes);
-app.use('/api/food', foodRoutes);
+app.use("/api/food", menuLimiter, foodRoutes);
 app.use('/api/orders', orderRoutes);
 app.use("/api/favorites", favoriteRoutes);
 app.use('/api/user', userRoutes);

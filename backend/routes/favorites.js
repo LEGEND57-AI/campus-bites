@@ -1,8 +1,10 @@
 import express from "express";
 import { supabase } from "../db.js";
 import { authenticate } from "../middleware/auth.js";
+import { favoriteLimiter } from "../middleware/rateLimiter.js";
 
 const router = express.Router();
+router.use(favoriteLimiter);
 
 router.use(authenticate);
 

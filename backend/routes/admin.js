@@ -2,8 +2,10 @@ import express from 'express';
 import { supabase } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { isAdmin } from '../middleware/admin.js';
+import { adminLimiter } from "../middleware/rateLimiter.js";
 
 const router = express.Router();
+router.use(adminLimiter);
 router.use(authenticate, isAdmin);
 
 // ---------- Orders ----------

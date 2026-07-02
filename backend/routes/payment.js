@@ -4,8 +4,10 @@ import express from "express";
 import { razorpay } from "../utils/razorpay.js";
 import { authenticate } from "../middleware/auth.js";
 import { generateDailyToken } from "../utils/tokenGenerator.js";
+import { paymentLimiter } from "../middleware/rateLimiter.js";
 
 const router = express.Router();
+router.use(paymentLimiter);
 
 
 // Protected route

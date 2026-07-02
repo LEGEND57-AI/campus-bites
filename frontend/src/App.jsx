@@ -38,8 +38,32 @@ function App() {
     <CartProvider>
 
       <Toaster
-        position="top-right"
-        toastOptions={{ duration: 3000 }}
+        position="top-center"
+        gutter={12}
+        toastOptions={{
+          duration: 1800,
+
+          style: {
+            borderRadius: "16px",
+            background: "#ffffff",
+            color: "#0f172a",
+            padding: "14px 18px",
+            fontWeight: "600",
+            boxShadow: "0 12px 35px rgba(15,23,42,0.12)",
+            border: "1px solid #E2E8F0",
+          },
+
+          success: {
+            iconTheme: {
+              primary: "#2563EB",
+              secondary: "#ffffff",
+            },
+          },
+
+          error: {
+            duration: 2500,
+          },
+        }}
       />
 
       <Routes>

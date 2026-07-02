@@ -2,8 +2,10 @@ import express from 'express';
 import { supabase } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { generateDailyToken } from "../utils/tokenGenerator.js";
+import { orderLimiter } from "../middleware/rateLimiter.js";
 
 const router = express.Router();
+router.use(orderLimiter);
 
 router.use(authenticate);
 

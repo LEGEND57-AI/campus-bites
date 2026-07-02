@@ -1,25 +1,16 @@
 import express from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-import rateLimit from "express-rate-limit";
 import SibApiV3Sdk from "sib-api-v3-sdk";
 import { supabase } from "../db.js";
 import { OAuth2Client } from "google-auth-library";
+import {
+  loginLimiter,
+  otpLimiter,
+} from "../middleware/rateLimiter.js";
 
 const router = express.Router();
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
 
-  max: 5,
-
-  standardHeaders: true,
-
-  legacyHeaders: false,
-
-  message: {
-    error: "Too many requests. Please try again after 15 minutes.",
-  },
-});
 
 // ================= BREVO API =================
 
@@ -36,7 +27,7 @@ const sendEmail = async (to, subject, html) => {
     await brevoApi.sendTransacEmail({
       sender: {
         name: "CampusCraves",
-        email: "campuscraves.app@gmail.com",
+        email: "campusCraves.app01@gmail.com",
       },
 
       to: [
@@ -105,7 +96,7 @@ const generateEmailTemplate = (otp, type = "verify") => {
 };
 
 // ================= REGISTER =================
-router.post("/register", authLimiter, async (req, res) => {
+router.post("/register", otpLimiter, async (req, res) => {
   let { name, email, phone, password } = req.body;
 
   if (!name || !email || !password) {
@@ -206,7 +197,7 @@ router.post("/register", authLimiter, async (req, res) => {
 });
 
 // ================= VERIFY OTP =================
-router.post("/verify-otp", authLimiter, async (req, res) => {
+router.post("/verify-otp", otpLimiter, async (req, res) => {
   let { email, otp, type } = req.body;
 
   email = email.trim().toLowerCase();
@@ -274,7 +265,7 @@ router.post("/verify-otp", authLimiter, async (req, res) => {
 });
 
 // ================= RESEND OTP =================
-router.post("/resend-otp", authLimiter, async (req, res) => {
+router.post("/resend-otp", otpLimiter, async (req, res) => {
   let { email } = req.body;
 
   email = email.trim().toLowerCase();
@@ -326,7 +317,7 @@ router.post("/resend-otp", authLimiter, async (req, res) => {
 });
 
 // ================= FORGOT PASSWORD =================
-router.post("/forgot-password", authLimiter, async (req, res) => {
+router.post("/forgot-password", otpLimiter, async (req, res) => {
   let { email } = req.body;
 
   email = email.trim().toLowerCase();
@@ -379,7 +370,7 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
 });
 
 // ================= RESET PASSWORD =================
-router.post("/reset-password", authLimiter, async (req, res) => {
+router.post("/reset-password", otpLimiter, async (req, res) => {
   try {
     let { email, newPassword } = req.body;
 
@@ -447,7 +438,7 @@ router.post("/reset-password", authLimiter, async (req, res) => {
 
 // ================= GOOGLE LOGIN =================
 
-router.post("/google", authLimiter, async (req, res) => {
+router.post("/google", loginLimiter, async (req, res) => {
 
   try {
 
@@ -651,7 +642,7 @@ router.post("/google", authLimiter, async (req, res) => {
 });
 
 // ================= LOGIN =================
-router.post("/login", authLimiter, async (req, res) => {
+router.post("/login", loginLimiter, async (req, res) => {
   let { email, password } = req.body;
 
   email = email.trim().toLowerCase();

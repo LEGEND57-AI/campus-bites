@@ -71,7 +71,7 @@ app.use("/api", apiLimiter);
 
 // Root route (fix "Cannot GET /")
 app.get('/', (req, res) => {
-  res.send('CampusBites Backend Running 🚀');
+  res.send('CampusCraves Backend Running 🚀');
 });
 
 // Health check for UptimeRobot
@@ -81,7 +81,7 @@ app.get('/health', (req, res) => {
 
 // Your existing API health route
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', message: 'CampusBites API is running' });
+  res.json({ status: 'OK', message: 'CampusCraves API is running' });
 });
 
 // ================== API ROUTES ==================

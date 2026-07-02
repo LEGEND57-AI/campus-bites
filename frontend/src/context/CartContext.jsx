@@ -5,7 +5,7 @@ import { foodAPI } from "../services/api";
 const CartContext = createContext();
 export const useCart = () => useContext(CartContext);
 
-const CART_STORAGE_KEY = "campusbites_cart";
+const CART_STORAGE_KEY = "campuscraves_cart";
 
 export const CartProvider = ({ children }) => {
 

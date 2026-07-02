@@ -14,7 +14,7 @@ const Sidebar = () => {
 
   return (
     <aside className="fixed left-0 top-0 h-full w-64 bg-slate-900 text-white shadow-xl z-10">
-      <div className="p-6 text-2xl font-bold border-b border-slate-700">CampusBites Admin</div>
+      <div className="p-6 text-2xl font-bold border-b border-slate-700">CampusCraves Admin</div>
       <nav className="mt-6 flex flex-col gap-2">
         {navItems.map((item) => (
           <NavLink

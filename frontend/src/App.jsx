@@ -18,7 +18,8 @@ import Dashboard from "./pages/Dashboard";
 import Menu from "./pages/Menu";
 import Orders from "./pages/Orders";
 import Favorite from "./pages/Favorite";
-import CartPage from "./pages/CartPage";
+
+import NewCart from "./pages/NewCart";
 import Profile from "./pages/Profile";
 import OrderSuccess from "./pages/OrderSuccess";
 import TrackOrder from "./pages/TrackOrder";
@@ -86,11 +87,13 @@ function App() {
           }
         />
 
+
+
         <Route
           path="/cart"
           element={
             <ProtectedRoute>
-              <CartPage />
+              <NewCart />
             </ProtectedRoute>
           }
         />

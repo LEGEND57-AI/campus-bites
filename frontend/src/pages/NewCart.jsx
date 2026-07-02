@@ -74,7 +74,7 @@ const NewCart = () => {
       const { data } =
         await paymentAPI.createOrder(payload);
 
-      console.log(data);
+      
 
       const options = {
         key: data.key,
@@ -94,7 +94,7 @@ const NewCart = () => {
           setIsVerifyingPayment(true);
           try {
 
-            console.log(response);
+            
             // Verify payment
             const verifyPayload = {
               razorpay_order_id: response.razorpay_order_id,
@@ -112,7 +112,7 @@ const NewCart = () => {
             const { data: verifyData } =
               await paymentAPI.verifyPayment(verifyPayload);
 
-            console.log(verifyData);
+            
 
             toast.success("Payment Successful 🎉");
 

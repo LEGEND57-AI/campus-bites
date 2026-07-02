@@ -74,7 +74,7 @@ const NewCart = () => {
       const { data } =
         await paymentAPI.createOrder(payload);
 
-      
+
 
       const options = {
         key: data.key,
@@ -94,7 +94,7 @@ const NewCart = () => {
           setIsVerifyingPayment(true);
           try {
 
-            
+
             // Verify payment
             const verifyPayload = {
               razorpay_order_id: response.razorpay_order_id,
@@ -112,7 +112,6 @@ const NewCart = () => {
             const { data: verifyData } =
               await paymentAPI.verifyPayment(verifyPayload);
 
-            
 
             toast.success("Payment Successful 🎉");
 
@@ -441,7 +440,16 @@ const NewCart = () => {
                           ...item,
                           image: item.image || item.image_url,
                         }}
-                        onIncrease={() => updateQuantity(item.id, 1)}
+                        onIncrease={() => {
+
+                          if (item.quantity >= 10) {
+                            toast.error("Maximum 10 quantity allowed");
+                            return;
+                          }
+
+                          updateQuantity(item.id, 1);
+
+                        }}
                         onDecrease={() => updateQuantity(item.id, -1)}
                         onRemove={() => removeItem(item.id)}
                       />
@@ -451,7 +459,7 @@ const NewCart = () => {
                   </div>
 
                 )}
-    
+
 
               </section>
 

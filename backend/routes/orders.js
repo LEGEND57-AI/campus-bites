@@ -40,10 +40,10 @@ router.post('/', async (req, res) => {
       if (
         !Number.isInteger(item.quantity) ||
         item.quantity < 1 ||
-        item.quantity > 20
+        item.quantity > 10
       ) {
         return res.status(400).json({
-          error: "Invalid quantity. Quantity must be between 1 and 20."
+          error: "Invalid quantity. Quantity must be between 1 and 10."
         });
       }
 
@@ -108,9 +108,9 @@ router.post('/', async (req, res) => {
 
     });
 
-    if (totalAmount > 5000) {
+    if (totalAmount > 3000) {
       return res.status(400).json({
-        error: "Order amount exceeds maximum allowed limit."
+        error: "Maximum order value is ₹3000."
       });
     }
 

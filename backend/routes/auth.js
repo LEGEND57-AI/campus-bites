@@ -35,8 +35,8 @@ const sendEmail = async (to, subject, html) => {
   try {
     await brevoApi.sendTransacEmail({
       sender: {
-        name: "CampusBites",
-        email: "campusbites.app01@gmail.com",
+        name: "CampusCraves",
+        email: "campuscraves.app01@gmail.com",
       },
 
       to: [
@@ -81,7 +81,7 @@ const generateEmailTemplate = (otp, type = "verify") => {
     <div style="max-width:500px;margin:auto;background:white;border-radius:12px;overflow:hidden">
 
       <div style="background:linear-gradient(90deg,#3B82F6,#06B6D4);padding:20px;color:white;text-align:center">
-        <h2>🍔 CampusBites</h2>
+        <h2>🍔 CampusCraves</h2>
       </div>
 
       <div style="padding:30px;text-align:center">

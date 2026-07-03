@@ -169,30 +169,49 @@ export const AuthProvider = ({ children }) => {
     toast.success('Logged out successfully');
   };
 
+  // ✏️ UPDATE USER (NEW)
+  // Call this after any successful profile edit so the whole app
+  // (header, sidebar, anywhere useAuth() is used) reflects the change instantly.
+  const updateUser = (updatedFields) => {
+    setUser((prevUser) => {
+      const newUser = {
+        ...prevUser,
+        ...updatedFields,
+      };
+
+      localStorage.setItem('user', JSON.stringify(newUser));
+
+      return newUser;
+    });
+  };
+
   // 🛡 ADMIN CHECK
   const isAdmin = () => user?.role === 'admin';
 
   return (
-  <AuthContext.Provider
-    value={{
-      user,
-      loading,
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
 
-      // 🔐 Authentication
-      login,
-      register,
-      googleLogin,
-      logout,
+        // 🔐 Authentication
+        login,
+        register,
+        googleLogin,
+        logout,
 
-      // 🔑 Password Recovery
-      requestPasswordReset,
-      confirmPasswordReset,
+        // ✏️ Profile
+        updateUser,
 
-      // 🛡 Role Check
-      isAdmin,
-    }}
-  >
-    {children}
-  </AuthContext.Provider>
-);
+        // 🔑 Password Recovery
+        requestPasswordReset,
+        confirmPasswordReset,
+
+        // 🛡 Role Check
+        isAdmin,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
 };

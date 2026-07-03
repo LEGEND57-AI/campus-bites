@@ -1,150 +1,53 @@
 import React from "react";
-import {
-    Heart,
-    ShoppingBag,
-    Wallet,
-    Bell,
-} from "lucide-react";
+import { ShieldCheck, BadgeCheck } from "lucide-react";
 
-const ProfileStats = ({
-    orders,
-    onLogout,
-}) => {
+const ProfileStats = ({ profile }) => {
 
-    const totalOrders = orders.length;
-
-    const totalSpent =
-        orders.reduce(
-            (sum, order) =>
-                sum + (order.total_amount || 0),
-            0
-        );
+    const lastLogin =
+        profile?.last_login
+            ? new Date(profile.last_login).toLocaleString("en-IN", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  day: "2-digit",
+                  month: "short",
+              })
+            : "Today";
 
     return (
-
-        <div className="space-y-6">
-
-            {/* Stats */}
-
-            <div
-                className="
-                    grid
-                    grid-cols-2
-                    lg:grid-cols-4
-                    gap-6
-                "
-            >
-
-                <div className="bg-white rounded-[28px] border border-slate-100 shadow-sm p-6">
-
-                    <ShoppingBag
-                        className="text-blue-600"
-                        size={30}
-                    />
-
-                    <h2 className="mt-5 text-3xl font-bold">
-
-                        {totalOrders}
-
-                    </h2>
-
-                    <p className="text-slate-500 mt-1">
-
-                        Orders
-
-                    </p>
-
+        <div
+            className="
+                rounded-[28px]
+                bg-blue-50/60
+                border
+                border-blue-100
+                px-6
+                py-5
+                flex
+                flex-col
+                sm:flex-row
+                items-center
+                justify-between
+                gap-4
+            "
+        >
+            <div className="flex items-center gap-4 text-center sm:text-left">
+                <div className="w-11 h-11 rounded-xl bg-blue-600 flex items-center justify-center shrink-0">
+                    <ShieldCheck size={20} className="text-white" />
                 </div>
-
-                <div className="bg-white rounded-[28px] border border-slate-100 shadow-sm p-6">
-
-                    <Wallet
-                        className="text-green-600"
-                        size={30}
-                    />
-
-                    <h2 className="mt-5 text-3xl font-bold">
-
-                        ₹{totalSpent}
-
-                    </h2>
-
-                    <p className="text-slate-500 mt-1">
-
-                        Total Spent
-
+                <div>
+                    <h4 className="font-bold text-slate-900">Your account is secure</h4>
+                    <p className="text-sm text-slate-500">
+                        We use top-level security to keep your data safe and protected.
                     </p>
-
                 </div>
-
-                <div className="bg-white rounded-[28px] border border-slate-100 shadow-sm p-6">
-
-                    <Heart
-                        className="text-red-500"
-                        size={30}
-                    />
-
-                    <h2 className="mt-5 text-3xl font-bold">
-
-                        0
-
-                    </h2>
-
-                    <p className="text-slate-500 mt-1">
-
-                        Favorites
-
-                    </p>
-
-                </div>
-
-                <div className="bg-white rounded-[28px] border border-slate-100 shadow-sm p-6">
-
-                    <Bell
-                        className="text-yellow-500"
-                        size={30}
-                    />
-
-                    <h2 className="mt-5 text-3xl font-bold">
-
-                        0
-
-                    </h2>
-
-                    <p className="text-slate-500 mt-1">
-
-                        Notifications
-
-                    </p>
-
-                </div>
-
             </div>
 
-            <div className="flex justify-center mt-2">
-
-                <button
-                    onClick={onLogout}
-                    className="
-        w-full
-        h-14
-        rounded-2xl
-        bg-red-500
-        hover:bg-red-600
-        text-white
-        font-semibold
-        transition
-    "
-                >
-                    Logout
-                </button>
-
+            <div className="flex items-center gap-2 text-sm text-green-600 font-medium shrink-0">
+                <BadgeCheck size={16} />
+                Last login: {lastLogin}
             </div>
-
         </div>
-
     );
-
 };
 
 export default ProfileStats;

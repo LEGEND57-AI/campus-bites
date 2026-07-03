@@ -848,7 +848,7 @@ py-8
                         size="large"
                         text="continue_with"
                         shape="pill"
-                        width="320"
+                        width="100%"
                       />
                     </div>
 

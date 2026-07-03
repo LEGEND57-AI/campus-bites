@@ -1,279 +1,137 @@
 import React from "react";
+import { useNavigate } from "react-router-dom";
 import {
-    Mail,
-    Phone,
-    GraduationCap,
-    CreditCard,
-    Clock,
     ChevronRight,
-    Package,
+    ClipboardList,
+    CalendarClock,
+    TrendingUp,
+    CalendarDays,
+    Heart,
+    LogOut,
 } from "lucide-react";
 
-const ProfileGrid = ({ profile, orders }) => {
+const Row = ({ icon: Icon, title, subtitle, onClick, tone = "blue" }) => {
 
-    const recentOrders = orders.slice(0, 4);
-
-    const info = [
-
-        {
-            icon: Mail,
-            label: "Email",
-            value: profile?.email || "Not Available",
-        },
-
-        {
-            icon: Phone,
-            label: "Phone",
-            value: profile?.phone || "Not Added",
-        },
-
-        {
-            icon: GraduationCap,
-            label: "Department",
-            value: "Computer Science",
-        },
-
-        {
-            icon: CreditCard,
-            label: "Student ID",
-            value: "CC2026",
-        },
-
-    ];
+    const toneMap = {
+        blue: "bg-blue-100 text-blue-600",
+        red: "bg-red-100 text-red-500",
+    };
 
     return (
-
-        <div className="grid xl:grid-cols-3 gap-6">
-
-            {/* LEFT */}
-
-            <div
-                className="
-                    xl:col-span-1
-                    bg-white
-                    rounded-[28px]
-                    border
-                    border-slate-100
-                    shadow-sm
-                    p-6
-                "
-            >
-
-                <h2 className="text-2xl font-bold">
-
-                    Personal Information
-
-                </h2>
-
-                <div className="mt-6 space-y-4">
-
-                    {
-
-                        info.map((item) => {
-
-                            const Icon = item.icon;
-
-                            return (
-
-                                <div
-                                    key={item.label}
-                                    className="
-                                        flex
-                                        items-center
-                                        justify-between
-                                        p-4
-                                        rounded-2xl
-                                        bg-slate-50
-                                    "
-                                >
-
-                                    <div className="flex gap-4 items-center">
-
-                                        <div
-                                            className="
-                                                w-12
-                                                h-12
-                                                rounded-xl
-                                                bg-blue-100
-                                                flex
-                                                items-center
-                                                justify-center
-                                            "
-                                        >
-
-                                            <Icon
-                                                size={18}
-                                                className="text-blue-600"
-                                            />
-
-                                        </div>
-
-                                        <div>
-
-                                            <p className="text-xs text-slate-500">
-
-                                                {item.label}
-
-                                            </p>
-
-                                            <h4 className="font-semibold">
-
-                                                {item.value}
-
-                                            </h4>
-
-                                        </div>
-
-                                    </div>
-
-                                    <ChevronRight size={18} />
-
-                                </div>
-
-                            );
-
-                        })
-
-                    }
-
+        <button
+            onClick={onClick}
+            className="
+                w-full
+                flex
+                items-center
+                justify-between
+                gap-3
+                p-3.5
+                sm:p-4
+                rounded-2xl
+                hover:bg-slate-50
+                transition
+                text-left
+            "
+        >
+            <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                <div className={`w-10 h-10 sm:w-11 sm:h-11 shrink-0 rounded-xl flex items-center justify-center ${toneMap[tone]}`}>
+                    <Icon size={17} />
                 </div>
+                <div className="min-w-0">
+                    <h4 className="font-semibold text-slate-900 text-[15px] sm:text-base">
+                        {title}
+                    </h4>
+                    {
+                        subtitle && (
+                            <p className="text-xs sm:text-sm text-slate-500 leading-snug mt-0.5">
+                                {subtitle}
+                            </p>
+                        )
+                    }
+                </div>
+            </div>
+            <ChevronRight size={18} className="text-slate-300 shrink-0" />
+        </button>
+    );
+};
 
+const MetricRow = ({ icon: Icon, label, value }) => (
+    <div className="flex items-center justify-between py-3.5 border-b last:border-0 border-slate-100">
+        <div className="flex items-center gap-3 text-slate-600">
+            <Icon size={18} className="text-blue-500" />
+            <span className="font-medium">{label}</span>
+        </div>
+        <span className="font-bold text-slate-900">{value}</span>
+    </div>
+);
+
+const ProfileGrid = ({ profile, orders, onLogout }) => {
+
+    const navigate = useNavigate();
+
+    const totalOrders = orders?.length || 0;
+
+    const totalSpent =
+        orders?.reduce((sum, order) => sum + (Number(order.total_amount) || 0), 0) || 0;
+
+    const now = new Date();
+
+    const ordersThisMonth =
+        orders?.filter((order) => {
+            const d = new Date(order.created_at);
+            return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+        }).length || 0;
+
+    const avgOrderValue = totalOrders ? Math.round(totalSpent / totalOrders) : 0;
+
+    const firstOrderDate =
+        orders?.length
+            ? new Date(Math.min(...orders.map((o) => new Date(o.created_at).getTime())))
+                .toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
+            : "—";
+
+    return (
+        <div className="grid xl:grid-cols-2 gap-6">
+
+            <div className="bg-white rounded-[28px] border border-slate-100 shadow-sm p-6">
+                <h2 className="text-xl font-bold text-slate-900">Order Activity</h2>
+                <div className="mt-4">
+                    <MetricRow icon={ClipboardList} label="Total Orders" value={totalOrders} />
+                    <MetricRow icon={CalendarClock} label="Orders This Month" value={ordersThisMonth} />
+                    <MetricRow icon={TrendingUp} label="Average Order Value" value={`₹${avgOrderValue}`} />
+                    <MetricRow icon={CalendarDays} label="First Order Date" value={firstOrderDate} />
+                </div>
             </div>
 
-            {/* RIGHT */}
-
-            <div
-                className="
-                    xl:col-span-2
-                    bg-white
-                    rounded-[28px]
-                    border
-                    border-slate-100
-                    shadow-sm
-                    p-6
-                "
-            >
-
-                <div className="flex items-center justify-between">
-
-                    <h2 className="text-2xl font-bold">
-
-                        Recent Orders
-
-                    </h2>
-
-                    <button className="text-blue-600 font-semibold">
-
-                        View All
-
-                    </button>
-
+            <div className="bg-white rounded-[28px] border border-slate-100 shadow-sm p-6">
+                <h2 className="text-xl font-bold text-slate-900">Quick Actions</h2>
+                <div className="mt-4 space-y-1">
+                    <Row
+                        icon={ClipboardList}
+                        title="View Order History"
+                        subtitle="See all your past orders"
+                        onClick={() => navigate("/orders")}
+                    />
+                    <Row
+                        icon={Heart}
+                        title="Favorite Foods"
+                        subtitle="Your saved favorite items"
+                        onClick={() => navigate("/favorites")}
+                        tone="red"
+                    />
+                    <Row
+                        icon={LogOut}
+                        title="Logout"
+                        subtitle="Sign out from your account"
+                        onClick={onLogout}
+                        tone="red"
+                    />
                 </div>
-
-                <div className="mt-6 space-y-4">
-
-                    {
-
-                        recentOrders.length === 0 ?
-
-                            (
-
-                                <div className="text-center py-10 text-slate-400">
-
-                                    No Orders Yet
-
-                                </div>
-
-                            )
-
-                            :
-
-                            recentOrders.map((order) => (
-
-                                <div
-                                    key={order.id}
-                                    className="
-                                        flex
-                                        items-center
-                                        justify-between
-                                        rounded-2xl
-                                        border
-                                        border-slate-100
-                                        p-5
-                                    "
-                                >
-
-                                    <div className="flex items-center gap-4">
-
-                                        <div
-                                            className="
-                                                w-12
-                                                h-12
-                                                rounded-xl
-                                                bg-blue-100
-                                                flex
-                                                items-center
-                                                justify-center
-                                            "
-                                        >
-
-                                            <Package
-                                                size={20}
-                                                className="text-blue-600"
-                                            />
-
-                                        </div>
-
-                                        <div>
-
-                                            <h4 className="font-semibold">
-
-                                                #{order.id}
-
-                                            </h4>
-
-                                            <p className="text-sm text-slate-500">
-
-                                                {order.status}
-
-                                            </p>
-
-                                        </div>
-
-                                    </div>
-
-                                    <div className="text-right">
-
-                                        <h4 className="font-bold">
-
-                                            ₹{order.total_amount}
-
-                                        </h4>
-
-                                        <div className="flex items-center gap-1 text-xs text-slate-400">
-
-                                            <Clock size={12} />
-
-                                            {new Date(order.created_at).toLocaleDateString()}
-
-                                        </div>
-
-                                    </div>
-
-                                </div>
-
-                            ))
-
-                    }
-
-                </div>
-
             </div>
 
         </div>
-
     );
-
 };
 
 export default ProfileGrid;

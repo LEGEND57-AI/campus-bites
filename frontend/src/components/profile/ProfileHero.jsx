@@ -1,478 +1,173 @@
 import React from "react";
 import { motion } from "framer-motion";
-import {
-    User,
-    Pencil,
-    ShieldCheck,
-    Mail,
-    Phone,
-    Package,
-    Wallet,
-    Clock3,
-    Heart,
-} from "lucide-react";
+import { Camera, Mail, Phone, Package, Wallet, Heart } from "lucide-react";
 
-const ProfileHero = ({ profile, orders }) => {
+const StatCard = ({ icon: Icon, value, label }) => (
+    <div className="rounded-2xl bg-white/15 backdrop-blur-xl border border-white/20 px-3 sm:px-4 py-4 flex flex-col items-center text-center">
+        <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/20 flex items-center justify-center">
+            <Icon size={16} className="text-white" />
+        </div>
+        <h3 className="mt-2.5 sm:mt-3 text-xl sm:text-2xl font-extrabold text-white">{value}</h3>
+        <p className="text-blue-100 text-[11px] sm:text-xs mt-1">{label}</p>
+    </div>
+);
+
+const ProfileHero = ({ profile, orders, favoritesCount = 0 }) => {
 
     const totalOrders = orders?.length || 0;
 
     const totalSpent =
-        orders?.reduce(
-            (sum, order) => sum + (order.total_amount || 0),
-            0
-        ) || 0;
+        orders?.reduce((sum, order) => sum + (Number(order.total_amount) || 0), 0) || 0;
 
-    const pendingOrders =
-        orders?.filter((order) =>
-            ["pending", "accepted", "preparing"].includes(
-                order.status?.toLowerCase()
-            )
-        ).length || 0;
-
-    // Temporary
-    const favoriteItems = 0;
+    const initials =
+        profile?.name
+            ?.split(" ")
+            ?.map((word) => word[0])
+            ?.join("")
+            ?.substring(0, 2)
+            ?.toUpperCase() || "U";
 
     return (
-
-        <motion.div
-            initial={{
-                opacity: 0,
-                y: 20,
-            }}
-            animate={{
-                opacity: 1,
-                y: 0,
-            }}
-            transition={{
-                duration: 0.35,
-            }}
+        <motion.section
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35 }}
             className="
-        relative
-        overflow-hidden
-        rounded-[36px]
-        bg-gradient-to-br
-        from-blue-700
-        via-blue-600
-        to-cyan-500
-        p-6
-        lg:p-8
-        text-white
-        shadow-[0_20px_60px_rgba(37,99,235,.25)]
-      "
-        >
-
-            {/* Background */}
-
-            <div
-                className="
-          absolute
-          -right-16
-          -top-16
-          w-80
-          h-80
-          rounded-full
-          bg-white/10
-        "
-            />
-
-            <div
-                className="
-          absolute
-          left-[45%]
-          top-0
-          w-72
-          h-72
-          rounded-full
-          bg-white/5
-        "
-            />
-
-            <div
-                className="
-          absolute
-          -bottom-20
-          left-1/2
-          w-72
-          h-72
-          rounded-full
-          bg-white/5
-        "
-            />
-
-            <div className="relative z-10">
-
-                <div
-                    className="
-            flex
-            flex-col
-            xl:flex-row
-            justify-between
-            xl:items-center
-            gap-8
-          "
-                >
-
-                    {/* LEFT */}
-
-                    <div
-                        className="
-              flex
-              flex-col
-              md:flex-row
-              items-center
-              md:items-center
-              gap-6
+                relative
+                overflow-hidden
+                rounded-[32px]
+                bg-gradient-to-br
+                from-[#2563EB]
+                via-[#2F73F5]
+                to-[#3BAEF6]
+                shadow-[0_25px_60px_rgba(37,99,235,.22)]
+                px-6
+                md:px-8
+                py-8
             "
-                    >
+        >
+            {/* Decorative dot grid */}
+            <div
+                className="
+                    absolute
+                    inset-0
+                    opacity-[0.05]
+                    bg-[radial-gradient(circle_at_1px_1px,white_1px,transparent_1px)]
+                    bg-[length:20px_20px]
+                "
+            />
 
-                        {/* Avatar */}
+            <div className="relative z-10 flex flex-col sm:flex-row sm:items-center gap-8 sm:gap-10">
 
+                {/* LEFT: Avatar + Info — centered on mobile, left-aligned row from sm up */}
+                <div className="flex flex-col items-center text-center sm:flex-row sm:items-start sm:text-left gap-5 sm:gap-6 flex-1 min-w-0">
+
+                    <div className="relative shrink-0">
                         <div
                             className="
-                w-28
-                h-28
-                lg:w-32
-                lg:h-32
-                rounded-full
-                bg-white
-                border-[5px]
-                border-white/20
-                shadow-2xl
-                flex
-                items-center
-                justify-center
-                text-blue-600
-                text-5xl
-                font-black
-                shrink-0
-              "
+                                w-24
+                                h-24
+                                rounded-full
+                                bg-white
+                                shadow-[0_15px_35px_rgba(0,0,0,.18)]
+                                border-4
+                                border-white/20
+                                flex
+                                items-center
+                                justify-center
+                                overflow-hidden
+                                mx-auto
+                            "
                         >
-
                             {
-
-                                profile?.name
-                                    ? profile.name.charAt(0).toUpperCase()
-                                    : <User size={48} />
-
+                                profile?.avatar_url ? (
+                                    <img
+                                        src={profile.avatar_url}
+                                        alt={profile?.name}
+                                        className="w-full h-full object-cover"
+                                    />
+                                ) : (
+                                    <span className="text-[#2563EB] text-3xl font-black">
+                                        {initials}
+                                    </span>
+                                )
                             }
-
                         </div>
-
-                        {/* User Details */}
-
-                        <div className="text-center md:text-left">
-
-                            <h1
-                                className="
-                  text-3xl
-                  lg:text-4xl
-                  font-black
-                  tracking-tight
-                "
-                            >
-
-                                {profile?.name || "CampusCraves User"}
-
-                            </h1>
-
-                            <div
-                                className="
-                  mt-3
-                  inline-flex
-                  items-center
-                  gap-2
-                  rounded-full
-                  bg-white/15
-                  backdrop-blur-xl
-                  px-4
-                  py-2
-                  text-sm
-                  font-semibold
-                "
-                            >
-
-                                <ShieldCheck size={18} />
-
-                                Verified Student
-
-                            </div>
-
-                            <div
-                                className="
-                  mt-5
-                  flex
-                  flex-col
-                  lg:flex-row
-                  gap-3
-                "
-                            >
-
-                                <div
-                                    className="
-                    flex
-                    items-center
-                    gap-3
-                    rounded-2xl
-                    bg-white/10
-                    backdrop-blur-xl
-                    px-4
-                    py-3
-                  "
-                                >
-
-                                    <Mail size={18} />
-
-                                    <span>
-
-                                        {profile?.email || "No Email"}
-
-                                    </span>
-
-                                </div>
-
-                                <div
-                                    className="
-                    flex
-                    items-center
-                    gap-3
-                    rounded-2xl
-                    bg-white/10
-                    backdrop-blur-xl
-                    px-4
-                    py-3
-                  "
-                                >
-
-                                    <Phone size={18} />
-
-                                    <span>
-
-                                        {profile?.phone ?? "Not added yet"}
-
-                                    </span>
-
-                                </div>
-
-                            </div>
-
-                        </div>
-
-                    </div>
-
-
-                    {/* RIGHT */}
-
-                    <div
-                        className="
-              flex
-              items-center
-              justify-center
-              xl:justify-end
-            "
-                    >
 
                         <button
                             className="
-                bg-white
-                text-blue-600
-                px-7
-                py-4
-                rounded-2xl
-                font-bold
-                shadow-xl
-                hover:scale-105
-                hover:shadow-2xl
-                transition-all
-                duration-300
-                flex
-                items-center
-                gap-3
-              "
+                                absolute
+                                bottom-0
+                                right-0
+                                w-8
+                                h-8
+                                rounded-full
+                                bg-[#2563EB]
+                                text-white
+                                shadow-lg
+                                border-2
+                                border-white
+                                flex
+                                items-center
+                                justify-center
+                                hover:scale-105
+                                transition
+                            "
                         >
-
-                            <Pencil size={20} />
-
-                            Edit Profile
-
+                            <Camera size={14} />
                         </button>
-
                     </div>
 
+                    <div className="min-w-0">
+
+                        <h2 className="text-2xl sm:text-3xl font-black text-white">
+                            {profile?.name || "CampusCraves User"}
+                        </h2>
+
+                        <span
+                            className="
+                                inline-flex
+                                w-fit
+                                items-center
+                                justify-center
+                                px-3
+                                py-1
+                                mt-2
+                                rounded-full
+                                bg-white/15
+                                backdrop-blur-xl
+                                text-white
+                                text-xs
+                                font-semibold
+                            "
+                        >
+                            Student
+                        </span>
+
+                        <div className="mt-3 space-y-1.5">
+                            <div className="flex items-center justify-center sm:justify-start gap-2 text-white text-sm">
+                                <Mail size={14} className="shrink-0" />
+                                <span className="break-all">{profile?.email || "Not Available"}</span>
+                            </div>
+                            <div className="flex items-center justify-center sm:justify-start gap-2 text-white text-sm">
+                                <Phone size={14} className="shrink-0" />
+                                <span>{profile?.phone || "Not Added"}</span>
+                            </div>
+                        </div>
+
+                    </div>
                 </div>
 
-                {/* STATS */}
-
-                <div
-                    className="
-            mt-8
-            grid
-            grid-cols-2
-            lg:grid-cols-4
-            gap-4
-          "
-                >
-
-                    {/* Orders */}
-
-                    <div
-                        className="
-              rounded-3xl
-              bg-white/10
-              backdrop-blur-xl
-              border
-              border-white/15
-              p-5
-            "
-                    >
-
-                        <Package
-                            size={24}
-                            className="text-white/90"
-                        />
-
-                        <h2
-                            className="
-                mt-4
-                text-3xl
-                font-black
-              "
-                        >
-
-                            {totalOrders}
-
-                        </h2>
-
-                        <p className="mt-1 text-blue-100">
-
-                            Orders
-
-                        </p>
-
-                    </div>
-
-                    {/* Total Spent */}
-
-                    <div
-                        className="
-              rounded-3xl
-              bg-white/10
-              backdrop-blur-xl
-              border
-              border-white/15
-              p-5
-            "
-                    >
-
-                        <Wallet
-                            size={24}
-                            className="text-white/90"
-                        />
-
-                        <h2
-                            className="
-                mt-4
-                text-3xl
-                font-black
-              "
-                        >
-
-                            ₹{totalSpent}
-
-                        </h2>
-
-                        <p className="mt-1 text-blue-100">
-
-                            Total Spent
-
-                        </p>
-
-                    </div>
-
-                    {/* Pending */}
-
-                    <div
-                        className="
-              rounded-3xl
-              bg-white/10
-              backdrop-blur-xl
-              border
-              border-white/15
-              p-5
-            "
-                    >
-
-                        <Clock3
-                            size={24}
-                            className="text-white/90"
-                        />
-
-                        <h2
-                            className="
-                mt-4
-                text-3xl
-                font-black
-              "
-                        >
-
-                            {pendingOrders}
-
-                        </h2>
-
-                        <p className="mt-1 text-blue-100">
-
-                            Pending
-
-                        </p>
-
-                    </div>
-
-                    {/* Favorites */}
-
-                    <div
-                        className="
-              rounded-3xl
-              bg-white/10
-              backdrop-blur-xl
-              border
-              border-white/15
-              p-5
-            "
-                    >
-
-                        <Heart
-                            size={24}
-                            className="text-white/90"
-                        />
-
-                        <h2
-                            className="
-                mt-4
-                text-3xl
-                font-black
-              "
-                        >
-
-                            {favoriteItems}
-
-                        </h2>
-
-                        <p className="mt-1 text-blue-100">
-
-                            Favorites
-
-                        </p>
-
-                    </div>
-
+                {/* RIGHT: Stats — 3 across, always one row */}
+                <div className="grid grid-cols-3 gap-3 w-full sm:w-[420px] shrink-0">
+                    <StatCard icon={Package} value={totalOrders} label="Orders" />
+                    <StatCard icon={Wallet} value={`₹${totalSpent}`} label="Spent" />
+                    <StatCard icon={Heart} value={favoritesCount} label="Favorites" />
                 </div>
-
 
             </div>
-
-        </motion.div>
-
+        </motion.section>
     );
-
 };
 
 export default ProfileHero;

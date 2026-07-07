@@ -1,16 +1,33 @@
-import { Outlet } from 'react-router-dom';
-import Sidebar from '../../components/admin/Sidebar';
-import Topbar from '../../components/admin/Topbar';
+import React from "react";
+import { Outlet } from "react-router-dom";
+import Sidebar from "../../components/admin/Sidebar";
+import Topbar from "../../components/admin/Topbar";
+import AdminMobileBottomNav from "../../components/admin/AdminMobileBottomNav";
 
 const AdminLayout = () => {
   return (
-    <div className="min-h-screen bg-slate-100">
-      <Sidebar />
-      <div className="ml-64">
-        <Topbar />
-        <main className="p-6">
-          <Outlet />
-        </main>
+    <div className="min-h-screen bg-[#F3F6FB] p-3 lg:p-5">
+      <div
+        className="
+          bg-white
+          rounded-[32px]
+          overflow-hidden
+          min-h-[calc(100vh-24px)]
+          shadow-[0_15px_40px_rgba(0,0,0,0.08)]
+          flex
+        "
+      >
+        <Sidebar />
+
+        <div className="flex-1 min-w-0">
+          <Topbar />
+
+          <main className="px-4 md:px-6 lg:px-8 py-5 pb-24">
+            <Outlet />
+          </main>
+
+          <AdminMobileBottomNav />
+        </div>
       </div>
     </div>
   );

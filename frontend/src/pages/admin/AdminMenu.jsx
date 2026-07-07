@@ -12,9 +12,13 @@ import {
   PackageCheck,
   PackageX,
 } from 'lucide-react';
+
+import CategoryFilter from '../../components/CategoryFilter';
+
 const AdminMenu = () => {
   const [items, setItems] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState('all');
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
@@ -63,6 +67,14 @@ const AdminMenu = () => {
       toast.error('Failed to load categories');
     }
   };
+
+  // 🔥 FILTERED ITEMS based on selected category
+  const filteredItems =
+    selectedCategory === 'all'
+      ? items
+      : items.filter(
+          (item) => item.category_id?.toString() === selectedCategory
+        );
 
   const resetForm = () => {
     setFormData({
@@ -220,118 +232,146 @@ const AdminMenu = () => {
   return (
     <div>
       {/* HEADER */}
-      <div className="flex justify-between items-center mb-8">
-        <h2 className="text-4xl font-bold text-slate-800">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6 sm:mb-8">
+        <h2 className="text-2xl sm:text-4xl font-bold text-slate-800">
           Menu Management
         </h2>
 
         <button
           onClick={openAdd}
-          className="flex items-center gap-2 px-6 py-3 rounded-2xl
+          className="flex items-center justify-center gap-2 px-6 py-3 rounded-2xl
                      bg-gradient-to-r from-blue-500 to-indigo-600
                      text-white font-semibold shadow-lg hover:scale-105
-                     transition-all"
+                     transition-all w-full sm:w-auto"
         >
           <Plus size={20} />
           Add Item
         </button>
       </div>
 
-      {/* GRID */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-        {items.map((item) => (
-          <motion.div
-            key={item.id}
-            whileHover={{ y: -6 }}
-            className="bg-white rounded-3xl overflow-hidden
-                       shadow-lg hover:shadow-2xl transition-all"
-          >
-            <div className="relative">
-
-              {!item.available && (
-                <div
-                  className="absolute top-3 right-3 z-10
-                 bg-red-600 text-white
-                 px-3 py-1 rounded-full
-                 text-xs font-bold shadow-lg"
-                >
-                  OUT OF STOCK
-                </div>
-              )}
-
-              <img
-                src={
-                  item.image_url ||
-                  'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=400'
-                }
-                alt={item.name}
-                className={`h-44 w-full object-cover ${!item.available
-                  ? 'opacity-60 grayscale'
-                  : ''
-                  }`}
-              />
-
-            </div>
-
-            <div className="p-4">
-              <h3 className="font-bold text-2xl text-slate-800 leading-tight">
-                {item.name}
-              </h3>
-
-              <p className="text-blue-600 font-bold text-3xl mt-2">
-                ₹{Number(item.price || 0).toFixed(2)}
-              </p>
-
-              <p className="text-gray-500 mt-3 min-h-[45px] text-base leading-relaxed">
-                {item.description || 'No description available'}
-              </p>
-
-              <span className="inline-block mt-3 px-4 py-1 rounded-full
-                               bg-slate-100 text-slate-500 text-sm">
-                {categories.find((c) => c.id == item.category_id)?.name}
-              </span>
-
-              <div className="flex items-center gap-3 mt-4">
-                <button
-                  onClick={() => openEdit(item)}
-                  className="text-blue-500 hover:text-blue-700"
-                  title="Edit"
-                >
-                  <Edit size={24} />
-                </button>
-
-                <button
-                  onClick={() => handleDelete(item.id)}
-                  className="text-red-500 hover:text-red-700"
-                  title="Delete"
-                >
-                  <Trash2 size={24} />
-                </button>
-
-                <button
-                  onClick={() => handleAvailability(item)}
-                  className={`flex items-center gap-2 px-3 py-1 rounded-full text-sm font-semibold transition ${item.available
-                    ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                    : 'bg-red-100 text-red-700 hover:bg-red-200'
-                    }`}
-                >
-                  {item.available ? (
-                    <>
-                      <PackageCheck size={16} />
-                      In Stock
-                    </>
-                  ) : (
-                    <>
-                      <PackageX size={16} />
-                      Out of Stock
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        ))}
+      {/* CATEGORY FILTER */}
+      <div className="mb-6 sm:mb-8">
+        <CategoryFilter
+          categories={categories}
+          selectedCategory={selectedCategory}
+          onSelectCategory={setSelectedCategory}
+        />
       </div>
+
+      {/* ITEM COUNT */}
+      <div className="flex items-center justify-between mb-4 sm:mb-6">
+        <h3 className="text-lg sm:text-xl font-bold text-slate-800">
+          {selectedCategory === 'all'
+            ? 'All Items'
+            : categories.find((c) => c.id.toString() === selectedCategory)?.name || 'Items'}
+        </h3>
+
+        <span className="text-sm text-gray-500">
+          {filteredItems.length} Items
+        </span>
+      </div>
+
+      {/* GRID */}
+      {filteredItems.length === 0 ? (
+        <div className="bg-white rounded-3xl py-20 text-center text-gray-400">
+          No items found in this category 😔
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          {filteredItems.map((item) => (
+            <motion.div
+              key={item.id}
+              whileHover={{ y: -6 }}
+              className="bg-white rounded-3xl overflow-hidden
+                         shadow-lg hover:shadow-2xl transition-all"
+            >
+              <div className="relative">
+
+                {!item.available && (
+                  <div
+                    className="absolute top-3 right-3 z-10
+                   bg-red-600 text-white
+                   px-3 py-1 rounded-full
+                   text-xs font-bold shadow-lg"
+                  >
+                    OUT OF STOCK
+                  </div>
+                )}
+
+                <img
+                  src={
+                    item.image_url ||
+                    'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=400'
+                  }
+                  alt={item.name}
+                  className={`h-44 w-full object-cover ${!item.available
+                    ? 'opacity-60 grayscale'
+                    : ''
+                    }`}
+                />
+
+              </div>
+
+              <div className="p-4">
+                <h3 className="font-bold text-2xl text-slate-800 leading-tight">
+                  {item.name}
+                </h3>
+
+                <p className="text-blue-600 font-bold text-3xl mt-2">
+                  ₹{Number(item.price || 0).toFixed(2)}
+                </p>
+
+                <p className="text-gray-500 mt-3 min-h-[45px] text-base leading-relaxed">
+                  {item.description || 'No description available'}
+                </p>
+
+                <span className="inline-block mt-3 px-4 py-1 rounded-full
+                                 bg-slate-100 text-slate-500 text-sm">
+                  {categories.find((c) => c.id == item.category_id)?.name}
+                </span>
+
+                <div className="flex items-center gap-3 mt-4">
+                  <button
+                    onClick={() => openEdit(item)}
+                    className="text-blue-500 hover:text-blue-700"
+                    title="Edit"
+                  >
+                    <Edit size={24} />
+                  </button>
+
+                  <button
+                    onClick={() => handleDelete(item.id)}
+                    className="text-red-500 hover:text-red-700"
+                    title="Delete"
+                  >
+                    <Trash2 size={24} />
+                  </button>
+
+                  <button
+                    onClick={() => handleAvailability(item)}
+                    className={`flex items-center gap-2 px-3 py-1 rounded-full text-sm font-semibold transition ${item.available
+                      ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                      : 'bg-red-100 text-red-700 hover:bg-red-200'
+                      }`}
+                  >
+                    {item.available ? (
+                      <>
+                        <PackageCheck size={16} />
+                        In Stock
+                      </>
+                    ) : (
+                      <>
+                        <PackageX size={16} />
+                        Out of Stock
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      )}
 
       {/* MODAL */}
       <AnimatePresence>
@@ -529,5 +569,3 @@ const AdminMenu = () => {
 };
 
 export default AdminMenu;
-
-

@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import Swal from "sweetalert2";
 import toast from "react-hot-toast";
-import { Pencil, Trash2, Plus } from "lucide-react";
+import { Pencil, Trash2, Plus, X, UploadCloud, Tag } from "lucide-react";
 
 import { categoryAPI, uploadAPI } from "../../services/api";
 
@@ -47,6 +47,15 @@ const AdminCategories = () => {
     useEffect(() => {
         fetchCategories();
     }, [fetchCategories]);
+
+    useEffect(() => {
+        const handleEsc = (e) => {
+            if (e.key === "Escape") closeModal();
+        };
+
+        window.addEventListener("keydown", handleEsc);
+        return () => window.removeEventListener("keydown", handleEsc);
+    }, []);
 
     const handleEditCategory = (category) => {
         setEditingCategory(category);
@@ -108,11 +117,7 @@ const AdminCategories = () => {
                 toast.success("Category updated successfully");
             }
 
-            setFormData({
-                name: "",
-                image: null,
-                image_url: "",
-            });
+            resetForm();
             setEditingCategory(null);
             setShowModal(false);
             fetchCategories();
@@ -136,25 +141,34 @@ const AdminCategories = () => {
 
     return (
         <div>
+            {/* MODAL */}
             {showModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-                    <div className="w-full max-w-2xl overflow-hidden rounded-3xl bg-white shadow-2xl">
-                        <div className="flex items-center justify-between bg-gradient-to-r from-blue-500 to-indigo-600 px-8 py-5">
-                            <h2 className="text-3xl font-bold text-white">
+                <div
+                    onClick={closeModal}
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+                >
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        className="w-full max-w-xl overflow-hidden rounded-3xl bg-white shadow-2xl"
+                    >
+                        <div className="flex items-center justify-between bg-gradient-to-r from-blue-500 to-indigo-600 px-6 sm:px-8 py-4 sm:py-5">
+                            <h2 className="text-xl sm:text-2xl font-bold text-white">
                                 {editingCategory ? "Edit Category" : "Add New Category"}
                             </h2>
 
                             <button
                                 onClick={closeModal}
-                                className="text-4xl text-white transition hover:rotate-90"
+                                className="hover:bg-white/20 p-2 rounded-full transition text-white"
                             >
-                                ×
+                                <X size={22} />
                             </button>
                         </div>
 
-                        <div className="space-y-5 p-8">
+                        <div className="space-y-5 p-6 sm:p-8 max-h-[75vh] overflow-y-auto">
                             <div>
-                                <label className="font-semibold text-gray-700">Category Name</label>
+                                <label className="block text-sm font-semibold text-gray-600 mb-2">
+                                    Category Name
+                                </label>
 
                                 <input
                                     type="text"
@@ -166,33 +180,31 @@ const AdminCategories = () => {
                                         })
                                     }
                                     placeholder="Enter category name"
-                                    className="mt-2 w-full rounded-2xl border border-gray-200 p-4 outline-none focus:border-blue-500"
+                                    className="w-full rounded-2xl border border-gray-200 p-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition"
                                 />
                             </div>
 
                             <div>
-                                <label className="font-semibold text-gray-700">
+                                <label className="block text-sm font-semibold text-gray-600 mb-3">
                                     Category Image
                                 </label>
 
                                 <label
                                     className="
-            mt-2 flex h-40 cursor-pointer items-center justify-center
-            rounded-2xl border-2 border-dashed border-blue-400
-            bg-blue-50 transition hover:bg-blue-100
-        "
+                                        flex flex-col items-center justify-center
+                                        h-36 sm:h-40
+                                        cursor-pointer
+                                        rounded-2xl border-2 border-dashed border-gray-300
+                                        hover:border-blue-500 transition
+                                    "
                                 >
-                                    <div className="text-center text-gray-500">
-                                        <div className="mb-2 text-4xl">📷</div>
-
-                                        <p className="font-medium">
-                                            Click to upload image
-                                        </p>
-
-                                        <p className="text-sm">
-                                            PNG, JPG, WEBP
-                                        </p>
-                                    </div>
+                                    <UploadCloud className="w-8 h-8 text-gray-400 mb-2" />
+                                    <span className="text-gray-500 text-sm font-medium">
+                                        Click to upload image
+                                    </span>
+                                    <span className="text-gray-400 text-xs mt-0.5">
+                                        PNG, JPG, WEBP
+                                    </span>
 
                                     <input
                                         type="file"
@@ -207,7 +219,6 @@ const AdminCategories = () => {
                                     />
                                 </label>
 
-                                {/* Image Preview */}
                                 {(formData.image || formData.image_url) && (
                                     <div className="mt-4 overflow-hidden rounded-2xl border border-gray-200">
                                         <img
@@ -217,17 +228,17 @@ const AdminCategories = () => {
                                                     : formData.image_url
                                             }
                                             alt="Category Preview"
-                                            className="h-52 w-full object-cover"
+                                            className="h-40 sm:h-52 w-full object-cover"
                                         />
                                     </div>
                                 )}
                             </div>
 
-
-                            <div className="flex gap-3 pt-3">
+                            <div className="flex flex-col sm:flex-row gap-3 pt-2">
                                 <button
-                                    className="flex-1 rounded-xl bg-gray-200 py-3 font-semibold"
+                                    type="button"
                                     onClick={closeModal}
+                                    className="flex-1 rounded-2xl border py-3 font-semibold text-gray-600 hover:bg-gray-50 transition"
                                 >
                                     Cancel
                                 </button>
@@ -235,7 +246,7 @@ const AdminCategories = () => {
                                 <button
                                     onClick={handleSaveCategory}
                                     disabled={uploading}
-                                    className="flex-1 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 py-3 font-semibold text-white disabled:opacity-50"
+                                    className="flex-1 rounded-2xl bg-gradient-to-r from-blue-500 to-indigo-600 py-3 font-bold text-white shadow-lg hover:shadow-xl transition disabled:opacity-50"
                                 >
                                     {uploading
                                         ? "Uploading..."
@@ -249,8 +260,16 @@ const AdminCategories = () => {
                 </div>
             )}
 
-            <div className="mb-6 flex items-center justify-between">
-                <h2 className="text-2xl font-bold">🏷 Category Management</h2>
+            {/* HEADER */}
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6 sm:mb-8">
+                <div>
+                    <h2 className="text-2xl sm:text-4xl font-bold text-slate-800">
+                        Category Management
+                    </h2>
+                    <p className="text-gray-500 mt-1 text-sm sm:text-base">
+                        Organize your menu into categories
+                    </p>
+                </div>
 
                 <button
                     onClick={() => {
@@ -258,28 +277,34 @@ const AdminCategories = () => {
                         resetForm();
                         setShowModal(true);
                     }}
-                    className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-white transition hover:bg-blue-700"
+                    className="flex items-center justify-center gap-2 px-6 py-3 rounded-2xl
+                               bg-gradient-to-r from-blue-500 to-indigo-600
+                               text-white font-semibold shadow-lg hover:scale-105
+                               transition-all w-full sm:w-auto"
                 >
-                    <Plus size={18} />
+                    <Plus size={20} />
                     Add Category
                 </button>
             </div>
 
+            {/* GRID */}
             {categories.length === 0 ? (
-                <div className="rounded-2xl bg-white p-10 text-center shadow">
-                    <p className="text-lg text-gray-500">No categories found</p>
+                <div className="bg-white rounded-3xl py-20 text-center text-gray-400">
+                    <Tag size={40} className="mx-auto mb-3 text-gray-300" />
+                    No categories found
                 </div>
             ) : (
-                <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5 sm:gap-8">
                     {categories.map((category, index) => (
                         <motion.div
                             key={category.id}
                             initial={{ opacity: 0, y: 15 }}
                             animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: index * 0.08 }}
-                            className="overflow-hidden rounded-2xl bg-white shadow-md transition-all duration-300 hover:-translate-y-2 hover:shadow-2xl"
+                            transition={{ delay: index * 0.06 }}
+                            whileHover={{ y: -6 }}
+                            className="bg-white rounded-3xl overflow-hidden shadow-lg hover:shadow-2xl transition-all"
                         >
-                            <div className="h-48 w-full bg-gray-100">
+                            <div className="h-36 sm:h-44 w-full bg-gray-100">
                                 <img
                                     src={
                                         category.image_url ||
@@ -290,53 +315,40 @@ const AdminCategories = () => {
                                 />
                             </div>
 
-                            <div className="p-5">
-                                <h3 className="text-xl font-bold text-gray-800">
+                            <div className="p-4 sm:p-5">
+                                <h3 className="font-bold text-lg sm:text-xl text-slate-800 truncate">
                                     {category.name}
                                 </h3>
 
-                                <div className="mt-2 inline-flex items-center rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700">
+                                <span className="inline-flex items-center gap-1.5 mt-2 sm:mt-3 px-3 sm:px-4 py-1 rounded-full bg-blue-50 text-blue-700 text-xs sm:text-sm font-medium">
                                     🍽 {category.total_items || 0} Menu Items
-                                </div>
+                                </span>
 
-                                <div className="mt-5 flex gap-3">
+                                <div className="flex gap-2 sm:gap-3 mt-4">
                                     <button
                                         onClick={() => handleEditCategory(category)}
-                                        className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-blue-100 py-2 font-medium text-blue-700 transition hover:bg-blue-200"
+                                        className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-blue-100 py-2 text-sm sm:text-base font-medium text-blue-700 transition hover:bg-blue-200"
                                     >
-                                        <Pencil size={16} />
+                                        <Pencil size={15} />
                                         Edit
                                     </button>
 
-                                    {
-                                        category.total_items > 0 ? (
-
-                                            <button
-                                                disabled
-                                                className="
-                flex flex-1 items-center justify-center gap-2
-                rounded-xl bg-gray-100 py-2 font-medium text-gray-400 cursor-not-allowed
-            "
-                                            >
-                                                🔒 In Use
-                                            </button>
-
-                                        ) : (
-
-                                            <button
-                                                onClick={() => handleDeleteCategory(category)}
-                                                className="
-                flex flex-1 items-center justify-center gap-2
-                rounded-xl bg-red-100 py-2 font-medium text-red-600
-                transition hover:bg-red-200
-            "
-                                            >
-                                                <Trash2 size={16} />
-                                                Delete
-                                            </button>
-
-                                        )
-                                    }
+                                    {category.total_items > 0 ? (
+                                        <button
+                                            disabled
+                                            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-gray-100 py-2 text-sm sm:text-base font-medium text-gray-400 cursor-not-allowed"
+                                        >
+                                            🔒 In Use
+                                        </button>
+                                    ) : (
+                                        <button
+                                            onClick={() => handleDeleteCategory(category)}
+                                            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-100 py-2 text-sm sm:text-base font-medium text-red-600 transition hover:bg-red-200"
+                                        >
+                                            <Trash2 size={15} />
+                                            Delete
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         </motion.div>
@@ -347,4 +359,4 @@ const AdminCategories = () => {
     );
 };
 
-export default AdminCategories;   
+export default AdminCategories;

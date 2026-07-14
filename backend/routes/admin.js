@@ -279,31 +279,67 @@ router.delete('/menu/:id', async (req, res) => {
 // ---------- Advanced Analytics ----------
 router.get('/analytics', async (req, res) => {
   try {
-    const range = req.query.range || 'today';
-    let startDate = new Date();
+    const { range, from, to } = req.query;
 
-    if (range === 'today') {
+    let startDate = new Date();
+    let endDate = new Date();
+
+    const isCustom = Boolean(from && to);
+
+    if (isCustom) {
+
+      startDate = new Date(from);
       startDate.setHours(0, 0, 0, 0);
-    } else if (range === '7days') {
-      startDate.setDate(startDate.getDate() - 6);
-    } else if (range === '30days') {
-      startDate.setDate(startDate.getDate() - 29);
+
+      endDate = new Date(to);
+      endDate.setHours(23, 59, 59, 999);
+
+      // cap custom range at ~3 months, same limit enforced on frontend
+      const diffDays = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
+
+      if (diffDays > 92) {
+        return res.status(400).json({ error: 'Date range cannot exceed 3 months' });
+      }
+
+      if (startDate > endDate) {
+        return res.status(400).json({ error: 'Start date must be before end date' });
+      }
+
+    } else {
+
+      const activeRange = range || 'today';
+
+      if (activeRange === 'today') {
+        startDate.setHours(0, 0, 0, 0);
+      } else if (activeRange === '7days') {
+        startDate.setDate(startDate.getDate() - 6);
+        startDate.setHours(0, 0, 0, 0);
+      } else if (activeRange === '30days') {
+        startDate.setDate(startDate.getDate() - 29);
+        startDate.setHours(0, 0, 0, 0);
+      }
+
+      endDate.setHours(23, 59, 59, 999);
+
     }
 
     const startISO = startDate.toISOString();
+    const endISO = endDate.toISOString();
 
-    // ---------- Orders Today ----------
+    // ---------- Orders Today (within selected range) ----------
     const { count: ordersToday } = await supabase
       .from('orders')
       .select('*', { count: 'exact', head: true })
-      .gte('created_at', startISO);
+      .gte('created_at', startISO)
+      .lte('created_at', endISO);
 
     // ---------- Revenue ----------
     const { data: revenueData } = await supabase
       .from('orders')
       .select('total_amount')
       .eq('status', 'Ready')
-      .gte('created_at', startISO);
+      .gte('created_at', startISO)
+      .lte('created_at', endISO);
 
     const totalRevenue =
       revenueData?.reduce((sum, order) => sum + Number(order.total_amount), 0) || 0;
@@ -313,16 +349,20 @@ router.get('/analytics', async (req, res) => {
       .from('orders')
       .select('*', { count: 'exact', head: true })
       .in('status', ['Pending', 'Accepted', 'Preparing'])
-      .gte('created_at', startISO);
+      .gte('created_at', startISO)
+      .lte('created_at', endISO);
 
-    // ---------- Order Items ----------
+    // ---------- Order Items (within selected range) ----------
     const { data: orderItems } = await supabase
       .from('order_items')
       .select(`
         quantity,
+        created_at,
         food_items(name, category_id)
       `)
-      .not('food_items', 'is', null);
+      .not('food_items', 'is', null)
+      .gte('created_at', startISO)
+      .lte('created_at', endISO);
 
     // ---------- Popular / Low Items ----------
     const itemMap = new Map();
@@ -374,7 +414,8 @@ router.get('/analytics', async (req, res) => {
     const { data: statusData } = await supabase
       .from('orders')
       .select('status')
-      .gte('created_at', startISO);
+      .gte('created_at', startISO)
+      .lte('created_at', endISO);
 
     const statusBreakdown = {
       Ready: 0,
@@ -391,21 +432,15 @@ router.get('/analytics', async (req, res) => {
     });
 
     // ---------- Revenue By Day ----------
-    const days =
-      range === '30days'
-        ? 30
-        : range === '7days'
-          ? 7
-          : 1;
-
+    // Build a map for every day between startDate and endDate (inclusive)
     const dateMap = new Map();
 
-    for (let i = 0; i < days; i++) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-
+    for (
+      let d = new Date(startDate);
+      d <= endDate;
+      d.setDate(d.getDate() + 1)
+    ) {
       const key = d.toISOString().split('T')[0];
-
       dateMap.set(key, 0);
     }
 
@@ -413,7 +448,8 @@ router.get('/analytics', async (req, res) => {
       .from('orders')
       .select('created_at, total_amount')
       .eq('status', 'Ready')
-      .gte('created_at', startISO);
+      .gte('created_at', startISO)
+      .lte('created_at', endISO);
 
     allOrders?.forEach(order => {
       const date = order.created_at.split('T')[0];

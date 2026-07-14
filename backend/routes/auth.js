@@ -27,7 +27,7 @@ const sendEmail = async (to, subject, html) => {
     await brevoApi.sendTransacEmail({
       sender: {
         name: "CampusCraves",
-        email: "campusCraves.app01@gmail.com",
+        email: "campuscraves.app@gmail.com",
       },
 
       to: [

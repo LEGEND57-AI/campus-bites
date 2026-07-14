@@ -179,8 +179,9 @@ export const favoriteAPI = {
 export const adminAPI = {
 
   // Analytics
-  getAnalytics: (range = 'today') =>
-    api.get(`/admin/analytics?range=${range}`),
+  getAnalytics: (params = { range: 'today' }) =>
+    api.get('/admin/analytics', { params }),
+
 
 
   // Orders

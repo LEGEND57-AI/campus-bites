@@ -7,17 +7,42 @@ export const generateDailyToken = async () => {
         .toISOString()
         .split("T")[0];
 
-    // 🔥 Atomic increment via Postgres function — no race condition possible
+
+    // Aaj ka sabse bada token find karo
     const { data, error } = await supabase
-        .rpc("get_next_token", { p_date: today });
+        .from("orders")
+        .select("token_number")
+        .eq("token_date", today)
+        .order("token_number", {
+            ascending: false
+        })
+        .limit(1);
+
 
     if (error) {
         throw error;
     }
 
+
+    // Agar aaj koi order nahi hai
+    if (!data || data.length === 0) {
+
+        return {
+            token_number: 1,
+            token_date: today
+        };
+
+    }
+
+
+    // Last token + 1
     return {
-        token_number: data,
+
+        token_number:
+            data[0].token_number + 1,
+
         token_date: today
+
     };
 
 };

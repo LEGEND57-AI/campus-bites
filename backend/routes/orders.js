@@ -123,7 +123,7 @@ router.post('/', async (req, res) => {
     // Create CASH order
     const { data: order, error: orderError } =
       await supabase
-        .from('orders')
+        .from("orders")
         .insert([
           {
             user_id: req.user.id,
@@ -133,13 +133,22 @@ router.post('/', async (req, res) => {
             payment_status: "PENDING",
             token_number,
             token_date,
-          }
+          },
         ])
         .select()
         .single();
 
+    if (orderError) {
 
-    if (orderError) throw orderError;
+      // Unique token conflict
+      if (orderError.code === "23505") {
+        return res.status(409).json({
+          error: "Token conflict. Please place your order again.",
+        });
+      }
+
+      throw orderError;
+    }
 
 
     // Add order items

@@ -128,6 +128,12 @@ export const orderAPI = {
   getOrders: () =>
     api.get('/orders'),
 
+  getOrder: (id) =>
+    api.get(`/orders/${id}`),
+
+  cancelOrder: (id) =>
+    api.patch(`/orders/${id}/cancel`),
+
 };
 
 
@@ -178,16 +184,14 @@ export const favoriteAPI = {
 
 export const adminAPI = {
 
-  // Analytics
-  getAnalytics: (params = { range: 'today' }) =>
-    api.get('/admin/analytics', { params }),
-
-
-
   // Orders
   getOrders: () =>
     api.get('/admin/orders'),
 
+  getHistory: (params) =>
+    api.get("/admin/history", {
+      params,
+    }),
 
   updateOrderStatus: (id, status) =>
     api.patch(`/admin/orders/${id}/status`, {
@@ -222,6 +226,28 @@ export const adminAPI = {
     api.patch(`/admin/menu/${id}/availability`, {
       available,
     }),
+
+};
+
+// ================= ANALYTICS =================
+
+export const analyticsAPI = {
+
+  getDashboard: (params) =>
+    api.get("/analytics/dashboard", {
+      params,
+    }),
+
+  getDashboardSummary: () =>
+    api.get("/analytics/dashboard-summary"),
+
+  getRevenue: (params) =>
+    api.get("/analytics/revenue", {
+      params,
+    }),
+
+  getOrders: () =>
+    api.get("/analytics/orders"),
 
 };
 

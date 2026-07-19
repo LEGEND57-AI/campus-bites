@@ -40,7 +40,6 @@ const sendEmail = async (to, subject, html) => {
       htmlContent: html,
     });
 
-    console.log("✅ Email sent");
   } catch (error) {
     console.error("❌ Brevo API Error:", error);
     throw new Error("Failed to send email");
@@ -123,7 +122,6 @@ router.post("/register", otpLimiter, async (req, res) => {
   email = email.trim().toLowerCase();
 
   try {
-    console.log("🔥 Register API hit");
 
     const { data: existingUser, error: existingError } = await supabase
       .from("users")

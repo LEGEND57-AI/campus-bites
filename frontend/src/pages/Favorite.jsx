@@ -11,9 +11,9 @@ import { useFavorite } from "../context/FavoriteContext";
 const Favorite = () => {
     const [activeCategory, setActiveCategory] = useState("All");
     const { addToCart } = useCart();
-    const { favorites } = useFavorite();
+    const { favorites, loading } = useFavorite();
 
-
+    
     const categories = [
         "All",
         ...new Set(
@@ -59,7 +59,7 @@ const Favorite = () => {
 
                             </div>
 
-                            
+
                         </div>
 
 
@@ -99,10 +99,59 @@ const Favorite = () => {
 
                         </div>
 
-                        <FavoritesGrid
-                            items={filteredFavorites}
-                            onAddToCart={addToCart}
-                        />
+                        {loading ? (
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
+
+                                {[...Array(6)].map((_, index) => (
+
+                                    <div
+                                        key={index}
+                                        className="
+          bg-white
+          rounded-3xl
+          border
+          border-slate-100
+          overflow-hidden
+          shadow-sm
+          animate-pulse
+        "
+                                    >
+
+                                        <div className="h-48 bg-slate-200" />
+
+                                        <div className="p-5">
+
+                                            <div className="h-6 w-2/3 bg-slate-200 rounded mb-3" />
+
+                                            <div className="h-4 w-full bg-slate-200 rounded mb-2" />
+
+                                            <div className="h-4 w-3/4 bg-slate-200 rounded mb-5" />
+
+                                            <div className="flex justify-between items-center">
+
+                                                <div className="h-8 w-20 bg-slate-200 rounded" />
+
+                                                <div className="h-10 w-28 bg-slate-200 rounded-2xl" />
+
+                                            </div>
+
+                                        </div>
+
+                                    </div>
+
+                                ))}
+
+                            </div>
+
+                        ) : (
+
+                            <FavoritesGrid
+                                items={filteredFavorites}
+                                onAddToCart={addToCart}
+                            />
+
+                        )}
 
                     </main>
 

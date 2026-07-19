@@ -6,13 +6,13 @@ import AdminMobileBottomNav from "../../components/admin/AdminMobileBottomNav";
 
 const AdminLayout = () => {
   return (
-    <div className="min-h-screen bg-[#F3F6FB] p-3 lg:p-5">
+    <div className="min-h-screen bg-[#F3F6FB] p-0 lg:p-5">
       <div
         className="
           bg-white
           rounded-[32px]
           overflow-hidden
-          min-h-[calc(100vh-24px)]
+          lg:min-h-[calc(100vh-40px)] min-h-screen
           shadow-[0_15px_40px_rgba(0,0,0,0.08)]
           flex
         "

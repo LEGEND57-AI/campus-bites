@@ -4,9 +4,11 @@ import {
     Plus,
     Clock3,
     CheckCircle2,
-    PackageCheck,
+    XCircle,
+    History,
     ArrowRight,
 } from "lucide-react";
+import { supabase } from "../lib/supabaseClient";
 
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
@@ -29,7 +31,35 @@ const Orders = () => {
     const [activeTab, setActiveTab] = useState("all");
 
     useEffect(() => {
+
         fetchOrders();
+
+        const channel = supabase
+            .channel("orders-realtime")
+            .on(
+                "postgres_changes",
+                {
+                    event: "*",
+                    schema: "public",
+                    table: "orders",
+                },
+                (payload) => {
+                    fetchOrders();
+                }
+            )
+
+            .subscribe((status) => {
+            });
+
+        const interval = setInterval(() => {
+            fetchOrders();
+        }, 5000);
+
+        return () => {
+            supabase.removeChannel(channel);
+            clearInterval(interval);
+        };
+
     }, []);
 
     const fetchOrders = async () => {
@@ -52,13 +82,39 @@ const Orders = () => {
 
     const filteredOrders = orders.filter((order) => {
 
-        if (activeTab === "all") return true;
-        if (activeTab === "pending") return order.status === "Pending";
-        if (activeTab === "accepted") return order.status === "Accepted";
-        if (activeTab === "ready") return order.status === "Ready";
+        if (activeTab === "all") {
+            return (
+                order.status === "Pending" ||
+                order.status === "Accepted" ||
+                order.status === "Preparing" ||
+                order.status === "Ready"
+            );
+        }
+
+        if (activeTab === "past") {
+            return (
+                order.status === "Completed" ||
+                order.status === "Rejected"
+            );
+        }
 
         return true;
     });
+
+    const activeOrders = orders.filter((order) =>
+        ["Pending", "Accepted", "Preparing", "Ready"].includes(order.status)
+    );
+
+    const recentOrders = orders
+        .filter((order) =>
+            ["Completed", "Rejected"].includes(order.status)
+        )
+        .sort((a, b) =>
+            new Date(b.created_at) - new Date(a.created_at)
+        );
+
+    const hasActiveOrders = activeOrders.length > 0;
+    const hasRecentOrders = recentOrders.length > 0;
 
     const getStatusColor = (status) => {
 
@@ -213,9 +269,9 @@ const Orders = () => {
                                 All Orders
                             </button>
 
-                            {/* PENDING TAB */}
+                            {/* PAST ORDERS TAB */}
                             <button
-                                onClick={() => setActiveTab("pending")}
+                                onClick={() => setActiveTab("past")}
                                 className={`
     h-14
     rounded-2xl
@@ -226,60 +282,14 @@ const Orders = () => {
     gap-2
     transition-all
 
-    ${activeTab === "pending"
-                                        ? "bg-orange-500 text-white"
-                                        : "bg-gray-50 text-gray-600"
-                                    }
-  `}
-                            >
-                                <Clock3 size={18} />
-                                Pending
-                            </button>
-
-                            {/* ACCEPTED TAB */}
-                            <button
-                                onClick={() => setActiveTab("accepted")}
-                                className={`
-    h-14
-    rounded-2xl
-    font-medium
-    flex
-    items-center
-    justify-center
-    gap-2
-    transition-all
-
-    ${activeTab === "accepted"
-                                        ? "bg-blue-500 text-white"
+    ${activeTab === "past"
+                                        ? "bg-emerald-500 text-white"
                                         : "bg-gray-50 text-gray-600"
                                     }
   `}
                             >
                                 <CheckCircle2 size={18} />
-                                Accepted
-                            </button>
-
-                            {/* READY TAB */}
-                            <button
-                                onClick={() => setActiveTab("ready")}
-                                className={`
-    h-14
-    rounded-2xl
-    font-medium
-    flex
-    items-center
-    justify-center
-    gap-2
-    transition-all
-
-    ${activeTab === "ready"
-                                        ? "bg-green-500 text-white"
-                                        : "bg-gray-50 text-gray-600"
-                                    }
-  `}
-                            >
-                                <PackageCheck size={18} />
-                                Ready
+                                Past Orders
                             </button>
 
                         </div>
@@ -289,15 +299,55 @@ const Orders = () => {
                         {
                             loading ? (
 
-                                <div className="
-      py-24
-      text-center
-      text-gray-500
-    ">
-                                    Loading Orders...
+                                <div className="space-y-5">
+
+                                    {[1, 2, 3].map((item) => (
+
+                                        <div
+                                            key={item}
+                                            className="
+          bg-white
+          rounded-[24px]
+          border
+          border-slate-100
+          p-6
+          animate-pulse
+        "
+                                        >
+
+                                            <div className="flex gap-5">
+
+                                                <div className="w-24 h-24 rounded-2xl bg-slate-200" />
+
+                                                <div className="flex-1">
+
+                                                    <div className="h-6 w-44 bg-slate-200 rounded mb-3" />
+                                                    <div className="h-4 w-32 bg-slate-200 rounded mb-5" />
+                                                    <div className="h-5 w-72 bg-slate-200 rounded mb-3" />
+                                                    <div className="h-4 w-36 bg-slate-200 rounded" />
+
+                                                </div>
+
+                                                <div className="w-44">
+
+                                                    <div className="h-8 w-28 bg-slate-200 rounded-full ml-auto mb-5" />
+                                                    <div className="h-4 w-24 bg-slate-200 rounded ml-auto mb-2" />
+                                                    <div className="h-5 w-36 bg-slate-200 rounded ml-auto" />
+
+                                                </div>
+
+                                            </div>
+
+                                        </div>
+
+                                    ))}
+
                                 </div>
 
-                            ) : filteredOrders.length === 0 ? (
+                            ) : (activeTab === "all"
+                                ? activeOrders.length === 0 && recentOrders.length === 0
+                                : filteredOrders.length === 0
+                            ) ? (
 
                                 <div className="
       bg-white
@@ -333,21 +383,145 @@ const Orders = () => {
 
                             ) : (
 
-                                <div className="space-y-5">
+                                <div className="space-y-10">
 
-                                    {filteredOrders.map((order) => (
-                                        <React.Fragment key={order.id}>
+                                    {activeTab === "all" && (
+                                        <>
 
-                                            <div className="hidden lg:block">
-                                                <OrderDesktopCard order={order} />
+                                            {/* ACTIVE ORDERS */}
+
+                                            {hasActiveOrders && (
+
+                                                <section>
+
+                                                    <div className="mb-5">
+
+                                                        <h2 className="text-2xl font-bold text-slate-900">
+                                                            Active Orders
+                                                        </h2>
+
+                                                        <p className="text-sm text-slate-500 mt-1">
+                                                            {activeOrders.length} orders in progress
+                                                        </p>
+
+                                                    </div>
+
+                                                    <div className="space-y-5">
+
+                                                        {activeOrders.map((order) => (
+
+                                                            <React.Fragment key={order.id}>
+
+                                                                <div className="hidden lg:block">
+                                                                    <OrderDesktopCard order={order} />
+                                                                </div>
+
+                                                                <div className="lg:hidden">
+                                                                    <OrderMobileCard order={order} />
+                                                                </div>
+
+                                                            </React.Fragment>
+
+                                                        ))}
+
+                                                    </div>
+
+                                                </section>
+
+                                            )}
+
+                                            {/* Divider */}
+
+                                            {hasActiveOrders && hasRecentOrders && (
+                                                <div className="my-8 border-t border-slate-200" />
+                                            )}
+
+
+                                            {/* RECENT ORDERS */}
+
+                                            {hasRecentOrders && (
+
+                                                <section>
+
+                                                    <div className="mb-5">
+
+                                                        <h2 className="text-2xl font-bold text-slate-900">
+                                                            Recent Activity
+                                                        </h2>
+
+                                                        <p className="text-sm text-slate-500 mt-1">
+                                                            Showing your latest 5 completed or cancelled orders
+                                                        </p>
+
+                                                    </div>
+
+                                                    <div className="space-y-5">
+
+                                                        {recentOrders.slice(0, 5).map((order) => (
+
+                                                            <React.Fragment key={order.id}>
+
+                                                                <div className="hidden lg:block">
+                                                                    <OrderDesktopCard order={order} />
+                                                                </div>
+
+                                                                <div className="lg:hidden">
+                                                                    <OrderMobileCard order={order} />
+                                                                </div>
+
+                                                            </React.Fragment>
+
+                                                        ))}
+
+                                                    </div>
+
+                                                </section>
+
+                                            )}
+
+                                        </>
+                                    )}
+
+                                    {activeTab === "past" && (
+
+                                        <>
+
+                                            <div className="mb-5">
+
+                                                <h2 className="text-2xl font-bold text-slate-900">
+                                                    Past Orders
+                                                </h2>
+
+                                                <p className="text-sm text-slate-500 mt-1">
+                                                    Complete order history
+                                                </p>
+
                                             </div>
 
-                                            <div className="lg:hidden">
-                                                <OrderMobileCard order={order} />
+                                            <div className="space-y-5">
+
+                                                {filteredOrders.map((order) => (
+
+                                                    <React.Fragment key={order.id}>
+
+                                                        <div className="hidden lg:block">
+                                                            <OrderDesktopCard order={order} />
+                                                        </div>
+
+                                                        <div className="lg:hidden">
+                                                            <OrderMobileCard order={order} />
+                                                        </div>
+
+                                                    </React.Fragment>
+
+                                                ))}
+
                                             </div>
 
-                                        </React.Fragment>
-                                    ))}
+                                        </>
+
+                                    )}
+
                                 </div>
 
                             )

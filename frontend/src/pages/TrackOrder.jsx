@@ -14,6 +14,8 @@ import {
     Store,
     Sparkles,
 } from "lucide-react";
+import { ShoppingBag } from "lucide-react";
+
 
 import { motion } from "framer-motion";
 import { useNavigate, useParams } from "react-router-dom";
@@ -37,6 +39,8 @@ const TrackOrder = () => {
 
     useEffect(() => {
 
+        window.scrollTo(0, 0);
+
         fetchOrder();
 
         const channel = supabase
@@ -50,7 +54,6 @@ const TrackOrder = () => {
                     filter: `id=eq.${id}`,
                 },
                 () => {
-                    console.log("Realtime Order Updated");
                     fetchOrder();
                 }
             )
@@ -71,21 +74,9 @@ const TrackOrder = () => {
 
         try {
 
-            const { data } = await orderAPI.getOrders();
+            const { data } = await orderAPI.getOrder(id);
 
-            const selectedOrder = data.find(
-                (item) => item.id === Number(id)
-            );
-
-            if (!selectedOrder) {
-
-                toast.error("Order not found");
-                navigate("/orders");
-                return;
-
-            }
-
-            setOrder(selectedOrder);
+            setOrder(data);
 
         } catch (err) {
 
@@ -114,6 +105,9 @@ const TrackOrder = () => {
     };
 
     const currentStep = statusIndex[order?.status] ?? 0;
+    const isRejected =
+        order?.status === "Rejected" ||
+        order?.status === "Cancelled";
 
     const statusDetails = {
         Pending: {
@@ -141,8 +135,9 @@ const TrackOrder = () => {
         },
 
         Completed: {
-            title: "Order Completed",
-            message: "Enjoy your meal! Thank you for ordering with CampusCraves.",
+            title: "Order Collected 🎉",
+            message:
+                "Your order has been successfully collected from the counter. Enjoy your meal, and thank you for choosing CampusCraves!",
             icon: CheckCircle2,
         },
 
@@ -185,15 +180,61 @@ const TrackOrder = () => {
             active: currentStep >= 3,
         },
 
+        {
+            title: "Completed",
+            icon: <CheckCircle2 size={18} />,
+            active: currentStep >= 4,
+        },
+
     ];
 
     if (loading) {
 
         return (
 
-            <div className="min-h-screen flex items-center justify-center">
+            <div className="min-h-screen bg-[#F3F6FB] lg:p-5 animate-pulse">
 
-                Loading...
+                <div className="bg-white min-h-screen lg:min-h-[calc(100vh-40px)] lg:rounded-[34px] flex">
+
+                    <Sidebar />
+
+                    <div className="flex-1">
+
+                        <DashboardHeader />
+
+                        <main className="px-4 lg:px-8 py-6">
+
+                            {/* Hero Skeleton */}
+
+                            <div className="rounded-[32px] bg-slate-200 h-[230px]" />
+
+                            {/* Timeline Skeleton */}
+
+                            <div className="mt-8 rounded-[30px] bg-white border border-slate-100 p-6">
+
+                                <div className="h-8 w-60 bg-slate-200 rounded mb-8" />
+
+                                <div className="h-24 bg-slate-200 rounded-2xl" />
+
+                                <div className="mt-8 h-24 bg-slate-200 rounded-3xl" />
+
+                            </div>
+
+                            {/* Bottom Cards */}
+
+                            <div className="grid lg:grid-cols-2 gap-6 mt-8">
+
+                                <div className="bg-white rounded-[30px] border border-slate-100 p-7 h-[340px]" />
+
+                                <div className="bg-white rounded-[30px] border border-slate-100 p-7 h-[340px]" />
+
+                            </div>
+
+                        </main>
+
+                    </div>
+
+                </div>
 
             </div>
 
@@ -234,18 +275,18 @@ const TrackOrder = () => {
 
                             animate={{ opacity: 1, y: 0 }}
 
-                            className="
-            relative
-            overflow-hidden
-            rounded-[32px]
-            bg-gradient-to-br
-            from-blue-600
-            via-blue-500
-            to-cyan-500
-            p-6
-            lg:p-8
-            text-white
-          "
+                            className={`
+relative
+overflow-hidden
+rounded-[32px]
+p-6
+lg:p-8
+text-white
+${isRejected
+                                    ? "bg-gradient-to-br from-red-600 via-red-500 to-rose-500"
+                                    : "bg-gradient-to-br from-blue-600 via-blue-500 to-cyan-500"
+                                }
+`}
 
                         >
 
@@ -363,43 +404,40 @@ const TrackOrder = () => {
                     "
                                             >
 
-                                                <p className="text-xs text-blue-100">
-
-                                                    Token
-
+                                                <p className="text-xs text-red-100">
+                                                    {isRejected ? "Cancelled At" : "Token"}
                                                 </p>
 
                                                 <h2 className="text-2xl font-bold">
-
-                                                    #{order.token_number}
-
+                                                    {isRejected
+                                                        ? new Date(order.created_at).toLocaleTimeString("en-IN", {
+                                                            hour: "2-digit",
+                                                            minute: "2-digit",
+                                                        })
+                                                        : `#${order.token_number}`}
                                                 </h2>
 
                                             </div>
 
-                                            <div
-                                                className="
-                      bg-white/15
-                      backdrop-blur
-                      rounded-2xl
-                      px-4
-                      py-3
-                    "
-                                            >
+                                            {!isRejected && (
+                                                <div
+                                                    className="
+      bg-white/15
+      backdrop-blur
+      rounded-2xl
+      px-4
+      py-3
+    "
+                                                >
+                                                    <p className="text-xs text-blue-100">
+                                                        ETA
+                                                    </p>
 
-                                                <p className="text-xs text-blue-100">
-
-                                                    ETA
-
-                                                </p>
-
-                                                <h2 className="text-2xl font-bold">
-
-                                                    15 min
-
-                                                </h2>
-
-                                            </div>
+                                                    <h2 className="text-2xl font-bold">
+                                                        15 min
+                                                    </h2>
+                                                </div>
+                                            )}
 
                                         </div>
 
@@ -413,15 +451,18 @@ const TrackOrder = () => {
 
                         </motion.div>
 
+
                         {/* ============================
                 LIVE ORDER TRACKING
           ============================ */}
 
-                        <motion.div
-                            initial={{ opacity: 0, y: 25 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: .2 }}
-                            className="
+                        {!isRejected && (
+
+                            <motion.div
+                                initial={{ opacity: 0, y: 25 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: .2 }}
+                                className="
               mt-8
               bg-white
               rounded-[30px]
@@ -431,30 +472,30 @@ const TrackOrder = () => {
               p-6
               lg:p-8
             "
-                        >
+                            >
 
-                            <div className="flex items-center justify-between">
+                                <div className="flex items-center justify-between">
 
-                                <div>
+                                    <div>
 
-                                    <h2
-                                        className="
+                                        <h2
+                                            className="
                     text-2xl
                     font-bold
                     text-slate-900
                   "
-                                    >
-                                        Live Order Tracking
-                                    </h2>
+                                        >
+                                            Live Order Tracking
+                                        </h2>
 
-                                    <p className="text-slate-500 mt-1">
-                                        Your meal is being prepared 🍔
-                                    </p>
+                                        <p className="text-slate-500 mt-1">
+                                            Your meal is being prepared 🍔
+                                        </p>
 
-                                </div>
+                                    </div>
 
-                                <div
-                                    className="
+                                    <div
+                                        className="
                   hidden
                   lg:flex
                   items-center
@@ -462,32 +503,32 @@ const TrackOrder = () => {
                   text-blue-600
                   font-semibold
                 "
-                                >
+                                    >
 
-                                    <Clock3 size={18} />
+                                        <Clock3 size={18} />
 
-                                    Estimated 15 mins
+                                        Estimated 15 mins
+
+                                    </div>
 
                                 </div>
 
-                            </div>
 
+                                {/* Timeline */}
 
-                            {/* Timeline */}
-
-                            <div
-                                className="
+                                <div
+                                    className="
                 relative
                 mt-14
                 flex
                 justify-between
               "
-                            >
+                                >
 
-                                {/* Blue Line */}
+                                    {/* Blue Line */}
 
-                                <div
-                                    className="
+                                    <div
+                                        className="
                   absolute
                   left-0
                   right-0
@@ -496,10 +537,10 @@ const TrackOrder = () => {
                   rounded-full
                   bg-slate-200
                 "
-                                />
+                                    />
 
-                                <div
-                                    className="
+                                    <div
+                                        className="
                   absolute
                   left-0
                   top-5
@@ -509,27 +550,29 @@ const TrackOrder = () => {
                   from-blue-600
                   to-cyan-500
                 "
-                                    style={{
-                                        width:
-                                            currentStep === 0
-                                                ? "12%"
-                                                : currentStep === 1
-                                                    ? "38%"
-                                                    : currentStep === 2
-                                                        ? "68%"
-                                                        : currentStep >= 3
-                                                            ? "100%"
-                                                            : "0%",
-                                    }}
-                                />
+                                        style={{
+                                            width:
+                                                currentStep === 0
+                                                    ? "10%"
+                                                    : currentStep === 1
+                                                        ? "30%"
+                                                        : currentStep === 2
+                                                            ? "55%"
+                                                            : currentStep === 3
+                                                                ? "80%"
+                                                                : currentStep >= 4
+                                                                    ? "100%"
+                                                                    : "0%",
+                                        }}
+                                    />
 
 
 
-                                {steps.map((step, index) => (
+                                    {steps.map((step, index) => (
 
-                                    <div
-                                        key={index}
-                                        className="
+                                        <div
+                                            key={index}
+                                            className="
                     relative
                     z-10
                     flex
@@ -537,10 +580,10 @@ const TrackOrder = () => {
                     items-center
                     w-full
                   "
-                                    >
+                                        >
 
-                                        <div
-                                            className={`
+                                            <div
+                                                className={`
                       w-11
                       h-11
                       rounded-full
@@ -551,46 +594,46 @@ const TrackOrder = () => {
                       duration-300
 
                       ${step.active
-                                                    ? "bg-blue-600 text-white shadow-xl shadow-blue-200"
-                                                    : "bg-slate-200 text-slate-500"
-                                                }
+                                                        ? "bg-blue-600 text-white shadow-xl shadow-blue-200"
+                                                        : "bg-slate-200 text-slate-500"
+                                                    }
 
                     `}
-                                        >
+                                            >
 
-                                            {step.icon}
+                                                {step.icon}
 
-                                        </div>
+                                            </div>
 
-                                        <h4
-                                            className={`
+                                            <h4
+                                                className={`
                       mt-4
                       text-sm
                       font-semibold
 
                       ${step.active
-                                                    ? "text-blue-600"
-                                                    : "text-slate-500"
-                                                }
+                                                        ? "text-blue-600"
+                                                        : "text-slate-500"
+                                                    }
 
                     `}
-                                        >
+                                            >
 
-                                            {step.title}
+                                                {step.title}
 
-                                        </h4>
+                                            </h4>
 
-                                    </div>
+                                        </div>
 
-                                ))}
+                                    ))}
 
-                            </div>
+                                </div>
 
 
-                            {/* Current Status */}
+                                {/* Current Status */}
 
-                            <div
-                                className="
+                                <div
+                                    className="
                 mt-10
                 rounded-3xl
                 bg-blue-50
@@ -598,12 +641,12 @@ const TrackOrder = () => {
                 border-blue-100
                 p-6
               "
-                            >
+                                >
 
-                                <div className="flex items-center gap-4">
+                                    <div className="flex items-center gap-4">
 
-                                    <div
-                                        className="
+                                        <div
+                                            className="
                     w-14
                     h-14
                     rounded-2xl
@@ -613,40 +656,80 @@ const TrackOrder = () => {
                     items-center
                     justify-center
                   "
-                                    >
+                                        >
 
-                                        <StatusIcon size={24} />
+                                            <StatusIcon size={24} />
 
-                                    </div>
+                                        </div>
 
-                                    <div>
+                                        <div>
 
-                                        <h3
-                                            className="
+                                            <h3
+                                                className="
       text-xl
       font-bold
       text-slate-900
     "
-                                        >
-                                            {currentStatus.title}
-                                        </h3>
+                                            >
+                                                {currentStatus.title}
+                                            </h3>
 
-                                        <p
-                                            className="
+                                            <p
+                                                className="
       text-slate-500
       mt-1
     "
-                                        >
-                                            {currentStatus.message}
-                                        </p>
+                                            >
+                                                {currentStatus.message}
+                                            </p>
+
+                                        </div>
 
                                     </div>
 
                                 </div>
 
-                            </div>
+                            </motion.div>
 
-                        </motion.div>
+                        )}
+
+                        {isRejected && (
+                            <motion.div
+                                initial={{ opacity: 0, y: 25 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: 0.2 }}
+                                className="
+mt-8
+bg-red-50
+border
+border-red-200
+rounded-3xl
+p-6
+"
+                            >
+                                <div className="flex items-center gap-4">
+                                    <div className="w-14 h-14 rounded-2xl bg-red-100 flex items-center justify-center text-3xl">
+                                        ❌
+                                    </div>
+
+                                    <div className="text-left">
+                                        <h2 className="text-2xl font-bold text-red-600">
+                                            Order Cancelled
+                                        </h2>
+
+                                        <p className="text-slate-500 mt-1">
+                                            This order has been cancelled.
+                                        </p>
+
+                                        <p className="mt-2 text-sm font-medium text-red-600">
+                                            Reason: {order.cancel_reason || "Cancelled by Admin"}
+                                        </p>
+                                    </div>
+                                </div>
+
+
+                            </motion.div>
+                        )}
 
                         {/* ==========================================
                     ORDER DETAILS
@@ -814,31 +897,33 @@ const TrackOrder = () => {
                                         </span>
 
                                         <span
-                                            className="
-                      text-green-600
-                      font-semibold
-                    "
+                                            className={`font-semibold ${order.payment_status === "PAID"
+                                                ? "text-green-600"
+                                                : order.payment_status === "PENDING"
+                                                    ? "text-yellow-600"
+                                                    : "text-red-600"
+                                                }`}
                                         >
-
-                                            {order.payment_status}
-
+                                            {order.payment_status === "CANCELLED"
+                                                ? "FAILED"
+                                                : order.payment_status}
                                         </span>
 
                                     </div>
 
-                                    <div className="flex justify-between">
+                                    {!isRejected && (
+                                        <div className="flex justify-between">
 
-                                        <span className="text-slate-500">
-                                            Token Number
-                                        </span>
+                                            <span className="text-slate-500">
+                                                Token Number
+                                            </span>
 
-                                        <span className="font-bold">
+                                            <span className="font-bold">
+                                                #{order.token_number}
+                                            </span>
 
-                                            #{order.token_number}
-
-                                        </span>
-
-                                    </div>
+                                        </div>
+                                    )}
 
                                     <div className="flex justify-between">
 
@@ -885,74 +970,68 @@ const TrackOrder = () => {
 
                                 {/* Pickup */}
 
-                                <div
-                                    className="
-                  mt-8
-                  rounded-3xl
-                  bg-slate-50
-                  p-5
+                                {!isRejected && (
+                                    <div
+                                        className="
+          mt-8
+          rounded-3xl
+          bg-slate-50
+          p-5
+        "
+                                    >
+
+                                        <div className="flex gap-4">
+
+                                            <div
+                                                className="
+                  w-12
+                  h-12
+                  rounded-2xl
+                  bg-blue-100
+                  text-blue-600
+                  flex
+                  items-center
+                  justify-center
                 "
-                                >
+                                            >
+                                                <Store size={22} />
+                                            </div>
 
-                                    <div className="flex gap-4">
+                                            <div>
 
-                                        <div
-                                            className="
-                      w-12
-                      h-12
-                      rounded-2xl
-                      bg-blue-100
-                      text-blue-600
-                      flex
-                      items-center
-                      justify-center
+                                                <h4
+                                                    className="
+                      font-bold
+                      text-slate-900
                     "
-                                        >
+                                                >
+                                                    Pickup Location
+                                                </h4>
 
-                                            <Store size={22} />
+                                                <p
+                                                    className="
+                      text-slate-500
+                      mt-1
+                    "
+                                                >
+                                                    Main Cafeteria
+                                                </p>
 
-                                        </div>
+                                                <p
+                                                    className="
+                      text-sm
+                      text-slate-400
+                    "
+                                                >
+                                                    Ground Floor • Food Court
+                                                </p>
 
-                                        <div>
-
-                                            <h4
-                                                className="
-                        font-bold
-                        text-slate-900
-                      "
-                                            >
-
-                                                Pickup Location
-
-                                            </h4>
-
-                                            <p
-                                                className="
-                        text-slate-500
-                        mt-1
-                      "
-                                            >
-
-                                                Main Cafeteria
-
-                                            </p>
-
-                                            <p
-                                                className="
-                        text-sm
-                        text-slate-400
-                      "
-                                            >
-
-                                                Ground Floor • Food Court
-
-                                            </p>
+                                            </div>
 
                                         </div>
 
                                     </div>
-
-                                </div>
+                                )}
 
                             </div>
 
@@ -966,12 +1045,12 @@ const TrackOrder = () => {
 
                         <div
                             className="
-              mt-8
-              flex
-              flex-col
-              lg:flex-row
-              gap-4
-            "
+      mt-8
+      grid
+      grid-cols-1
+      lg:grid-cols-3
+      gap-4
+    "
                         >
 
                             <button
@@ -979,21 +1058,24 @@ const TrackOrder = () => {
                                 onClick={() => downloadReceipt(order)}
 
                                 className="
-      flex-1
-      h-14
-      rounded-2xl
-      bg-white
-      border
-      border-slate-200
-      font-semibold
-      text-slate-700
-      hover:bg-slate-50
-      transition
-      flex
-      items-center
-      justify-center
-      gap-2
-    "
+order-3 lg:order-1
+h-14
+rounded-2xl
+bg-white
+border
+border-slate-200
+text-slate-700
+font-semibold
+hover:border-blue-300
+hover:bg-blue-50
+hover:text-blue-700
+transition-all
+duration-300
+flex
+items-center
+justify-center
+gap-2
+"
                             >
 
                                 <Receipt size={18} />
@@ -1009,42 +1091,64 @@ const TrackOrder = () => {
                                 onClick={() => navigate("/orders")}
 
                                 className="
-                flex-1
-                h-14
-                rounded-2xl
-                bg-slate-100
-                font-semibold
-                text-slate-700
-                hover:bg-slate-200
-                transition
-              "
+order-2
+h-14
+rounded-2xl
+bg-slate-100
+border
+border-slate-200
+text-slate-700
+font-semibold
+hover:bg-slate-200
+hover:border-slate-300
+transition-all
+duration-300
+flex
+items-center
+justify-center
+gap-2
+"
                             >
 
-                                Back to Orders
+                                <ArrowLeft size={18} />
+
+                                <span>Back to Orders</span>
 
                             </button>
 
 
 
-                            <button
+                            {(order.status === "Completed" || isRejected) && (
+                                <button
+                                    onClick={() => navigate("/menu")}
+                                    className="
+order-1 lg:order-3
+h-14
+rounded-2xl
+bg-gradient-to-r
+from-blue-600
+to-blue-500
+text-white
+font-bold
+shadow-lg
+shadow-blue-500/30
+hover:shadow-xl
+hover:shadow-blue-500/40
+hover:-translate-y-0.5
+active:scale-[0.98]
+transition-all
+duration-300
+flex
+items-center
+justify-center
+gap-2
+"
+                                >
+                                    <ShoppingBag size={18} />
 
-                                onClick={() => navigate("/menu")}
-
-                                className="
-                flex-1
-                h-14
-                rounded-2xl
-                bg-blue-600
-                hover:bg-blue-700
-                text-white
-                font-bold
-                transition
-              "
-                            >
-
-                                Order Again
-
-                            </button>
+                                    <span>Order Again</span>
+                                </button>
+                            )}
 
                         </div>
 

@@ -1,20 +1,47 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   ArrowRight,
   MapPin,
   MoreVertical,
   Receipt,
   RotateCcw,
+  CheckCircle2,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useCart } from "../../context/CartContext";
 import { downloadReceipt } from "../../utils/downloadReceipt";
+import { orderAPI } from "../../services/api";
 
 const OrderDesktopCard = ({ order }) => {
 
   const navigate = useNavigate();
   const { reorderItems } = useCart();
   const [showMenu, setShowMenu] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (
+        menuRef.current &&
+        !menuRef.current.contains(event.target)
+      ) {
+        setShowMenu(false);
+      }
+    };
+
+    document.addEventListener(
+      "mousedown",
+      handleClickOutside
+    );
+
+    return () => {
+      document.removeEventListener(
+        "mousedown",
+        handleClickOutside
+      );
+    };
+  }, []);
 
   const getStatusColor = (status) => {
     switch (status?.toLowerCase()) {
@@ -29,12 +56,12 @@ const OrderDesktopCard = ({ order }) => {
         return "bg-indigo-100 text-indigo-700 border border-indigo-200";
 
       case "ready":
-        return "bg-emerald-100 text-emerald-700 border border-emerald-200";
+        return "bg-blue-100 text-blue-700 border border-blue-200";
 
       case "completed":
-        return "bg-slate-100 text-slate-700 border border-slate-200";
+        return "bg-emerald-100 text-emerald-700 border border-emerald-200";
 
-      case "cancelled":
+      case "rejected":
         return "bg-red-100 text-red-700 border border-red-200";
 
       default:
@@ -42,22 +69,50 @@ const OrderDesktopCard = ({ order }) => {
     }
   };
 
+  const handleCancelOrder = async () => {
+    try {
 
+      await orderAPI.cancelOrder(order.id);
+
+      setShowCancelModal(false);
+      setShowMenu(false);
+
+      window.location.reload();
+
+    } catch (err) {
+
+      alert(
+        err.response?.data?.error ||
+        "Failed to cancel order."
+      );
+
+    }
+  };
 
   return (
     <div
-      className="
-      relative
-      bg-white
-      rounded-[24px]
-      border
-      border-slate-100
-      px-8
-      py-6
-      shadow-sm
-      hover:shadow-md
-      transition
-    "
+      className={`
+    relative
+    bg-white
+    rounded-[24px]
+    border
+    px-8
+    py-6
+    shadow-sm
+    hover:shadow-md
+    transition
+
+    ${["pending", "accepted", "preparing"].includes(order.status?.toLowerCase())
+          ? "bg-amber-50/30 border-amber-200 border-l-[5px] border-l-amber-500"
+          : order.status?.toLowerCase() === "ready"
+            ? "bg-blue-50/30 border-blue-200 border-l-[5px] border-l-blue-500"
+            : order.status?.toLowerCase() === "completed"
+              ? "bg-emerald-50/30 border-emerald-200 border-l-[5px] border-l-emerald-500"
+              : order.status?.toLowerCase() === "rejected"
+                ? "bg-red-50/30 border-red-200 border-l-[5px] border-l-red-500"
+                : "border-slate-100"
+        }
+  `}
     >
       <div
         className="
@@ -155,33 +210,67 @@ const OrderDesktopCard = ({ order }) => {
           </span>
 
           <div className="mt-4">
-            <p className="text-gray-400 text-xs">
-              Estimated Delivery
-            </p>
 
-            <p
-              className="
-                text-blue-600
-                font-semibold
-                text-sm
-                mt-1
-              "
-            >
-              10 mins • 15 mins
-            </p>
+            {order.status?.toLowerCase() === "rejected" ? (
+
+              <>
+                <p className="text-gray-400 text-xs">
+                  Order Status
+                </p>
+
+                <p className="text-red-600 font-semibold text-sm mt-1">
+                  Cancelled by Admin
+                </p>
+              </>
+
+            ) : order.status?.toLowerCase() === "completed" ? (
+
+              <>
+                <p className="text-gray-400 text-xs">
+                  Completed On
+                </p>
+
+                <p className="text-emerald-600 font-semibold text-sm mt-1">
+                  {order.completed_at
+                    ? new Date(order.completed_at).toLocaleString("en-IN", {
+                      day: "2-digit",
+                      month: "short",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })
+                    : "--"}
+                </p>
+              </>
+
+            ) : (
+
+              <>
+                <p className="text-gray-400 text-xs">
+                  Estimated Delivery
+                </p>
+
+                <p className="text-blue-600 font-semibold text-sm mt-1">
+                  10 mins • 15 mins
+                </p>
+              </>
+
+            )}
+
           </div>
         </div>
 
         {/* RIGHT */}
         <div
+          ref={menuRef}
           className="
-            flex
-            flex-col
-            items-end
-            justify-between
-            h-full
-            relative
-          "
+    flex
+    flex-col
+    items-end
+    justify-between
+    h-full
+    relative
+  "
         >
           <div className="flex items-start gap-2">
             <div className="text-right leading-none">
@@ -231,6 +320,32 @@ const OrderDesktopCard = ({ order }) => {
         "
             >
 
+              {order.status?.toLowerCase() === "pending" && (
+                <>
+                  <button
+                    onClick={() => {
+                      setShowMenu(false);
+                      setShowCancelModal(true);
+                    }}
+                    className="
+                w-full
+                flex
+                items-center
+                gap-3
+                px-5
+                py-4
+                text-red-600
+                hover:bg-red-50
+                transition
+            "
+                  >
+                    ❌ Cancel Order
+                  </button>
+
+                  <div className="border-t border-slate-100" />
+                </>
+              )}
+
               <button
                 onClick={() => {
                   downloadReceipt(order);
@@ -254,8 +369,9 @@ const OrderDesktopCard = ({ order }) => {
             </div>
           )}
 
-          {order.status?.toLowerCase() === "ready" ||
-            order.status?.toLowerCase() === "completed" ? (
+
+
+          {order.status?.toLowerCase() === "completed" ? (
             <button
               onClick={async () => {
 
@@ -271,20 +387,30 @@ const OrderDesktopCard = ({ order }) => {
 
               }}
               className="
-                mt-5
-                w-[140px]
-                h-[42px]
-                rounded-xl
-                bg-blue-50
-                hover:bg-blue-100
-                text-blue-600
-                font-semibold
-                flex
-                items-center
-                justify-center
-                gap-2
-                transition
-              "
+  mt-5
+  w-[132px]
+h-[40px]
+rounded-xl
+  bg-gradient-to-r
+  from-blue-600
+  via-blue-500
+  to-cyan-500
+  text-white
+  text-sm
+font-semibold
+  flex
+  items-center
+  justify-center
+  gap-2
+  shadow-lg
+  shadow-blue-500/30
+  hover:shadow-xl
+  hover:shadow-blue-500/40
+  hover:-translate-y-0.5
+  active:scale-[0.98]
+  transition-all
+  duration-300
+"
             >
               <RotateCcw size={15} />
               Reorder
@@ -293,27 +419,122 @@ const OrderDesktopCard = ({ order }) => {
             <button
               onClick={() => navigate(`/track-order/${order.id}`)}
               className="
-                mt-5
-                w-[140px]
-                h-[42px]
-                rounded-xl
-                bg-blue-600
-                hover:bg-blue-700
-                text-white
-                font-semibold
-                flex
-                items-center
-                justify-center
-                gap-2
-                transition
-              "
+  mt-5
+  w-[132px]
+h-[40px]
+rounded-xl
+  bg-gradient-to-r
+  from-blue-600
+  via-blue-500
+  to-cyan-500
+  text-white
+  text-sm
+font-semibold
+  flex
+  items-center
+  justify-center
+  gap-2
+  shadow-lg
+  shadow-blue-500/30
+  hover:shadow-xl
+  hover:shadow-blue-500/40
+  hover:-translate-y-0.5
+  active:scale-[0.98]
+  transition-all
+  duration-300
+"
             >
-              Track Order
-              <ArrowRight size={15} />
+              {order.status?.toLowerCase() === "rejected"
+                ? "Details"
+                : "Track"}
+              <ArrowRight size={12} />
             </button>
           )}
         </div>
       </div>
+
+      {showCancelModal && (
+        <div
+          className="
+            fixed
+            inset-0
+            bg-black/40
+            backdrop-blur-sm
+            z-[999]
+            flex
+            items-center
+            justify-center
+            p-4
+          "
+        >
+          <div
+            className="
+              w-full
+              max-w-md
+              bg-white
+              rounded-3xl
+              p-7
+              shadow-2xl
+            "
+          >
+            <div className="text-center">
+
+              <div className="text-5xl mb-3">
+                ⚠️
+              </div>
+
+              <h2 className="text-2xl font-bold text-slate-900">
+                Cancel Order?
+              </h2>
+
+              <p className="mt-3 text-slate-500">
+                Are you sure you want to cancel this order?
+              </p>
+
+              <p className="text-sm text-red-500 mt-2">
+                This action cannot be undone.
+              </p>
+
+            </div>
+
+            <div className="flex gap-3 mt-8">
+
+              <button
+                onClick={() => setShowCancelModal(false)}
+                className="
+                  flex-1
+                  h-12
+                  rounded-2xl
+                  border
+                  border-slate-200
+                  font-semibold
+                  hover:bg-slate-50
+                "
+              >
+                Keep Order
+              </button>
+
+              <button
+                onClick={handleCancelOrder}
+                className="
+                  flex-1
+                  h-12
+                  rounded-2xl
+                  bg-red-600
+                  hover:bg-red-700
+                  text-white
+                  font-semibold
+                "
+              >
+                Cancel Order
+              </button>
+
+            </div>
+
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

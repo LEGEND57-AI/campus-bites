@@ -32,6 +32,7 @@ import AdminLayout from "./pages/admin/Layout";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminOrders from "./pages/admin/AdminOrders";
 import AdminMenu from "./pages/admin/AdminMenu";
+import AdminOrderHistory from "./pages/admin/history/AdminOrderHistory";
 import AdminAnalytics from "./pages/admin/AdminAnalytics";
 import AdminCategories from "./pages/admin/AdminCategories";
 import AdminProfile from "./pages/admin/AdminProfile";
@@ -173,6 +174,7 @@ function App() {
           >
             <Route index element={<AdminDashboard />} />
             <Route path="orders" element={<AdminOrders />} />
+            <Route path="history" element={<AdminOrderHistory />} />
             <Route path="menu" element={<AdminMenu />} />
             <Route path="categories" element={<AdminCategories />} />
             <Route path="analytics" element={<AdminAnalytics />} />

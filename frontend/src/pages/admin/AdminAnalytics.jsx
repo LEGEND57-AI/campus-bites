@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { adminAPI } from '../../services/api';
+import { analyticsAPI } from "../../services/api";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   LineChart, Line, Area, AreaChart,
@@ -17,6 +17,9 @@ import {
   AlertTriangle,
   Trophy,
   Calendar,
+  Check,
+  ChevronDown,
+  ChevronLeft,
   X,
   RefreshCw,
 } from 'lucide-react';
@@ -55,24 +58,31 @@ const fillMissingDates = (data) => {
   return result;
 };
 
-const RANGE_LABELS = {
-  today: "Today",
-  "7days": "7 Days",
-  "30days": "30 Days",
-};
+// Order + labels for the dropdown menu (matches Image 1)
+const RANGE_OPTIONS = [
+  { key: 'today', label: 'Today' },
+  { key: 'yesterday', label: 'Yesterday' },
+  { key: '7days', label: 'Last 7 Days' },
+  { key: '3months', label: 'Last 3 Months' },
+  { key: 'thismonth', label: 'This Month' },
+  { key: 'thisyear', label: 'This Year' },
+];
+
+const RANGE_LABELS = RANGE_OPTIONS.reduce((acc, o) => {
+  acc[o.key] = o.label;
+  return acc;
+}, {});
 
 const STATUS_COLORS = {
-  Ready: '#22c55e',
-  Preparing: '#f59e0b',
-  Rejected: '#ef4444',
+  Pending: "#f59e0b",
+  Accepted: "#3b82f6",
+  Preparing: "#8b5cf6",
+  Ready: "#22c55e",
+  Cancelled: "#ef4444",
 };
-
-const MAX_CUSTOM_RANGE_DAYS = 92; // ~3 months
 
 // How often to poll for "live" updates. Lower = more real-time feeling,
 // but more load on your backend. 15-20s is a good balance for a campus app.
-// If you add Socket.IO/SSE later, this polling can be removed entirely
-// and replaced with a live event listener.
 const POLL_INTERVAL_MS = 20000;
 
 const todayStr = () => new Date().toISOString().split('T')[0];
@@ -82,22 +92,83 @@ const formatDisplayDate = (isoStr) => {
   return new Date(isoStr).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 };
 
+const formatXAxisLabel = (value, range) => {
+
+  switch (range) {
+
+    case "today":
+    case "yesterday":
+    case "specific": {
+      const hour = Number(value.split(":")[0]);
+
+      const displayHour =
+        hour === 0 ? 12 :
+          hour > 12 ? hour - 12 :
+            hour;
+
+      const period = hour >= 12 ? "PM" : "AM";
+
+      return `${displayHour} ${period}`;
+    }
+
+    case "7days": {
+      const date = new Date(value);
+
+      return date.toLocaleDateString("en-IN", {
+        weekday: "short",
+      });
+    }
+
+
+    case "3months": {
+      const date = new Date(value);
+
+      return date.toLocaleDateString("en-IN", {
+        month: "short",
+      });
+    }
+
+    case "thisyear": {
+      const date = new Date(value);
+
+      return date.toLocaleDateString("en-IN", {
+        month: "short",
+      });
+    }
+
+    case "thismonth": {
+      const date = new Date(value);
+
+      return date.toLocaleDateString("en-IN", {
+        day: "numeric",
+        month: "short",
+      });
+    }
+
+
+
+    default:
+      return value;
+  }
+};
+
 const AdminAnalytics = () => {
   const [stats, setStats] = useState({});
   const [loading, setLoading] = useState(true);       // true only for the very first load
   const [refreshing, setRefreshing] = useState(false); // true for background/range-switch fetches
 
-  // "today" | "7days" | "30days" | "custom"
-  const [range, setRange] = useState("7days");
+  // 'today' | 'yesterday' | '7days' |  '3months' | 'thismonth' | 'thisyear' | 'specific'
+  const [range, setRange] = useState('7days');
 
-  // applied custom range (only updates when user hits Apply)
-  const [customRange, setCustomRange] = useState({ from: '', to: '' });
+  // applied specific date (only updates when user picks a day in the calendar)
+  const [specificDate, setSpecificDate] = useState('');
 
-  // draft values inside the popover, before Apply
-  const [pendingRange, setPendingRange] = useState({ from: '', to: '' });
+  // draft date inside the calendar view, before it's applied
+  const [pendingDate, setPendingDate] = useState('');
 
-  const [showPicker, setShowPicker] = useState(false);
-  const pickerRef = useRef(null);
+  const [showMenu, setShowMenu] = useState(false);
+  const [menuView, setMenuView] = useState('list'); // 'list' | 'calendar'
+  const menuRef = useRef(null);
 
   const rateLimitedRef = useRef(false);
 
@@ -106,20 +177,21 @@ const AdminAnalytics = () => {
   const requestSeqRef = useRef(0);
   const hasLoadedOnceRef = useRef(false);
 
-  // close popover on outside click
+  // close menu on outside click
   useEffect(() => {
     const handleClickOutside = (e) => {
-      if (pickerRef.current && !pickerRef.current.contains(e.target)) {
-        setShowPicker(false);
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setShowMenu(false);
+        setMenuView('list');
       }
     };
 
-    if (showPicker) {
+    if (showMenu) {
       document.addEventListener('mousedown', handleClickOutside);
     }
 
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showPicker]);
+  }, [showMenu]);
 
   const fetchAnalytics = useCallback(async (isBackground = false) => {
     const mySeq = ++requestSeqRef.current;
@@ -127,17 +199,17 @@ const AdminAnalytics = () => {
     if (!hasLoadedOnceRef.current) {
       setLoading(true);
     } else if (!isBackground) {
-      // user actively switched range/applied custom -> show refresh state
+      // user actively switched range/applied date -> show refresh state
       setRefreshing(true);
     }
 
     try {
       const params =
-        range === 'custom'
-          ? { from: customRange.from, to: customRange.to }
+        range === 'specific'
+          ? { from: specificDate, to: specificDate }
           : { range };
 
-      const { data } = await adminAPI.getAnalytics(params);
+      const { data } = await analyticsAPI.getDashboard(params);
 
       // A newer request has since been fired (user switched range again) —
       // discard this stale response.
@@ -152,7 +224,12 @@ const AdminAnalytics = () => {
         }))
         .sort((a, b) => new Date(a.date) - new Date(b.date));
 
-      revenue = fillMissingDates(revenue);
+      if (
+        range === "7days" ||
+        range === "thismonth"
+      ) {
+        revenue = fillMissingDates(revenue);
+      }
 
       setStats({
         ...data,
@@ -185,11 +262,11 @@ const AdminAnalytics = () => {
         setRefreshing(false);
       }
     }
-  }, [range, customRange]);
+  }, [range, specificDate]);
 
   useEffect(() => {
-    if (range === 'custom' && (!customRange.from || !customRange.to)) {
-      // custom selected but not applied yet — don't fetch
+    if (range === 'specific' && !specificDate) {
+      // specific date selected in menu but not applied yet — don't fetch
       return;
     }
 
@@ -203,46 +280,34 @@ const AdminAnalytics = () => {
 
     return () => clearInterval(interval);
 
-  }, [range, customRange, fetchAnalytics]);
+  }, [range, specificDate, fetchAnalytics]);
 
-  const openPicker = () => {
-    setPendingRange({
-      from: customRange.from || '',
-      to: customRange.to || '',
-    });
-    setShowPicker(true);
+  const selectRange = (key) => {
+    setRange(key);
+    setShowMenu(false);
+    setMenuView('list');
   };
 
-  const handleApplyCustomRange = () => {
+  const openCalendarView = () => {
+    setPendingDate(specificDate || todayStr());
+    setMenuView('calendar');
+  };
 
-    if (!pendingRange.from || !pendingRange.to) {
-      toast.error('Please select both start and end dates');
+  const handleApplyDate = () => {
+    if (!pendingDate) {
+      toast.error('Please select a date');
       return;
     }
 
-    if (new Date(pendingRange.from) > new Date(pendingRange.to)) {
-      toast.error('Start date must be before end date');
-      return;
-    }
-
-    const diffDays =
-      Math.ceil(
-        (new Date(pendingRange.to) - new Date(pendingRange.from)) / (1000 * 60 * 60 * 24)
-      ) + 1;
-
-    if (diffDays > MAX_CUSTOM_RANGE_DAYS) {
-      toast.error('Please select a range of up to 3 months');
-      return;
-    }
-
-    setCustomRange(pendingRange);
-    setRange('custom');
-    setShowPicker(false);
+    setSpecificDate(pendingDate);
+    setRange('specific');
+    setShowMenu(false);
+    setMenuView('list');
   };
 
   const currentRangeLabel =
-    range === 'custom' && customRange.from && customRange.to
-      ? `${formatDisplayDate(customRange.from)} – ${formatDisplayDate(customRange.to)}`
+    range === 'specific' && specificDate
+      ? formatDisplayDate(specificDate)
       : RANGE_LABELS[range];
 
   const revenueByDay = stats.revenueByDay || [];
@@ -283,9 +348,11 @@ const AdminAnalytics = () => {
       : 0;
 
   const pieData = [
-    { name: 'Ready', value: stats.statusBreakdown?.Ready || 0 },
-    { name: 'Preparing', value: stats.statusBreakdown?.Preparing || 0 },
-    { name: 'Rejected', value: stats.statusBreakdown?.Rejected || 0 },
+    { name: "Pending", value: stats.statusBreakdown?.pending || 0 },
+    { name: "Accepted", value: stats.statusBreakdown?.accepted || 0 },
+    { name: "Preparing", value: stats.statusBreakdown?.preparing || 0 },
+    { name: "Ready", value: stats.statusBreakdown?.ready || 0 },
+    { name: "Cancelled", value: stats.statusBreakdown?.cancelled || 0 },
   ];
 
   const totalStatusCount = pieData.reduce((s, p) => s + p.value, 0);
@@ -300,8 +367,14 @@ const AdminAnalytics = () => {
       trend,
     },
     {
-      title: "Orders Today",
-      value: stats.ordersToday || 0,
+      title:
+        range === "today"
+          ? "Orders Today"
+          : "Orders",
+      value:
+        range === "today"
+          ? stats.ordersToday
+          : stats.totalOrders,
       icon: ShoppingBag,
       color: "text-blue-600",
       bg: "bg-blue-50",
@@ -367,128 +440,131 @@ const AdminAnalytics = () => {
           </p>
         </div>
 
-        {/* RANGE */}
-        <div className="flex gap-2 overflow-x-auto scrollbar-hide relative">
-          {["today", "7days", "30days"].map((r) => (
-            <button
-              key={r}
-              onClick={() => setRange(r)}
-              className={`
-                whitespace-nowrap
-                px-4 sm:px-5
-                py-2
-                rounded-xl
-                text-sm
-                font-semibold
-                transition-all
-                duration-300
-                ${
-                  range === r
-                    ? "bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-lg shadow-blue-500/25"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                }
-              `}
-            >
-              {RANGE_LABELS[r]}
-            </button>
-          ))}
+        {/* RANGE DROPDOWN */}
+        <div className="relative" ref={menuRef}>
+          <button
+            onClick={() => {
+              if (showMenu) {
+                setShowMenu(false);
+                setMenuView('list');
+              } else {
+                setShowMenu(true);
+              }
+            }}
+            className="
+              whitespace-nowrap
+              flex items-center gap-2
+              px-4 sm:px-5
+              py-2
+              rounded-xl
+              text-sm
+              font-semibold
+              text-white
+              bg-gradient-to-r from-blue-600 to-cyan-500
+              shadow-lg shadow-blue-500/25
+              transition-all duration-300
+              hover:opacity-90
+            "
+          >
+            <Calendar size={15} />
+            {currentRangeLabel}
+            <ChevronDown
+              size={15}
+              className={`transition-transform duration-200 ${showMenu ? 'rotate-180' : ''}`}
+            />
+          </button>
 
-          {/* CUSTOM RANGE TRIGGER */}
-          <div className="relative" ref={pickerRef}>
-            <button
-              onClick={() => (showPicker ? setShowPicker(false) : openPicker())}
-              className={`
-                whitespace-nowrap
-                flex items-center gap-2
-                px-4 sm:px-5
-                py-2
-                rounded-xl
-                text-sm
-                font-semibold
-                transition-all
-                duration-300
-                ${
-                  range === "custom"
-                    ? "bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-lg shadow-blue-500/25"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                }
-              `}
-            >
-              <Calendar size={15} />
-              {range === "custom" ? currentRangeLabel : "Custom Range"}
-            </button>
+          <AnimatePresence>
+            {showMenu && (
+              <motion.div
+                initial={{ opacity: 0, y: -8, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -8, scale: 0.97 }}
+                transition={{ duration: 0.15 }}
+                className="
+                  absolute right-0 mt-2 z-50
+                  w-[260px]
+                  bg-white rounded-2xl shadow-2xl border border-slate-100
+                  overflow-hidden
+                "
+              >
+                {menuView === 'list' ? (
+                  <div className="py-2">
+                    {RANGE_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.key}
+                        onClick={() => selectRange(opt.key)}
+                        className="
+                          w-full flex items-center justify-between
+                          px-4 py-2.5 text-sm text-left
+                          text-slate-700 hover:bg-slate-50
+                          transition
+                        "
+                      >
+                        {opt.label}
+                        {range === opt.key && (
+                          <Check size={16} className="text-blue-600" />
+                        )}
+                      </button>
+                    ))}
 
-            {/* POPOVER */}
-            <AnimatePresence>
-              {showPicker && (
-                <motion.div
-                  initial={{ opacity: 0, y: -8, scale: 0.97 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -8, scale: 0.97 }}
-                  transition={{ duration: 0.15 }}
-                  className="
-                    absolute right-0 mt-2 z-50
-                    w-[300px] sm:w-[340px]
-                    bg-white rounded-2xl shadow-2xl border border-slate-100 p-5
-                  "
-                >
-                  <div className="flex items-center justify-between mb-4">
-                    <h4 className="font-bold text-slate-900 text-sm">Select Date Range</h4>
+                    <div className="my-1 border-t border-slate-100" />
+
                     <button
-                      onClick={() => setShowPicker(false)}
-                      className="text-slate-400 hover:text-slate-600 transition"
+                      onClick={openCalendarView}
+                      className="
+                        w-full flex items-center justify-between
+                        px-4 py-2.5 text-sm text-left
+                        text-slate-700 hover:bg-slate-50
+                        transition
+                      "
                     >
-                      <X size={16} />
+                      Specific Date
+                      {range === 'specific' && (
+                        <Check size={16} className="text-blue-600" />
+                      )}
                     </button>
                   </div>
-
-                  <div className="space-y-3">
-                    <div>
-                      <label className="text-xs font-semibold text-slate-500 mb-1.5 block">
-                        From
-                      </label>
-                      <input
-                        type="date"
-                        value={pendingRange.from}
-                        max={todayStr()}
-                        onChange={(e) =>
-                          setPendingRange((prev) => ({ ...prev, from: e.target.value }))
-                        }
-                        className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition"
-                      />
+                ) : (
+                  <div className="p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <button
+                        onClick={() => setMenuView('list')}
+                        className="text-slate-400 hover:text-slate-600 transition"
+                      >
+                        <ChevronLeft size={16} />
+                      </button>
+                      <h4 className="font-bold text-slate-900 text-sm">Select a Date</h4>
                     </div>
 
-                    <div>
-                      <label className="text-xs font-semibold text-slate-500 mb-1.5 block">
-                        To
-                      </label>
-                      <input
-                        type="date"
-                        value={pendingRange.to}
-                        max={todayStr()}
-                        onChange={(e) =>
-                          setPendingRange((prev) => ({ ...prev, to: e.target.value }))
-                        }
-                        className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition"
-                      />
-                    </div>
+                    <input
+                      type="date"
+                      value={pendingDate}
+                      max={todayStr()}
+                      onChange={(e) => setPendingDate(e.target.value)}
+                      className="
+                        w-full px-3 py-2.5 rounded-xl border border-slate-200
+                        text-sm focus:border-blue-500 focus:ring-2
+                        focus:ring-blue-100 outline-none transition
+                      "
+                    />
+
+                    <button
+                      onClick={handleApplyDate}
+                      className="
+                        mt-4 w-full py-2.5 rounded-xl
+                        bg-gradient-to-r from-blue-600 to-cyan-500
+                        text-white text-sm font-semibold
+                        hover:opacity-90 transition
+                      "
+                    >
+                      Apply
+                    </button>
                   </div>
-
-                  <p className="text-[11px] text-slate-400 mt-3">
-                    Maximum range: 3 months
-                  </p>
-
-                  <button
-                    onClick={handleApplyCustomRange}
-                    className="mt-4 w-full py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 text-white text-sm font-semibold hover:opacity-90 transition"
-                  >
-                    Apply
-                  </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
 
@@ -547,19 +623,36 @@ const AdminAnalytics = () => {
           <p className="text-gray-400 text-center py-16 text-sm">No revenue data available</p>
         ) : (
           <ResponsiveContainer width="100%" height={240} className="sm:!h-[300px]">
-            <AreaChart data={revenueByDay} margin={{ left: -15, right: 10, top: 10 }}>
+            <AreaChart data={revenueByDay} margin={{
+              top: 10,
+              right: 15,
+              left: 5,
+              bottom: 10,
+            }}>
 
               <CartesianGrid strokeDasharray="3 3" opacity={0.15} vertical={false} />
 
               <defs>
                 <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#2563EB" stopOpacity={0.35}/>
-                  <stop offset="95%" stopColor="#2563EB" stopOpacity={0}/>
+                  <stop offset="5%" stopColor="#2563EB" stopOpacity={0.35} />
+                  <stop offset="95%" stopColor="#2563EB" stopOpacity={0} />
                 </linearGradient>
               </defs>
 
               <XAxis
                 dataKey="date"
+                interval={
+                  range === "7days"
+                    ? 0
+                      : range === "thismonth"
+                        ? 4
+                        : range === "3months"
+                          ? 0
+                          : range === "thisyear"
+                            ? 0
+                            : "preserveStartEnd"
+                }
+                tickFormatter={(value) => formatXAxisLabel(value, range)}
                 tick={{ fontSize: 11, fill: '#94a3b8' }}
                 axisLine={false}
                 tickLine={false}
@@ -570,18 +663,70 @@ const AdminAnalytics = () => {
                 tickLine={false}
               />
               <Tooltip
-                formatter={(v) => [`₹${Number(v).toFixed(2)}`, 'Revenue']}
-                contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 13 }}
+                labelFormatter={(label) => {
+                  if (
+                    range === "today" ||
+                    range === "yesterday" ||
+                    range === "specific"
+                  ) {
+                    return formatXAxisLabel(label, range);
+                  }
+
+                  const date = new Date(label);
+
+                  if (range === "7days") {
+                    return date.toLocaleDateString("en-IN", {
+                      weekday: "long",
+                      day: "numeric",
+                      month: "short",
+                    });
+                  }
+
+                  return date.toLocaleDateString("en-IN", {
+                    day: "numeric",
+                    month: "long",
+                    year: "numeric",
+                  });
+                }}
+
+                formatter={(value) => [
+                  `₹${Number(value).toFixed(2)}`,
+                  "Revenue",
+                ]}
+                contentStyle={{
+                  borderRadius: 14,
+                  border: "1px solid #E2E8F0",
+                  boxShadow: "0 10px 30px rgba(15,23,42,0.08)",
+                  background: "#fff",
+                  fontSize: 13,
+                }}
               />
 
               <Area
-                type="monotone"
+                type={
+                  range === "today" ||
+                    range === "yesterday" ||
+                    range === "specific"
+                    ? "linear"
+                    : "monotone"
+                }
                 dataKey="revenue"
                 stroke="#2563EB"
-                strokeWidth={3}
+                strokeWidth={4}
                 fill="url(#colorRevenue)"
-                dot={{ r: 3, fill: '#2563EB' }}
-                activeDot={{ r: 6 }}
+                animationDuration={800}
+                dot={{
+                  r: 4,
+                  stroke: "#2563EB",
+                  strokeWidth: 2,
+                  fill: "#ffffff",
+                }}
+                activeDot={{
+                  r: 7,
+                  stroke: "#2563EB",
+                  strokeWidth: 3,
+                  fill: "#ffffff",
+                }}
               />
 
             </AreaChart>

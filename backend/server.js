@@ -9,12 +9,15 @@ import {
 import authRoutes from './routes/auth.js';
 import foodRoutes from './routes/food.js';
 import orderRoutes from './routes/orders.js';
+import historyRoutes from "./routes/history.js";
 import favoriteRoutes from "./routes/favorites.js";
 import userRoutes from './routes/user.js';
 import adminRoutes from './routes/admin.js';
+import analyticsRoutes from "./routes/analytics.js";
 import categoryRoutes from './routes/category.js';
 import uploadRoutes from './routes/upload.js';
 import paymentRoutes from "./routes/payment.js";
+import { autoCancelExpiredCashOrders } from "./utils/autoCancelOrders.js";
 
 dotenv.config();
 
@@ -83,12 +86,23 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use("/api/food", menuLimiter, foodRoutes);
 app.use('/api/orders', orderRoutes);
+app.use("/api/admin/history", historyRoutes);
 app.use("/api/favorites", favoriteRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/admin', adminRoutes);
+app.use("/api/analytics", analyticsRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use("/api/payment", paymentRoutes);
+
+// Auto cancel expired cash orders every 1 minute
+setInterval(async () => {
+  try {
+    await autoCancelExpiredCashOrders();
+  } catch (err) {
+    console.error("Auto Cancel Scheduler Error:", err);
+  }
+}, 60000);
 
 // ================== SERVER ==================
 

@@ -7,9 +7,7 @@ const OrderFilters = ({
 
   const filters = [
     "All",
-    "Pending",
-    "Accepted",
-    "Ready",
+    "Past Orders",
   ];
 
   return (
@@ -17,7 +15,6 @@ const OrderFilters = ({
       className="
         grid
         grid-cols-2
-        lg:grid-cols-4
         gap-3
 
         bg-white
@@ -41,16 +38,15 @@ const OrderFilters = ({
             font-medium
             transition-all
 
-            ${
-              activeFilter === filter
-                ? `
+            ${activeFilter === filter
+              ? `
                   bg-gradient-to-r
                   from-blue-600
                   to-cyan-500
                   text-white
                   shadow-lg
                 `
-                : `
+              : `
                   bg-gray-50
                   text-gray-700
                   hover:bg-gray-100

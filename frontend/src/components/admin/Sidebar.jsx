@@ -3,6 +3,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
   ShoppingBag,
+  History,
   UtensilsCrossed,
   BarChart3,
   Tags,
@@ -18,6 +19,7 @@ const Sidebar = () => {
     { path: "/admin", icon: LayoutDashboard, label: "Dashboard", end: true },
     { path: "/admin/orders", icon: ShoppingBag, label: "Orders" },
     { path: "/admin/menu", icon: UtensilsCrossed, label: "Menu" },
+    { path: "/admin/history", icon: History, label: "History" },
     { path: "/admin/categories", icon: Tags, label: "Categories" },
     { path: "/admin/analytics", icon: BarChart3, label: "Analytics" },
   ];

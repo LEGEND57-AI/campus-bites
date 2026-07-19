@@ -128,9 +128,17 @@ router.post('/', async (req, res) => {
           {
             user_id: req.user.id,
             total_amount: totalAmount,
+
             status: "Pending",
+
             payment_method: "CASH",
             payment_status: "PENDING",
+
+            // Payment expires after 15 minutes
+            payment_due_at: new Date(
+              Date.now() + 15 * 60 * 1000
+            ).toISOString(),
+
             token_number,
             token_date,
           },
@@ -196,6 +204,110 @@ router.post('/', async (req, res) => {
 
     return res.status(500).json({
       error: "Failed to place order"
+    });
+
+  }
+});
+
+router.patch("/:id/cancel", async (req, res) => {
+  try {
+
+    const { id } = req.params;
+
+    const { data: order, error } = await supabase
+      .from("orders")
+      .select("*")
+      .eq("id", id)
+      .eq("user_id", req.user.id)
+      .single();
+
+    if (error || !order) {
+      return res.status(404).json({
+        error: "Order not found",
+      });
+    }
+
+    if (order.status !== "Pending") {
+      return res.status(400).json({
+        error: "Only pending orders can be cancelled.",
+      });
+    }
+
+    if (
+      order.payment_method !== "CASH" ||
+      order.payment_status !== "PENDING"
+    ) {
+      return res.status(400).json({
+        error: "This order cannot be cancelled.",
+      });
+    }
+
+    const { error: updateError } = await supabase
+      .from("orders")
+      .update({
+        status: "Rejected",
+        payment_status: "CANCELLED",
+        cancel_reason: "Cancelled by Customer",
+        cancelled_by: "CUSTOMER",
+      })
+      .eq("id", id);
+
+    if (updateError) throw updateError;
+
+    res.json({
+      success: true,
+      message: "Order cancelled successfully.",
+    });
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).json({
+      error: "Failed to cancel order.",
+    });
+
+  }
+});
+
+router.get("/:id", async (req, res) => {
+  try {
+
+    const { id } = req.params;
+
+    const { data: order, error } = await supabase
+      .from("orders")
+      .select(`
+        *,
+        order_items (
+          id,
+          quantity,
+          price_at_time,
+          food_items (
+            id,
+            name,
+            image_url
+          )
+        )
+      `)
+      .eq("id", id)
+      .eq("user_id", req.user.id)
+      .single();
+
+    if (error || !order) {
+      return res.status(404).json({
+        error: "Order not found",
+      });
+    }
+
+    res.json(order);
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).json({
+      error: "Failed to fetch order",
     });
 
   }

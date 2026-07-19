@@ -6,6 +6,7 @@ const FavoriteContext = createContext();
 export const FavoriteProvider = ({ children }) => {
 
   const [favorites, setFavorites] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   const loadFavorites = async () => {
 
@@ -14,12 +15,16 @@ export const FavoriteProvider = ({ children }) => {
     // Don't call API if user isn't logged in
     if (!token) {
       setFavorites([]);
+      setLoading(false);
       return;
     }
 
     try {
 
+      setLoading(true);
+
       const { data } = await favoriteAPI.getAll();
+      await new Promise(resolve => setTimeout(resolve, 3000));
 
       setFavorites(data || []);
 
@@ -27,22 +32,32 @@ export const FavoriteProvider = ({ children }) => {
 
       console.error(error);
 
+    } finally {
+
+
+      setLoading(false);
+
     }
 
   };
 
   useEffect(() => {
 
-    if (!localStorage.getItem("token")) return;
+    if (!localStorage.getItem("token")) {
+      setLoading(false);
+      return;
+    }
 
     loadFavorites();
 
   }, []);
 
+
   return (
     <FavoriteContext.Provider
       value={{
         favorites,
+        loading,
         setFavorites,
         loadFavorites,
       }}

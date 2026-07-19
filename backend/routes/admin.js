@@ -3,14 +3,24 @@ import { supabase } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { isAdmin } from '../middleware/admin.js';
 import { adminLimiter } from "../middleware/rateLimiter.js";
+import { autoCancelExpiredCashOrders } from "../utils/autoCancelOrders.js";
 
 const router = express.Router();
+
 router.use(adminLimiter);
 router.use(authenticate, isAdmin);
+
 
 // ---------- Orders ----------
 router.get('/orders', async (req, res) => {
   try {
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
     const { data, error } = await supabase
 
       .from('orders')
@@ -76,19 +86,42 @@ router.patch('/orders/:id/payment', async (req, res) => {
 // ---------- Update Order Status ----------
 router.patch('/orders/:id/status', async (req, res) => {
   const { id } = req.params;
-  const { status } = req.body;
+  const { status, cancel_reason } = req.body;
 
-  const allowed = ['Pending', 'Accepted', 'Preparing', 'Ready', 'Rejected'];
+  const allowed = [
+    "Pending",
+    "Accepted",
+    "Preparing",
+    "Ready",
+    "Completed",
+    "Rejected",
+  ];
 
   if (!allowed.includes(status)) {
     return res.status(400).json({ error: 'Invalid status' });
   }
 
   try {
+    const updates = {
+      status,
+    };
+
+    if (status === "Completed") {
+      updates.completed_at = new Date().toISOString();
+    }
+
+    if (status === "Rejected") {
+      updates.cancel_reason = cancel_reason || "Cancelled by Admin";
+      updates.cancelled_by = "ADMIN";
+
+      // Agar payment receive nahi hua tha to payment bhi cancel
+      updates.payment_status = "CANCELLED";
+    }
+
     const { error } = await supabase
-      .from('orders')
-      .update({ status })
-      .eq('id', id);
+      .from("orders")
+      .update(updates)
+      .eq("id", id);
 
     if (error) throw error;
 
@@ -272,220 +305,6 @@ router.delete('/menu/:id', async (req, res) => {
       error: err.message
     });
 
-  }
-});
-
-
-// ---------- Advanced Analytics ----------
-router.get('/analytics', async (req, res) => {
-  try {
-    const { range, from, to } = req.query;
-
-    let startDate = new Date();
-    let endDate = new Date();
-
-    const isCustom = Boolean(from && to);
-
-    if (isCustom) {
-
-      startDate = new Date(from);
-      startDate.setHours(0, 0, 0, 0);
-
-      endDate = new Date(to);
-      endDate.setHours(23, 59, 59, 999);
-
-      // cap custom range at ~3 months, same limit enforced on frontend
-      const diffDays = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
-
-      if (diffDays > 92) {
-        return res.status(400).json({ error: 'Date range cannot exceed 3 months' });
-      }
-
-      if (startDate > endDate) {
-        return res.status(400).json({ error: 'Start date must be before end date' });
-      }
-
-    } else {
-
-      const activeRange = range || 'today';
-
-      if (activeRange === 'today') {
-        startDate.setHours(0, 0, 0, 0);
-      } else if (activeRange === '7days') {
-        startDate.setDate(startDate.getDate() - 6);
-        startDate.setHours(0, 0, 0, 0);
-      } else if (activeRange === '30days') {
-        startDate.setDate(startDate.getDate() - 29);
-        startDate.setHours(0, 0, 0, 0);
-      }
-
-      endDate.setHours(23, 59, 59, 999);
-
-    }
-
-    const startISO = startDate.toISOString();
-    const endISO = endDate.toISOString();
-
-    // ---------- Orders Today (within selected range) ----------
-    const { count: ordersToday } = await supabase
-      .from('orders')
-      .select('*', { count: 'exact', head: true })
-      .gte('created_at', startISO)
-      .lte('created_at', endISO);
-
-    // ---------- Revenue ----------
-    const { data: revenueData } = await supabase
-      .from('orders')
-      .select('total_amount')
-      .eq('status', 'Ready')
-      .gte('created_at', startISO)
-      .lte('created_at', endISO);
-
-    const totalRevenue =
-      revenueData?.reduce((sum, order) => sum + Number(order.total_amount), 0) || 0;
-
-    // ---------- Active Orders ----------
-    const { count: activeOrders } = await supabase
-      .from('orders')
-      .select('*', { count: 'exact', head: true })
-      .in('status', ['Pending', 'Accepted', 'Preparing'])
-      .gte('created_at', startISO)
-      .lte('created_at', endISO);
-
-    // ---------- Order Items (within selected range) ----------
-    const { data: orderItems } = await supabase
-      .from('order_items')
-      .select(`
-        quantity,
-        created_at,
-        food_items(name, category_id)
-      `)
-      .not('food_items', 'is', null)
-      .gte('created_at', startISO)
-      .lte('created_at', endISO);
-
-    // ---------- Popular / Low Items ----------
-    const itemMap = new Map();
-
-    orderItems?.forEach(item => {
-      const name = item.food_items?.name;
-      if (name) {
-        itemMap.set(
-          name,
-          (itemMap.get(name) || 0) + item.quantity
-        );
-      }
-    });
-
-    const popularItems = Array.from(itemMap.entries())
-      .map(([name, qty]) => ({ name, qty }))
-      .sort((a, b) => b.qty - a.qty)
-      .slice(0, 5);
-
-    const lowItems = Array.from(itemMap.entries())
-      .map(([name, qty]) => ({ name, qty }))
-      .sort((a, b) => a.qty - b.qty)
-      .slice(0, 5);
-
-    // ---------- Top Categories ----------
-    const categoryMap = new Map();
-
-    orderItems?.forEach(item => {
-      const categoryId = item.food_items?.category_id;
-      if (categoryId) {
-        categoryMap.set(
-          categoryId,
-          (categoryMap.get(categoryId) || 0) + item.quantity
-        );
-      }
-    });
-
-    const { data: categories } = await supabase
-      .from('categories')
-      .select('*');
-
-    const topCategories =
-      categories?.map(category => ({
-        name: category.name,
-        qty: categoryMap.get(category.id) || 0
-      })) || [];
-
-    // ---------- Status Breakdown ----------
-    const { data: statusData } = await supabase
-      .from('orders')
-      .select('status')
-      .gte('created_at', startISO)
-      .lte('created_at', endISO);
-
-    const statusBreakdown = {
-      Ready: 0,
-      Preparing: 0,
-      Rejected: 0,
-      Pending: 0,
-      Accepted: 0
-    };
-
-    statusData?.forEach(order => {
-      if (statusBreakdown[order.status] !== undefined) {
-        statusBreakdown[order.status]++;
-      }
-    });
-
-    // ---------- Revenue By Day ----------
-    // Build a map for every day between startDate and endDate (inclusive)
-    const dateMap = new Map();
-
-    for (
-      let d = new Date(startDate);
-      d <= endDate;
-      d.setDate(d.getDate() + 1)
-    ) {
-      const key = d.toISOString().split('T')[0];
-      dateMap.set(key, 0);
-    }
-
-    const { data: allOrders } = await supabase
-      .from('orders')
-      .select('created_at, total_amount')
-      .eq('status', 'Ready')
-      .gte('created_at', startISO)
-      .lte('created_at', endISO);
-
-    allOrders?.forEach(order => {
-      const date = order.created_at.split('T')[0];
-
-      if (dateMap.has(date)) {
-        dateMap.set(
-          date,
-          dateMap.get(date) + Number(order.total_amount)
-        );
-      }
-    });
-
-    const revenueByDay = Array.from(dateMap.entries())
-      .map(([date, revenue]) => ({
-        date,
-        revenue: Number(revenue.toFixed(2))
-      }))
-      .sort(
-        (a, b) =>
-          new Date(a.date) - new Date(b.date)
-      );
-
-    // ---------- Final Response ----------
-    res.json({
-      ordersToday: ordersToday || 0,
-      totalRevenue: Number(totalRevenue.toFixed(2)),
-      activeOrders: activeOrders || 0,
-      popularItems,
-      lowItems,
-      topCategories,
-      statusBreakdown,
-      revenueByDay
-    });
-  } catch (err) {
-    console.error('Analytics error:', err);
-    res.status(500).json({ error: err.message });
   }
 });
 

@@ -1,7 +1,14 @@
 import { useEffect, useState } from 'react';
-import { adminAPI } from "../../services/api";
+import { adminAPI, analyticsAPI } from "../../services/api";
 import { motion } from 'framer-motion';
-import { ShoppingCart, DollarSign, Clock } from 'lucide-react';
+import {
+  ShoppingCart,
+  DollarSign,
+  Clock,
+  Timer,
+  ChefHat,
+  CircleCheckBig,
+} from "lucide-react";
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 
@@ -11,7 +18,11 @@ const AdminDashboard = () => {
   const [stats, setStats] = useState({
     ordersToday: 0,
     totalRevenue: 0,
-    activeOrders: 0
+    activeOrders: 0,
+
+    pendingOrders: 0,
+    preparingOrders: 0,
+    readyOrders: 0,
   });
 
   const [recentOrders, setRecentOrders] = useState([]);
@@ -32,12 +43,16 @@ const AdminDashboard = () => {
 
   const fetchStats = async () => {
     try {
-      const { data } = await adminAPI.getAnalytics();
+      const { data } = await analyticsAPI.getDashboardSummary();
 
       setStats({
         ordersToday: data.ordersToday || 0,
-        totalRevenue: Number(data.totalRevenue || 0), // ✅ SAFE NUMBER
-        activeOrders: data.activeOrders || 0
+        totalRevenue: Number(data.totalRevenue || 0),
+        activeOrders: data.activeOrders || 0,
+
+        pendingOrders: data.pendingOrders || 0,
+        preparingOrders: data.preparingOrders || 0,
+        readyOrders: data.readyOrders || 0,
       });
 
     } catch (err) {
@@ -102,6 +117,30 @@ const AdminDashboard = () => {
     },
   ];
 
+  const statusCards = [
+    {
+      title: "Pending",
+      value: stats.pendingOrders,
+      icon: Timer,
+      iconBg: "bg-yellow-100",
+      iconColor: "text-yellow-500",
+    },
+    {
+      title: "Preparing",
+      value: stats.preparingOrders,
+      icon: ChefHat,
+      iconBg: "bg-orange-100",
+      iconColor: "text-orange-500",
+    },
+    {
+      title: "Ready",
+      value: stats.readyOrders,
+      icon: CircleCheckBig,
+      iconBg: "bg-green-100",
+      iconColor: "text-green-500",
+    },
+  ];
+
   const getStatusStyle = (status) => {
     switch (status?.toLowerCase()) {
       case 'ready':
@@ -157,9 +196,58 @@ const AdminDashboard = () => {
         ))}
       </div>
 
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
+        {statusCards.map((card) => (
+          <motion.div
+            key={card.title}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+            className="glass-card p-6 rounded-xl shadow-md hover:scale-[1.02] transition"
+          >
+            <div className="flex justify-between items-center">
+
+              <div>
+                <p className="text-gray-500 text-sm">
+                  {card.title}
+                </p>
+
+                <p className="text-3xl font-bold mt-2">
+                  {card.value}
+                </p>
+              </div>
+
+              {
+                (() => {
+                  const Icon = card.icon;
+
+                  return (
+                    <div
+                      className={`
+          w-14 h-14 rounded-full
+          ${card.iconBg}
+          flex items-center justify-center
+        `}
+                    >
+                      <Icon
+                        className={`
+            w-7 h-7
+            ${card.iconColor}
+          `}
+                      />
+                    </div>
+                  );
+                })()
+              }
+
+            </div>
+          </motion.div>
+        ))}
+      </div>
+
       {/* RECENT ORDERS */}
       <div className="mt-8 bg-white rounded-xl shadow p-6">
-        <h3 className="text-lg font-semibold mb-4">🎟 Today's Tokens</h3>
+        <h3 className="text-lg font-semibold mb-4">🎟 Today's Active Tokens</h3>
 
         {recentOrders.length === 0 ? (
           <p className="text-gray-400">No recent orders</p>
@@ -168,7 +256,13 @@ const AdminDashboard = () => {
             {recentOrders.map((order) => (
               <div
                 key={order.id}
-                onClick={() => navigate('/admin/orders')}
+                onClick={() =>
+                  navigate("/admin/orders", {
+                    state: {
+                      orderId: order.id,
+                    },
+                  })
+                }
                 className="flex justify-between items-center border-b pb-2 cursor-pointer hover:bg-gray-50 p-3 rounded-lg transition"
               >
                 <div>

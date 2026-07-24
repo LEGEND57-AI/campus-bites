@@ -26,7 +26,12 @@ router.get("/", async (req, res) => {
             food_items(id, name, image_url, category_id)
         )
     `)
-            .in("status", ["Completed", "Rejected"]);
+            .in("status", [
+                "Completed",
+                "Rejected",
+                "Cancelled",
+                "Refunded",
+            ]);
 
         // Custom Range / Specific Date
         if (from && to) {

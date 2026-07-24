@@ -270,7 +270,14 @@ const AdminDashboard = () => {
                     🎟 Token {formatToken(order.token_number)}
                   </p>
                   <p className="text-xs text-gray-400">
-                    {new Date(order.created_at).toLocaleString()}
+                    {new Date(order.created_at).toLocaleString("en-IN", {
+                      day: "2-digit",
+                      month: "2-digit",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      hour12: true,
+                    })}
                   </p>
                 </div>
 

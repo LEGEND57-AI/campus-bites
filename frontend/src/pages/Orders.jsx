@@ -94,7 +94,9 @@ const Orders = () => {
         if (activeTab === "past") {
             return (
                 order.status === "Completed" ||
-                order.status === "Rejected"
+                order.status === "Rejected" ||
+                order.status === "Cancelled" ||
+                order.status === "Refunded"
             );
         }
 
@@ -107,7 +109,7 @@ const Orders = () => {
 
     const recentOrders = orders
         .filter((order) =>
-            ["Completed", "Rejected"].includes(order.status)
+            ["Completed", "Rejected", "Cancelled", "Refunded"].includes(order.status)
         )
         .sort((a, b) =>
             new Date(b.created_at) - new Date(a.created_at)
@@ -450,7 +452,7 @@ const Orders = () => {
                                                         </h2>
 
                                                         <p className="text-sm text-slate-500 mt-1">
-                                                            Showing your latest 5 completed or cancelled orders
+                                                            Showing your latest 5 completed, refunded or cancelled orders
                                                         </p>
 
                                                     </div>

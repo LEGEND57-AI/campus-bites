@@ -25,6 +25,7 @@ import Profile from "./pages/Profile";
 import PersonalInformation from "./pages/PersonalInformation";
 import OrderSuccess from "./pages/OrderSuccess";
 import TrackOrder from "./pages/TrackOrder";
+import Notifications from "./pages/Notifications";
 
 
 // 🔐 ADMIN PAGES
@@ -103,6 +104,15 @@ function App() {
             element={
               <ProtectedRoute>
                 <Orders />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/notifications"
+            element={
+              <ProtectedRoute>
+                <Notifications />
               </ProtectedRoute>
             }
           />

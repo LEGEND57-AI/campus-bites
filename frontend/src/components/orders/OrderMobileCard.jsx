@@ -55,6 +55,12 @@ const OrderMobileCard = ({ order }) => {
             case "rejected":
                 return "bg-red-100 text-red-700 border border-red-200";
 
+            case "cancelled":
+                return "bg-red-100 text-red-700 border border-red-200";
+
+            case "refunded":
+                return "bg-sky-100 text-sky-700 border border-sky-200";
+
             default:
                 return "bg-gray-100 text-gray-600 border border-gray-200";
         }
@@ -105,9 +111,12 @@ const OrderMobileCard = ({ order }) => {
                             ? "bg-blue-50/30 border-blue-200 border-l-[5px] border-l-blue-500"
                             : order.status?.toLowerCase() === "completed"
                                 ? "bg-emerald-50/30 border-emerald-200 border-l-[5px] border-l-emerald-500"
-                                : order.status?.toLowerCase() === "rejected"
-                                    ? "bg-red-50/30 border-red-200 border-l-[5px] border-l-red-500"
-                                    : "border-slate-100"
+
+                                : order.status?.toLowerCase() === "refunded"
+                                    ? "bg-blue-50/30 border-blue-200 border-l-[5px] border-l-blue-500"
+                                    : ["rejected", "cancelled"].includes(order.status?.toLowerCase())
+                                        ? "bg-red-50/30 border-red-200 border-l-[5px] border-l-red-500"
+                                        : "border-slate-100"
                     }
     `}
             >
@@ -136,11 +145,18 @@ const OrderMobileCard = ({ order }) => {
                             <div>
 
                                 <h3 className="text-[15px] font-bold text-slate-900">
-                                    #CC{10000 + order.id}
+                                    Token #{order.token_number}
                                 </h3>
 
                                 <p className="text-[10px] text-slate-400 mt-1">
-                                    {new Date(order.created_at).toLocaleDateString()}
+                                    {new Date(order.created_at).toLocaleString("en-IN", {
+                                        day: "2-digit",
+                                        month: "short",
+                                        year: "numeric",
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                        hour12: true,
+                                    })}
                                 </p>
 
                             </div>
@@ -160,7 +176,11 @@ const OrderMobileCard = ({ order }) => {
             ${getStatusColor(order.status)}
           `}
                                 >
-                                    {order.status}
+                                    {order.status?.toLowerCase() === "refunded"
+                                        ? "Refund Initiated"
+                                        : order.status?.toLowerCase() === "cancelled"
+                                            ? "Cancelled"
+                                            : order.status}
                                 </span>
 
                                 <button
@@ -281,16 +301,15 @@ overflow-hidden
 
                         {/* ETA */}
 
-                        {order.status?.toLowerCase() === "rejected" ? (
+                        {order.status?.toLowerCase() === "cancelled" ? (
 
-                            <p
-                                className="
-          mt-3
-          text-[11px]
-          text-red-600
-          font-semibold
-        "
-                            >
+                            <p className="mt-3 text-[11px] text-red-600 font-semibold">
+                                ❌ Cancelled by You
+                            </p>
+
+                        ) : order.status?.toLowerCase() === "rejected" ? (
+
+                            <p className="mt-3 text-[11px] text-red-600 font-semibold">
                                 ❌ Cancelled by Admin
                             </p>
 
@@ -314,6 +333,20 @@ overflow-hidden
                                     })
                                     : "--"}
                             </p>
+
+                        ) : order.status?.toLowerCase() === "refunded" ? (
+
+                            <p
+                                className="
+    mt-3
+    text-[11px]
+    text-blue-600
+    font-semibold
+">
+                                💸 Refund Initiated • 3–7 Business Days
+                            </p>
+
+
 
                         ) : (
 
@@ -441,7 +474,7 @@ overflow-hidden
   duration-300
 "
                                 >
-                                    {order.status?.toLowerCase() === "rejected"
+                                    {["rejected", "cancelled", "refunded"].includes(order.status?.toLowerCase())
                                         ? "Details"
                                         : "Track"}
                                     <ArrowRight size={12} />

@@ -19,6 +19,13 @@ const ORDER_STATUS_META = {
         iconColor: "text-green-500"
     },
 
+    Refunded: {
+        label: "Refunded",
+        icon: RotateCcw,
+        badge: "bg-cyan-100 text-cyan-700",
+        iconColor: "text-cyan-600",
+    },
+
     Rejected: {
         label: "Cancelled",
         icon: XCircle,
@@ -66,7 +73,7 @@ const HistoryCard = ({ order, onViewDetails }) => {
     const statusMeta = ORDER_STATUS_META[order.status] || ORDER_STATUS_META.Rejected;
     const StatusIcon = statusMeta.icon;
 
-    const isRefunded = order.payment_status === "REFUNDED";
+    const isRefunded = order.status === "Refunded";
     const paymentBadgeClass = PAYMENT_STYLES[order.payment_status] || "bg-gray-100 text-gray-700";
 
     const { day, time } = formatDateParts(order.created_at);
@@ -195,9 +202,14 @@ const HistoryCard = ({ order, onViewDetails }) => {
                         <p className="text-xs text-gray-500">
                             {order.payment_method === "CASH" ? "Cash" : order.payment_method === "UPI" ? "UPI" : "Online"}
                         </p>
-                        <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold ${paymentBadgeClass}`}>
+                        <span
+                            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold ${isRefunded
+                                    ? "bg-cyan-100 text-cyan-700"
+                                    : paymentBadgeClass
+                                }`}
+                        >
                             {isRefunded && <RotateCcw size={11} />}
-                            {order.payment_status || "UNKNOWN"}
+                            {isRefunded ? "REFUNDED" : (order.payment_status || "UNKNOWN")}
                         </span>
                     </div>
                 </div>

@@ -37,31 +37,40 @@ export const downloadReceipt = (order) => {
 
     let y = 15;
 
-    // Background
+    const createNewPage = (title = null) => {
 
-    pdf.setFillColor(...LIGHT);
+        pdf.addPage();
 
-    pdf.rect(
-        0,
-        0,
-        pageWidth,
-        pageHeight,
-        "F"
-    );
+        // Background
+        pdf.setFillColor(...LIGHT);
+        pdf.rect(0, 0, pageWidth, pageHeight, "F");
 
-    // White Card
+        // White Card
+        pdf.setFillColor(...WHITE);
+        pdf.roundedRect(
+            10,
+            10,
+            pageWidth - 20,
+            pageHeight - 20,
+            8,
+            8,
+            "F"
+        );
 
-    pdf.setFillColor(...WHITE);
+        let startY = 20;
 
-    pdf.roundedRect(
-        10,
-        10,
-        pageWidth - 20,
-        pageHeight - 20,
-        8,
-        8,
-        "F"
-    );
+        if (title) {
+            pdf.setFont("helvetica", "bold");
+            pdf.setFontSize(15);
+            pdf.setTextColor(...DARK);
+
+            pdf.text(title, 20, startY);
+
+            startY += 10;
+        }
+
+        return startY;
+    };
 
 
     // ==============================
@@ -136,10 +145,25 @@ export const downloadReceipt = (order) => {
 
     pdf.setFontSize(23);
 
-    pdf.setTextColor(...SUCCESS);
+    const status = String(order.status || "").toLowerCase();
+
+    let title = "ORDER CONFIRMED";
+    let titleColor = SUCCESS;
+
+    if (status === "cancelled" || status === "rejected") {
+        title = "ORDER CANCELLED";
+        titleColor = [239, 68, 68]; // Red
+    }
+
+    if (status === "refunded") {
+        title = "ORDER REFUNDED";
+        titleColor = [6, 182, 212]; // Cyan
+    }
+
+    pdf.setTextColor(...titleColor);
 
     pdf.text(
-        "ORDER CONFIRMED",
+        title,
         pageWidth / 2,
         y,
         {
@@ -162,8 +186,21 @@ export const downloadReceipt = (order) => {
 
     pdf.setTextColor(...TEXT);
 
+
+    let subtitle = "Your order has been placed successfully.";
+
+    if (status === "cancelled" || status === "rejected") {
+        subtitle = "This order has been cancelled.";
+    }
+
+    if (status === "refunded") {
+        subtitle = "Your refund has been initiated.";
+    }
+
+    pdf.setTextColor(...TEXT);
+
     pdf.text(
-        "Your order has been placed successfully.",
+        subtitle,
         pageWidth / 2,
         y,
         {
@@ -338,7 +375,15 @@ export const downloadReceipt = (order) => {
         rightY
     );
 
-    pdf.setTextColor(...SUCCESS);
+    let statusColor = SUCCESS;
+
+    if (status === "cancelled" || status === "rejected") {
+        statusColor = [239, 68, 68]; // Red
+    } else if (status === "refunded") {
+        statusColor = [6, 182, 212]; // Cyan
+    }
+
+    pdf.setTextColor(...statusColor);
 
     pdf.setFont(
         "helvetica",
@@ -346,7 +391,7 @@ export const downloadReceipt = (order) => {
     );
 
     pdf.text(
-        order.payment_status || "Paid",
+        String(order.status || "Completed").toUpperCase(),
         rightX + 28,
         rightY
     );
@@ -428,33 +473,13 @@ export const downloadReceipt = (order) => {
 
         if (y + itemHeight > pageHeight - 20) {
 
-            pdf.addPage();
-
-            pdf.setFillColor(...LIGHT);
-            pdf.rect(0, 0, pageWidth, pageHeight, "F");
-
-            pdf.setFillColor(...WHITE);
-            pdf.roundedRect(
-                10,
-                10,
-                pageWidth - 20,
-                pageHeight - 20,
-                8,
-                8,
-                "F"
-            );
-
-            y = 20;
+            y = createNewPage("Ordered Items (Continued)");
 
             pdf.setFont("helvetica", "bold");
             pdf.setFontSize(15);
             pdf.setTextColor(...DARK);
 
-            pdf.text(
-                "Ordered Items (Continued)",
-                20,
-                y
-            );
+
 
             y += 10;
 
@@ -563,28 +588,12 @@ export const downloadReceipt = (order) => {
     // Divider
 
     // Required space for summary section
-    const summaryHeight = 120;
+    const summaryHeight = 190;
 
     // Agar summary fit nahi hogi
-    if (y + summaryHeight > pageHeight - 20) {
+    if (y + summaryHeight > pageHeight - 15) {
 
-        pdf.addPage();
-
-        pdf.setFillColor(...LIGHT);
-        pdf.rect(0, 0, pageWidth, pageHeight, "F");
-
-        pdf.setFillColor(...WHITE);
-        pdf.roundedRect(
-            10,
-            10,
-            pageWidth - 20,
-            pageHeight - 20,
-            8,
-            8,
-            "F"
-        );
-
-        y = 20;
+        y = createNewPage("Bill Summary");
 
     }
 
@@ -881,6 +890,14 @@ export const downloadReceipt = (order) => {
             align: "center"
         }
     );
+
+    // Ensure footer fits on current page
+    const footerHeight = 45;
+
+    if (y + footerHeight > pageHeight - 15) {
+
+        y = createNewPage();
+    }
 
     y += 40;
 

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import toast from "react-hot-toast";
@@ -30,6 +31,7 @@ const STATUS_STYLES = {
   Ready: "bg-green-100 text-green-700",
   Completed: "bg-emerald-100 text-emerald-700",
   Rejected: "bg-red-100 text-red-700",
+  Refunded: "bg-cyan-100 text-cyan-700",
 };
 
 const PAYMENT_STYLES = {
@@ -47,7 +49,6 @@ const STAT_DEFS = [
   { key: "Accepted", label: "Accepted", subtitle: "Order confirmed", icon: BadgeCheck, bg: "bg-blue-50", color: "text-blue-600" },
   { key: "Preparing", label: "Preparing", subtitle: "Being prepared", icon: ChefHat, bg: "bg-purple-50", color: "text-purple-600" },
   { key: "Ready", label: "Ready", subtitle: "Ready for pickup", icon: CheckCircle2, bg: "bg-green-50", color: "text-green-600" },
-  { key: "Rejected", label: "Cancelled", subtitle: "Cancelled orders", icon: XCircle, bg: "bg-red-50", color: "text-red-500" },
 ];
 
 const STATUS_FILTER_OPTIONS = [
@@ -56,8 +57,6 @@ const STATUS_FILTER_OPTIONS = [
   "Accepted",
   "Preparing",
   "Ready",
-  "Completed",
-  "Rejected",
 ];
 
 const STATUS_FLOW = [
@@ -119,8 +118,16 @@ const AdminOrders = () => {
   const [statusFilter, setStatusFilter] = useState("All Orders");
   const [paymentFilter, setPaymentFilter] = useState("all");
   const [showPaymentFilter, setShowPaymentFilter] = useState(false);
+  const [showRefundModal, setShowRefundModal] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [refundType, setRefundType] = useState("full");
+  const [refundReason, setRefundReason] = useState("");
+  const [refundLoading, setRefundLoading] = useState(false);
+  const [selectedItems, setSelectedItems] = useState([]);
   const [activeStat, setActiveStat] = useState("");
-  const today = new Date().toISOString().split("T")[0];
+  const now = new Date();
+  const today =
+    `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   const [dateFilter, setDateFilter] = useState(today);
   const [currentDate, setCurrentDate] = useState(today);
   const [page, setPage] = useState(1);
@@ -132,7 +139,20 @@ const AdminOrders = () => {
   const statusDropdownRef = useRef(null);
   const paymentDropdownRef = useRef(null);
 
+
   const rateLimitedRef = useRef(false);
+
+  useEffect(() => {
+    if (showRefundModal) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [showRefundModal]);
 
   const fetchOrders = useCallback(async () => {
     try {
@@ -192,7 +212,10 @@ const AdminOrders = () => {
       const delay = nextMidnight.getTime() - now.getTime();
 
       timeoutId = setTimeout(() => {
-        const today = new Date().toISOString().split("T")[0];
+        const now = new Date();
+
+        const today =
+          `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
         setCurrentDate(today);
         setDateFilter(today);
@@ -329,6 +352,71 @@ const AdminOrders = () => {
     }
   };
 
+  const openRefundModal = (order) => {
+    setSelectedOrder(order);
+    setRefundType("full");
+
+    // Default me full refund ke liye sab items select
+    setSelectedItems(order.order_items || []);
+
+    setShowRefundModal(true);
+  };
+
+  const handleRefund = async () => {
+    if (!refundReason) {
+      toast.error("Please select refund reason");
+      return;
+    }
+
+    try {
+      setRefundLoading(true);
+
+      await adminAPI.refundOrder(selectedOrder.id, {
+        refundType,
+        refundReason,
+        refundedItems:
+          refundType === "partial"
+            ? selectedItems.map((item) => ({
+              food_item_id: item.food_item_id,
+            }))
+            : [],
+      });
+
+      toast.success("Refund processed successfully");
+
+      setShowRefundModal(false);
+      setSelectedOrder(null);
+      setSelectedItems([]);
+      setRefundReason("");
+      setRefundType("full");
+
+      fetchOrders();
+
+    } catch (err) {
+      console.error(err);
+      toast.error(
+        err?.response?.data?.error || "Refund failed"
+      );
+    } finally {
+      setRefundLoading(false);
+    }
+  };
+
+  const refundAmount = useMemo(() => {
+    if (!selectedOrder) return 0;
+
+    // Full Refund
+    if (refundType === "full") {
+      return Number(selectedOrder.total_amount || 0);
+    }
+
+    // Partial Refund
+    return selectedItems.reduce(
+      (total, item) => total + item.price_at_time * item.quantity,
+      0
+    );
+  }, [refundType, selectedItems, selectedOrder]);
+
   // ---------------- Filtering for Today ----------------
   const todayOrders = useMemo(() => {
     return orders.filter((order) => {
@@ -343,7 +431,9 @@ const AdminOrders = () => {
 
       if (
         order.status === "Completed" ||
-        order.status === "Rejected"
+        order.status === "Rejected" ||
+        order.status === "Cancelled" ||
+        order.status === "Refunded"
       ) {
         return false;
       }
@@ -395,7 +485,6 @@ const AdminOrders = () => {
       Accepted: 0,
       Preparing: 0,
       Ready: 0,
-      Rejected: 0,
     };
 
     todayOrders.forEach((order) => {
@@ -980,6 +1069,7 @@ ${paymentFilter === "online"
                             </button>
                           )}
 
+
                           {isPaid && order.status === "Accepted" && (
                             <button
                               type="button"
@@ -1009,6 +1099,19 @@ ${paymentFilter === "online"
                               ✅ Complete Order
                             </button>
                           )}
+
+                          {order.payment_method === "RAZORPAY" &&
+                            isPaid &&
+                            ["Pending", "Accepted", "Preparing", "Ready"].includes(order.status) && (
+                              <button
+                                type="button"
+                                onClick={() => openRefundModal(order)}
+                                className="mt-3 w-full rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-4 py-3 text-white font-semibold shadow-md hover:opacity-90 transition"
+                              >
+                                💸 Refund
+                              </button>
+                            )}
+
                         </div>
                       )}
 
@@ -1039,7 +1142,292 @@ ${paymentFilter === "online"
         </div>
       )}
 
+      {showRefundModal &&
+        createPortal(
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4">
+            <div className="w-full max-w-2xl max-h-[90vh] overflow-hidden rounded-3xl bg-white shadow-[0_20px_60px_rgba(0,0,0,0.18)]">
 
+              {/* Header */}
+              <div className="flex items-start justify-between border-b border-slate-100 px-8 py-6">
+
+                <div className="flex items-center gap-4">
+
+                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-600 text-2xl text-white shadow-lg">
+                    💸
+                  </div>
+
+                  <div>
+                    <h2 className="text-3xl font-bold text-slate-900">
+                      Refund Order
+                    </h2>
+
+                    <p className="mt-1 text-sm text-slate-500">
+                      {selectedOrder?.user?.name}
+                    </p>
+                  </div>
+
+                </div>
+
+                <button
+                  onClick={() => {
+                    setShowRefundModal(false);
+                    setSelectedOrder(null);
+                    setSelectedItems([]);
+                    setRefundType("full");
+                  }}
+                  className="flex h-11 w-11 items-center justify-center rounded-xl text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                >
+                  ✕
+                </button>
+
+              </div>
+
+              {/* Body */}
+              <div className="
+max-h-[calc(90vh-170px)]
+overflow-y-auto
+space-y-6
+px-8
+py-7
+scrollbar-thin
+scrollbar-thumb-blue-300
+scrollbar-track-transparent
+">
+
+                {/* Refund Type */}
+                <div className="grid gap-3 lg:grid-cols-[170px_1fr] lg:items-center">
+
+                  <label className="text-base font-semibold text-slate-700">
+                    Refund Type
+                  </label>
+
+                  <select
+                    value={refundType}
+                    onChange={(e) => {
+                      const type = e.target.value;
+                      setRefundType(type);
+
+                      if (type === "full") {
+                        setSelectedItems(selectedOrder?.order_items || []);
+                      } else {
+                        setSelectedItems([]);
+                      }
+                    }}
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-5 py-4 text-base font-medium outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                  >
+                    <option value="full">Full Refund</option>
+                    <option value="partial">Partial Refund</option>
+                  </select>
+
+                </div>
+
+                {/* Amount */}
+                <div className="flex items-center justify-between rounded-3xl border border-blue-100 bg-gradient-to-br from-blue-50 via-white to-cyan-50 p-6">
+
+                  <div>
+
+                    <p className="text-sm font-medium text-slate-500">
+                      Refund Amount
+                    </p>
+
+                    <h2 className="mt-2 text-3xl sm:text-5xl font-extrabold text-blue-600">
+                      ₹{refundAmount.toFixed(2)}
+                    </h2>
+
+                  </div>
+
+                  <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-blue-100 text-4xl">
+                    💳
+                  </div>
+
+                </div>
+
+                <div className="grid gap-3 lg:grid-cols-[170px_1fr] lg:items-center">
+
+                  <label className="text-base font-semibold text-slate-700">
+                    Refund Reason
+                  </label>
+
+                  <select
+                    value={refundReason}
+                    onChange={(e) => setRefundReason(e.target.value)}
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-5 py-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                  >
+                    <option value="">Select a reason</option>
+                    <option>Out of Stock</option>
+                    <option>Kitchen Closed</option>
+                    <option>Item Unavailable</option>
+                    <option>Technical Issue</option>
+                    <option>Customer Request</option>
+                    <option>Other</option>
+                  </select>
+
+                </div>
+
+                <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+
+                  <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+
+                    <h3 className="text-xl font-bold text-slate-900">
+                      Order Summary
+                    </h3>
+
+                    <span className="rounded-full bg-blue-50 px-3 py-1 text-sm font-semibold text-blue-600">
+                      {selectedOrder?.order_items?.length} Item
+                    </span>
+
+                  </div>
+
+                  <div className="space-y-4">
+
+                    {selectedOrder?.order_items?.map((item, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 p-4"
+                      >
+
+                        <div className="flex items-center gap-4">
+
+                          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-100 text-xl">
+                            🍽️
+                          </div>
+
+                          <div>
+
+                            <p className="font-semibold text-slate-800">
+                              {item.food_items?.name}
+                            </p>
+
+                            <p className="text-sm text-slate-500">
+                              Qty : {item.quantity}
+                            </p>
+
+                          </div>
+
+                        </div>
+
+                        <span className="text-lg font-bold text-slate-800">
+                          ₹{item.price_at_time * item.quantity}
+                        </span>
+
+                      </div>
+                    ))}
+
+                  </div>
+
+                </div>
+
+                {refundType === "partial" && (
+                  <div className="rounded-3xl border border-blue-100 bg-gradient-to-br from-blue-50 to-cyan-50 p-6">
+                    <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+
+                      <h3 className="text-xl font-bold text-blue-700">
+                        Select Items to Refund
+                      </h3>
+
+                      <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-blue-600 shadow-sm">
+                        {selectedItems.length} Selected
+                      </span>
+
+                    </div>
+
+                    <div className="space-y-3">
+                      {selectedOrder?.order_items?.map((item, index) => (
+                        <label
+                          key={index}
+                          className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between rounded-3xl border border-blue-100 bg-gradient-to-br from-blue-50 via-white to-cyan-50 p-6"
+                        >
+                          <div className="flex items-center gap-3">
+                            <input
+                              className="h-5 w-5 accent-blue-600"
+                              type="checkbox"
+                              checked={selectedItems.includes(item)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedItems((prev) => [...prev, item]);
+                                } else {
+                                  setSelectedItems((prev) =>
+                                    prev.filter((i) => i !== item)
+                                  );
+                                }
+                              }}
+                            />
+
+                            <div>
+                              <p className="text-lg font-semibold text-slate-800">
+                                {item.food_items?.name}
+                              </p>
+
+                              <p className="mt-1 text-sm text-slate-500">
+                                Qty : {item.quantity}
+                              </p>
+                            </div>
+                          </div>
+
+                          <span className="text-xl font-bold text-slate-800">
+                            ₹{item.price_at_time * item.quantity}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+              </div>
+
+              {/* Footer */}
+              <div className="sticky bottom-0 flex justify-end gap-3 border-t bg-white px-8 py-5">
+
+                <button
+                  onClick={() => {
+                    setShowRefundModal(false);
+                    setSelectedOrder(null);
+                    setSelectedItems([]);
+                    setRefundType("full");
+                  }}
+                  className="rounded-xl border px-5 py-2"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  onClick={handleRefund}
+                  disabled={
+                    refundLoading ||
+                    !refundReason ||
+                    (refundType === "partial" &&
+                      selectedItems.length === 0)
+                  }
+                  className={`
+    relative overflow-hidden
+    rounded-xl
+    px-5 py-2.5
+    font-semibold
+    text-white
+    transition-all duration-300
+    ${refundLoading
+                      ? "bg-cyan-700 cursor-not-allowed"
+                      : "bg-gradient-to-r from-cyan-500 to-blue-600 hover:scale-[1.03] hover:shadow-xl active:scale-95"
+                    }
+  `}
+                >
+                  {refundLoading ? (
+                    <div className="flex items-center justify-center gap-2">
+                      <div className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                      Processing...
+                    </div>
+                  ) : (
+                    "Continue"
+                  )}
+                </button>
+
+              </div>
+
+            </div>
+          </div>,
+
+          document.body
+        )}
 
     </div>
   );

@@ -109,6 +109,8 @@ const TrackOrder = () => {
         order?.status === "Rejected" ||
         order?.status === "Cancelled";
 
+    const isRefunded = order?.status === "Refunded";
+
     const statusDetails = {
         Pending: {
             title: "Order Received",
@@ -282,9 +284,11 @@ rounded-[32px]
 p-6
 lg:p-8
 text-white
-${isRejected
-                                    ? "bg-gradient-to-br from-red-600 via-red-500 to-rose-500"
-                                    : "bg-gradient-to-br from-blue-600 via-blue-500 to-cyan-500"
+${isRefunded
+                                    ? "bg-gradient-to-br from-sky-500 via-blue-500 to-cyan-500"
+                                    : isRejected
+                                        ? "bg-gradient-to-br from-red-600 via-red-500 to-rose-500"
+                                        : "bg-gradient-to-br from-blue-600 via-blue-500 to-cyan-500"
                                 }
 `}
 
@@ -361,7 +365,9 @@ ${isRejected
 
                                             <Sparkles size={16} />
 
-                                            {order.status}
+                                            {isRefunded
+                                                ? "Refund Initiated"
+                                                : order.status}
 
                                         </div>
 
@@ -396,7 +402,9 @@ ${isRejected
 
                                             <div
                                                 className="
-                      bg-white/15
+                    bg-white/20
+                    border
+                  border-white/20
                       backdrop-blur
                       rounded-2xl
                       px-4
@@ -405,21 +413,23 @@ ${isRejected
                                             >
 
                                                 <p className="text-xs text-red-100">
-                                                    {isRejected ? "Cancelled At" : "Token"}
+                                                    {isRefunded ? "Refund Amount" : isRejected ? "Cancelled At" : "Token"}
                                                 </p>
 
                                                 <h2 className="text-2xl font-bold">
-                                                    {isRejected
-                                                        ? new Date(order.created_at).toLocaleTimeString("en-IN", {
-                                                            hour: "2-digit",
-                                                            minute: "2-digit",
-                                                        })
-                                                        : `#${order.token_number}`}
+                                                    {isRefunded
+                                                        ? `₹${order.refund_amount}`
+                                                        : isRejected
+                                                            ? new Date(order.created_at).toLocaleTimeString("en-IN", {
+                                                                hour: "2-digit",
+                                                                minute: "2-digit",
+                                                            })
+                                                            : `#${order.token_number}`}
                                                 </h2>
 
                                             </div>
 
-                                            {!isRejected && (
+                                            {!isRejected && !isRefunded && (
                                                 <div
                                                     className="
       bg-white/15
@@ -456,7 +466,7 @@ ${isRejected
                 LIVE ORDER TRACKING
           ============================ */}
 
-                        {!isRejected && (
+                        {!isRejected && !isRefunded && (
 
                             <motion.div
                                 initial={{ opacity: 0, y: 25 }}
@@ -518,11 +528,12 @@ ${isRejected
 
                                 <div
                                     className="
-                relative
-                mt-14
-                flex
-                justify-between
-              "
+relative
+mt-14
+grid
+grid-cols-5
+gap-1
+"
                                 >
 
                                     {/* Blue Line */}
@@ -607,20 +618,23 @@ ${isRejected
 
                                             <h4
                                                 className={`
-                      mt-4
-                      text-sm
-                      font-semibold
-
-                      ${step.active
+        mt-3
+        text-[10px]
+        sm:text-sm
+        leading-tight
+        text-center
+        whitespace-normal
+        break-words
+        max-w-[60px]
+        sm:max-w-none
+        font-semibold
+        ${step.active
                                                         ? "text-blue-600"
                                                         : "text-slate-500"
                                                     }
-
-                    `}
+    `}
                                             >
-
                                                 {step.title}
-
                                             </h4>
 
                                         </div>
@@ -729,6 +743,52 @@ p-6
 
 
                             </motion.div>
+                        )}
+
+                        {isRefunded && (
+
+                            <motion.div
+                                className="
+mt-8
+bg-blue-50
+border-blue-200
+border
+rounded-3xl
+p-6
+"
+                            >
+
+                                <div className="flex items-center gap-4">
+
+                                    <div className="w-14 h-14 rounded-2xl bg-blue-100 flex items-center justify-center text-3xl">
+                                        💸
+                                    </div>
+
+                                    <div>
+
+                                        <h2 className="text-2xl font-bold text-blue-700">
+                                            Refund Initiated
+                                        </h2>
+
+                                        <p className="text-slate-600 mt-1">
+                                            Your refund request has been submitted successfully.
+                                        </p>
+
+                                        <p className="mt-2 text-sm text-slate-500">
+                                            The refund will be credited to your original payment method
+                                            within <b>3–7 business days.</b>
+                                        </p>
+
+                                        <p className="mt-2 text-sm font-semibold text-blue-700">
+                                            Reason: {order.refund_reason}
+                                        </p>
+
+                                    </div>
+
+                                </div>
+
+                            </motion.div>
+
                         )}
 
                         {/* ==========================================
@@ -911,7 +971,51 @@ p-6
 
                                     </div>
 
-                                    {!isRejected && (
+                                    {isRefunded && (
+                                        <>
+                                            <div className="flex justify-between">
+                                                <span className="text-slate-500">
+                                                    Refund Status
+                                                </span>
+
+                                                <span className="font-semibold text-blue-600">
+                                                    Refund Initiated
+                                                </span>
+                                            </div>
+
+                                            <div className="flex justify-between">
+                                                <span className="text-slate-500">
+                                                    Refund Amount
+                                                </span>
+
+                                                <span className="font-semibold">
+                                                    ₹{order.refund_amount}
+                                                </span>
+                                            </div>
+
+                                            <div className="flex justify-between">
+                                                <span className="text-slate-500">
+                                                    Refund Type
+                                                </span>
+
+                                                <span className="font-semibold capitalize">
+                                                    {order.refund_type}
+                                                </span>
+                                            </div>
+
+                                            <div className="flex justify-between">
+                                                <span className="text-slate-500">
+                                                    Refund ID
+                                                </span>
+
+                                                <span className="font-semibold">
+                                                    {order.refund_id}
+                                                </span>
+                                            </div>
+                                        </>
+                                    )}
+
+                                    {!isRejected && !isRefunded && (
                                         <div className="flex justify-between">
 
                                             <span className="text-slate-500">
@@ -970,7 +1074,7 @@ p-6
 
                                 {/* Pickup */}
 
-                                {!isRejected && (
+                                {!isRejected && !isRefunded && (
                                     <div
                                         className="
           mt-8
@@ -1118,10 +1222,12 @@ gap-2
 
 
 
-                            {(order.status === "Completed" || isRejected) && (
-                                <button
-                                    onClick={() => navigate("/menu")}
-                                    className="
+                            {(order.status === "Completed" ||
+                                isRejected ||
+                                isRefunded) && (
+                                    <button
+                                        onClick={() => navigate("/menu")}
+                                        className="
 order-1 lg:order-3
 h-14
 rounded-2xl
@@ -1143,12 +1249,12 @@ items-center
 justify-center
 gap-2
 "
-                                >
-                                    <ShoppingBag size={18} />
+                                    >
+                                        <ShoppingBag size={18} />
 
-                                    <span>Order Again</span>
-                                </button>
-                            )}
+                                        <span>Order Again</span>
+                                    </button>
+                                )}
 
                         </div>
 

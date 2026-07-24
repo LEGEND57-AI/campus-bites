@@ -227,6 +227,10 @@ export const adminAPI = {
       available,
     }),
 
+  // Refund Order
+  refundOrder: (id, data) =>
+    api.post(`/admin/orders/${id}/refund`, data),
+
 };
 
 // ================= ANALYTICS =================
@@ -248,6 +252,38 @@ export const analyticsAPI = {
 
   getOrders: () =>
     api.get("/analytics/orders"),
+
+};
+
+
+// ================= NOTIFICATIONS =================
+
+export const notificationAPI = {
+
+  // Get all notifications
+  getNotifications: (page = 1, limit = 10) =>
+    api.get("/notifications", {
+      params: {
+        page,
+        limit,
+      },
+    }),
+
+  // Get unread count
+  getUnreadCount: () =>
+    api.get("/notifications/unread-count"),
+
+  // Mark single notification as read
+  markAsRead: (id) =>
+    api.put(`/notifications/${id}/read`),
+
+  // Mark all notifications as read
+  markAllAsRead: () =>
+    api.put("/notifications/read-all"),
+
+  // Delete notification
+  deleteNotification: (id) =>
+    api.delete(`/notifications/${id}`),
 
 };
 

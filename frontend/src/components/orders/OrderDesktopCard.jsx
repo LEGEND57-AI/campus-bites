@@ -61,8 +61,14 @@ const OrderDesktopCard = ({ order }) => {
       case "completed":
         return "bg-emerald-100 text-emerald-700 border border-emerald-200";
 
+      case "cancelled":
+        return "bg-red-100 text-red-700 border border-red-200";
+
       case "rejected":
         return "bg-red-100 text-red-700 border border-red-200";
+
+      case "refunded":
+        return "bg-sky-100 text-sky-700 border border-sky-200";
 
       default:
         return "bg-gray-100 text-gray-600 border border-gray-200";
@@ -108,9 +114,11 @@ const OrderDesktopCard = ({ order }) => {
             ? "bg-blue-50/30 border-blue-200 border-l-[5px] border-l-blue-500"
             : order.status?.toLowerCase() === "completed"
               ? "bg-emerald-50/30 border-emerald-200 border-l-[5px] border-l-emerald-500"
-              : order.status?.toLowerCase() === "rejected"
-                ? "bg-red-50/30 border-red-200 border-l-[5px] border-l-red-500"
-                : "border-slate-100"
+              : order.status?.toLowerCase() === "refunded"
+                ? "bg-blue-50/30 border-blue-200 border-l-[5px] border-l-blue-500"
+                : ["rejected", "cancelled"].includes(order.status?.toLowerCase())
+                  ? "bg-red-50/30 border-red-200 border-l-[5px] border-l-red-500"
+                  : "border-slate-100"
         }
   `}
     >
@@ -144,7 +152,7 @@ const OrderDesktopCard = ({ order }) => {
               text-slate-900
             "
             >
-              Order #CC{10000 + order.id}
+              Token #{order.token_number}
             </h3>
 
             <button
@@ -162,7 +170,14 @@ const OrderDesktopCard = ({ order }) => {
               mt-1
             "
           >
-            {new Date(order.created_at).toLocaleString()}
+            {new Date(order.created_at).toLocaleString("en-IN", {
+              day: "2-digit",
+              month: "2-digit",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: true,
+            })}
           </p>
 
           <p
@@ -206,12 +221,26 @@ const OrderDesktopCard = ({ order }) => {
               ${getStatusColor(order.status)}
             `}
           >
-            {order.status}
+            {order.status?.toLowerCase() === "refunded"
+              ? "Refund Initiated"
+              : order.status}
           </span>
 
           <div className="mt-4">
 
-            {order.status?.toLowerCase() === "rejected" ? (
+            {order.status?.toLowerCase() === "cancelled" ? (
+
+              <>
+                <p className="text-gray-400 text-xs">
+                  Order Status
+                </p>
+
+                <p className="text-red-600 font-semibold text-sm mt-1">
+                  Cancelled by You
+                </p>
+              </>
+
+            ) : order.status?.toLowerCase() === "rejected" ? (
 
               <>
                 <p className="text-gray-400 text-xs">
@@ -243,6 +272,22 @@ const OrderDesktopCard = ({ order }) => {
                 </p>
               </>
 
+            ) : order.status?.toLowerCase() === "refunded" ? (
+
+              <>
+                <p className="text-gray-400 text-xs">
+                  Refund Status
+                </p>
+
+                <p className="text-blue-600 font-semibold text-sm mt-1">
+                  Refund Initiated
+                </p>
+
+                <p className="text-blue-600 font-semibold text-sm mt-1">
+                  3–7 Business Days
+                </p>
+              </>
+
             ) : (
 
               <>
@@ -258,6 +303,7 @@ const OrderDesktopCard = ({ order }) => {
             )}
 
           </div>
+
         </div>
 
         {/* RIGHT */}
@@ -444,7 +490,7 @@ font-semibold
   duration-300
 "
             >
-              {order.status?.toLowerCase() === "rejected"
+              {["rejected", "cancelled", "refunded"].includes(order.status?.toLowerCase())
                 ? "Details"
                 : "Track"}
               <ArrowRight size={12} />

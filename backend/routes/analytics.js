@@ -8,6 +8,37 @@ const router = express.Router();
 router.use(authenticate, isAdmin);
 
 /* ============================================================
+   ORDER STATUS CONSTANTS
+============================================================ */
+
+const ORDER_STATUS = Object.freeze({
+    PENDING: "pending",
+    ACCEPTED: "accepted",
+    PREPARING: "preparing",
+    READY: "ready",
+    COMPLETED: "completed",
+    CANCELLED: "cancelled",
+    REJECTED: "rejected",
+    REFUNDED: "refunded",
+});
+
+const ACTIVE_STATUSES = [
+    ORDER_STATUS.PENDING,
+    ORDER_STATUS.ACCEPTED,
+    ORDER_STATUS.PREPARING,
+    ORDER_STATUS.READY,
+];
+
+const REVENUE_STATUSES = [
+    ORDER_STATUS.COMPLETED,
+];
+
+const CANCELLED_STATUSES = [
+    ORDER_STATUS.CANCELLED,
+    ORDER_STATUS.REJECTED,
+];
+
+/* ============================================================
    DATE HELPERS
 ============================================================ */
 
@@ -287,36 +318,26 @@ router.get("/dashboard", async (req, res) => {
            ORDER STATUS
         ===================================================== */
 
-        const activeStatuses = [
-
-            "pending",
-            "accepted",
-            "preparing",
-            "ready",
-
-        ];
-
-        const revenueStatuses = [
-            "completed",
-        ];
 
         const activeOrders =
             filteredOrders.filter(order =>
-                activeStatuses.includes(
+                ACTIVE_STATUSES.includes(
                     String(order.status || "").toLowerCase()
                 )
             );
 
         const completedOrders =
             filteredOrders.filter(order =>
-                revenueStatuses.includes(
+                REVENUE_STATUSES.includes(
                     String(order.status || "").toLowerCase()
                 )
             );
 
         const cancelledOrders =
             filteredOrders.filter(order =>
-                String(order.status || "").toLowerCase() === "cancelled"
+                CANCELLED_STATUSES.includes(
+                    String(order.status || "").toLowerCase()
+                )
             );
 
         const totalRevenue =
@@ -365,7 +386,7 @@ router.get("/dashboard", async (req, res) => {
             revenueMap[key].orders++;
 
             if (
-                revenueStatuses.includes(
+                REVENUE_STATUSES.includes(
                     String(order.status || "").toLowerCase()
                 )
             ) {
@@ -448,25 +469,21 @@ router.get("/dashboard", async (req, res) => {
             ready: 0,
             completed: 0,
             cancelled: 0,
+            refunded: 0,
 
         };
 
         filteredOrders.forEach(order => {
 
-            const status =
-                String(
-                    order.status || ""
-                ).toLowerCase();
+            let status = String(order.status || "").toLowerCase();
 
-            if (
+            // Rejected ko Cancelled me count karo
+            if (status === "rejected") {
+                status = "cancelled";
+            }
 
-                statusBreakdown[status] !==
-                undefined
-
-            ) {
-
+            if (statusBreakdown[status] !== undefined) {
                 statusBreakdown[status]++;
-
             }
 
         });
@@ -477,7 +494,9 @@ router.get("/dashboard", async (req, res) => {
         const completedOrderIds = new Set(
             filteredOrders
                 .filter(order =>
-                    String(order.status || "").toLowerCase() === "completed"
+                    REVENUE_STATUSES.includes(
+                        String(order.status || "").toLowerCase()
+                    )
                 )
                 .map(order => order.id)
         );
@@ -721,10 +740,6 @@ router.get("/revenue", async (req, res) => {
         const orders =
             await fetchOrders();
 
-        const revenueStatuses = [
-            "completed",
-        ];
-
         const filtered =
             orders.filter(order => {
 
@@ -736,7 +751,7 @@ router.get("/revenue", async (req, res) => {
                     created >= start &&
                     created <= end &&
 
-                    revenueStatuses.includes(
+                    REVENUE_STATUSES.includes(
 
                         String(
                             order.status || ""
@@ -917,7 +932,9 @@ router.get("/customers", async (req, res) => {
                         formatMoney(
                             sumRevenue(
                                 customerOrders.filter(order =>
-                                    String(order.status || "").toLowerCase() === "completed"
+                                    REVENUE_STATUSES.includes(
+                                        String(order.status || "").toLowerCase()
+                                    )
                                 )
                             )
                         ),
@@ -978,39 +995,29 @@ router.get("/dashboard-summary", async (req, res) => {
 
         });
 
-        const activeStatuses = [
-            "pending",
-            "accepted",
-            "preparing",
-            "ready",
-        ];
-
-        const revenueStatuses = [
-            "completed",
-        ];
 
         const activeOrders = todayOrders.filter(order =>
-            activeStatuses.includes(
+            ACTIVE_STATUSES.includes(
                 String(order.status || "").toLowerCase()
             )
         );
 
         const completedOrders = todayOrders.filter(order =>
-            revenueStatuses.includes(
+            REVENUE_STATUSES.includes(
                 String(order.status || "").toLowerCase()
             )
         );
 
         const pendingOrders = todayOrders.filter(order =>
-            String(order.status || "").toLowerCase() === "pending"
+            String(order.status || "").toLowerCase() === ORDER_STATUS.PENDING
         );
 
         const preparingOrders = todayOrders.filter(order =>
-            String(order.status || "").toLowerCase() === "preparing"
+            String(order.status || "").toLowerCase() === ORDER_STATUS.PREPARING
         );
 
         const readyOrders = todayOrders.filter(order =>
-            String(order.status || "").toLowerCase() === "ready"
+            String(order.status || "").toLowerCase() === ORDER_STATUS.READY
         );
 
         res.json({
@@ -1083,7 +1090,9 @@ router.get("/overview", async (req, res) => {
             revenue: formatMoney(
                 sumRevenue(
                     orders.filter(order =>
-                        String(order.status || "").toLowerCase() === "completed"
+                        REVENUE_STATUSES.includes(
+                            String(order.status || "").toLowerCase()
+                        )
                     )
                 )
             ),

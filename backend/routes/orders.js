@@ -3,6 +3,7 @@ import { supabase } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { generateDailyToken } from "../utils/tokenGenerator.js";
 import { orderLimiter } from "../middleware/rateLimiter.js";
+import { createNotification } from "../utils/notificationService.js";
 
 const router = express.Router();
 router.use(orderLimiter);
@@ -172,8 +173,18 @@ router.post('/', async (req, res) => {
         .from('order_items')
         .insert(orderItemsWithOrderId);
 
-
     if (itemsError) throw itemsError;
+
+    await createNotification({
+      userId: req.user.id,
+      title: "Order Placed",
+      message: `Your order has been placed successfully.`,
+      type: "order_placed",
+      priority: "medium",
+      orderId: order.id,
+      tokenNumber: order.token_number,
+      actionUrl: `/track-order/${order.id}`,
+    });
 
 
     res.status(201).json({
@@ -245,7 +256,7 @@ router.patch("/:id/cancel", async (req, res) => {
     const { error: updateError } = await supabase
       .from("orders")
       .update({
-        status: "Rejected",
+        status: "Cancelled",
         payment_status: "CANCELLED",
         cancel_reason: "Cancelled by Customer",
         cancelled_by: "CUSTOMER",

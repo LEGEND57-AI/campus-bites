@@ -5,6 +5,7 @@ import { razorpay } from "../utils/razorpay.js";
 import { authenticate } from "../middleware/auth.js";
 import { generateDailyToken } from "../utils/tokenGenerator.js";
 import { paymentLimiter } from "../middleware/rateLimiter.js";
+import { createNotification } from "../utils/notificationService.js";
 
 const router = express.Router();
 router.use(paymentLimiter);
@@ -369,6 +370,16 @@ router.post("/verify", async (req, res) => {
 
 
         if (itemsError) throw itemsError;
+
+        await createNotification({
+            userId: req.user.id,
+            title: "Order Placed",
+            message: `Your order has been placed successfully.`,
+            type: "order_placed",
+            orderId: order.id,
+            tokenNumber: token_number,
+            actionUrl: `/track-order/${order.id}`,
+        });
 
 
         // Success response

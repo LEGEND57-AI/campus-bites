@@ -17,6 +17,7 @@ import analyticsRoutes from "./routes/analytics.js";
 import categoryRoutes from './routes/category.js';
 import uploadRoutes from './routes/upload.js';
 import paymentRoutes from "./routes/payment.js";
+import notificationRoutes from "./routes/notifications.js";
 import { autoCancelExpiredCashOrders } from "./utils/autoCancelOrders.js";
 
 dotenv.config();
@@ -94,6 +95,7 @@ app.use("/api/analytics", analyticsRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use("/api/payment", paymentRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 // Auto cancel expired cash orders every 1 minute
 setInterval(async () => {

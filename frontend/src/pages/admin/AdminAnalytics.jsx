@@ -74,11 +74,13 @@ const RANGE_LABELS = RANGE_OPTIONS.reduce((acc, o) => {
 }, {});
 
 const STATUS_COLORS = {
-  Pending: "#f59e0b",
-  Accepted: "#3b82f6",
-  Preparing: "#8b5cf6",
-  Ready: "#22c55e",
-  Cancelled: "#ef4444",
+  Pending: "#f59e0b",      // Orange
+  Accepted: "#3b82f6",     // Blue
+  Preparing: "#8b5cf6",    // Purple
+  Ready: "#22c55e",        // Green
+  Completed: "#10b981",    // Emerald
+  Cancelled: "#ef4444",    // Red
+  Refunded: "#06b6d4",     // Cyan
 };
 
 // How often to poll for "live" updates. Lower = more real-time feeling,
@@ -352,8 +354,12 @@ const AdminAnalytics = () => {
     { name: "Accepted", value: stats.statusBreakdown?.accepted || 0 },
     { name: "Preparing", value: stats.statusBreakdown?.preparing || 0 },
     { name: "Ready", value: stats.statusBreakdown?.ready || 0 },
+    { name: "Completed", value: stats.statusBreakdown?.completed || 0 },
     { name: "Cancelled", value: stats.statusBreakdown?.cancelled || 0 },
+    { name: "Refunded", value: stats.statusBreakdown?.refunded || 0 },
   ];
+
+  const chartData = pieData.filter(item => item.value > 0);
 
   const totalStatusCount = pieData.reduce((s, p) => s + p.value, 0);
 
@@ -644,13 +650,13 @@ const AdminAnalytics = () => {
                 interval={
                   range === "7days"
                     ? 0
-                      : range === "thismonth"
-                        ? 4
-                        : range === "3months"
+                    : range === "thismonth"
+                      ? 4
+                      : range === "3months"
+                        ? 0
+                        : range === "thisyear"
                           ? 0
-                          : range === "thisyear"
-                            ? 0
-                            : "preserveStartEnd"
+                          : "preserveStartEnd"
                 }
                 tickFormatter={(value) => formatXAxisLabel(value, range)}
                 tick={{ fontSize: 11, fill: '#94a3b8' }}
@@ -748,14 +754,17 @@ const AdminAnalytics = () => {
               <ResponsiveContainer width="100%" height={160}>
                 <PieChart>
                   <Pie
-                    data={pieData}
+                    data={chartData}
                     dataKey="value"
                     innerRadius={45}
                     outerRadius={70}
                     paddingAngle={3}
                   >
-                    {pieData.map((entry, index) => (
-                      <Cell key={index} fill={STATUS_COLORS[entry.name]} />
+                    {chartData.map((entry, index) => (
+                      <Cell
+                        key={index}
+                        fill={STATUS_COLORS[entry.name]}
+                      />
                     ))}
                   </Pie>
                   <Tooltip />

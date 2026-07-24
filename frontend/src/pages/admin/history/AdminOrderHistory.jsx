@@ -19,6 +19,7 @@ import {
     ClipboardList,
     CheckCircle2,
     XCircle,
+    RefreshCw,
     Wallet,
 } from "lucide-react";
 
@@ -230,7 +231,14 @@ const AdminOrderHistory = () => {
                 return false;
             }
 
-            if (summaryFilter === "cancelled" && order.status !== "Rejected") {
+            if (
+                summaryFilter === "cancelled" &&
+                !["Rejected", "Cancelled"].includes(order.status)
+            ) {
+                return false;
+            }
+
+            if (summaryFilter === "refunded" && order.status !== "Refunded") {
                 return false;
             }
 
@@ -284,7 +292,11 @@ const AdminOrderHistory = () => {
         );
 
         const cancelled = paymentFilteredOrders.filter(
-            (o) => o.status === "Rejected"
+            (o) => ["Rejected", "Cancelled"].includes(o.status)
+        );
+
+        const refunded = paymentFilteredOrders.filter(
+            (o) => o.status === "Refunded"
         );
 
         const revenue = completed.reduce(
@@ -292,10 +304,12 @@ const AdminOrderHistory = () => {
             0
         );
 
+
         return {
             total: paymentFilteredOrders.length,
             completed: completed.length,
             cancelled: cancelled.length,
+            refunded: refunded.length,
             revenue,
         };
     }, [dateFilteredOrders, paymentFilter]);
@@ -325,7 +339,7 @@ const AdminOrderHistory = () => {
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 <div>
                     <h2 className="text-2xl sm:text-3xl font-bold text-slate-900">Order History</h2>
-                    <p className="text-gray-500 text-sm mt-1">View completed and cancelled orders</p>
+                    <p className="text-gray-500 text-sm mt-1">View completed, cancelled and refunded orders</p>
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -798,7 +812,7 @@ const AdminOrderHistory = () => {
 
 
             {/* SUMMARY CARDS */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
                 <SummaryCard
                     icon={ClipboardList}
                     label="Total Orders"
@@ -825,6 +839,7 @@ const AdminOrderHistory = () => {
                     }
                     isActive={summaryFilter === "completed"}
                 />
+
                 <SummaryCard
                     icon={XCircle}
                     label="Cancelled"
@@ -839,6 +854,22 @@ const AdminOrderHistory = () => {
                     }
                     isActive={summaryFilter === "cancelled"}
                 />
+
+                <SummaryCard
+                    icon={RefreshCw}
+                    label="Refunded"
+                    value={summary.refunded}
+                    bg="bg-cyan-50"
+                    color="text-cyan-600"
+                    delay={0.15}
+                    onClick={() =>
+                        setSummaryFilter((prev) =>
+                            prev === "refunded" ? "" : "refunded"
+                        )
+                    }
+                    isActive={summaryFilter === "refunded"}
+                />
+
                 <SummaryCard icon={Wallet} label="Total Revenue" value={`₹${summary.revenue.toLocaleString("en-IN")}`} bg="bg-blue-50" color="text-blue-600" delay={0.15}
                     onClick={() =>
                         setSummaryFilter((prev) =>

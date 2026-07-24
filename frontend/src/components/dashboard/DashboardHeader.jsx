@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
   MapPin,
   Search,
@@ -12,6 +12,7 @@ import toast from "react-hot-toast";
 
 import { useAuth } from "../../context/AuthContext";
 import { useCart } from "../../context/CartContext";
+import { notificationAPI } from "../../services/api";
 
 const DashboardHeader = ({
   searchQuery,
@@ -23,9 +24,32 @@ const DashboardHeader = ({
 
   const { user } = useAuth();
   const { getItemCount } = useCart();
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  const loadUnreadCount = async () => {
+    try {
+      const res = await notificationAPI.getUnreadCount();
+      setUnreadCount(res.data.unreadCount || res.data.count || 0);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => {
+    // Initial load
+    loadUnreadCount();
+
+    // Auto refresh every 10 seconds
+    const interval = setInterval(() => {
+      loadUnreadCount();
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   const handleNotification = () => {
-    toast("Notifications coming soon 🔔");
+    loadUnreadCount();
+    navigate("/notifications");
   };
 
   return (
@@ -158,17 +182,28 @@ const DashboardHeader = ({
           >
             <Bell size={23} />
 
-            <span
-              className="
-              absolute
-              -top-1
-              -right-1
-              w-2
-              h-2
-              rounded-full
-              bg-blue-600
-            "
-            />
+            {unreadCount > 0 && (
+              <span
+                className="
+      absolute
+      -top-2
+      -right-2
+      min-w-[18px]
+      h-[18px]
+      px-1
+      rounded-full
+      bg-red-500
+      text-white
+      text-[10px]
+      font-bold
+      flex
+      items-center
+      justify-center
+    "
+              >
+                {unreadCount > 99 ? "99+" : unreadCount}
+              </span>
+            )}
           </button>
 
           <button
@@ -262,6 +297,8 @@ const DashboardHeader = ({
               )}
             </button>
 
+
+
             {/* Notification */}
             <button
               onClick={handleNotification}
@@ -269,17 +306,28 @@ const DashboardHeader = ({
             >
               <Bell size={20} />
 
-              <span
-                className="
-                absolute
-                -top-1
-                -right-1
-                w-2
-                h-2
-                bg-blue-600
-                rounded-full
-              "
-              />
+              {unreadCount > 0 && (
+                <span
+                  className="
+      absolute
+      -top-2
+      -right-2
+      min-w-[16px]
+      h-[16px]
+      px-1
+      rounded-full
+      bg-red-500
+      text-white
+      text-[9px]
+      font-bold
+      flex
+      items-center
+      justify-center
+    "
+                >
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              )}
             </button>
 
             {/* Profile */}

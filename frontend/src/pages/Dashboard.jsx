@@ -5,6 +5,8 @@ import { useNavigate } from "react-router-dom";
 
 import { useCart } from "../context/CartContext";
 import { foodAPI, categoryAPI } from "../services/api";
+import { getSocket } from "../socket/socket";
+import { SocketEvents } from "../socket/constants";
 
 import FoodCard from "../components/FoodCard";
 import LoadingSkeleton from "../components/LoadingSkeleton";
@@ -32,24 +34,25 @@ const Dashboard = () => {
   }, []);
 
   useEffect(() => {
-    fetchFoodItems();
-  }, []);
 
-  useEffect(() => {
-  const interval = setInterval(() => {
-    fetchFoodItems();
-  }, 5000);
+    const socket = getSocket();
 
-  return () => clearInterval(interval);
-}, []);
+    if (!socket) return;
 
-  useEffect(() => {
-    const interval = setInterval(() => {
+    const handleMenuUpdate = () => {
       fetchCategories();
-    }, 10000);
+      fetchFoodItems();
+      fetchPopularItems();
+    };
 
-    return () => clearInterval(interval);
+    socket.on(SocketEvents.MENU_UPDATED, handleMenuUpdate);
+
+    return () => {
+      socket.off(SocketEvents.MENU_UPDATED, handleMenuUpdate);
+    };
+
   }, []);
+
 
   const fetchCategories = async () => {
     try {

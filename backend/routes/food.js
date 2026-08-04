@@ -89,6 +89,7 @@ router.get('/popular', async (req, res) => {
     });
 
     const popularItems = Object.values(itemMap)
+      .filter(item => item.available === true)
       .sort((a, b) => b.totalOrders - a.totalOrders)
       .slice(0, 8);
 

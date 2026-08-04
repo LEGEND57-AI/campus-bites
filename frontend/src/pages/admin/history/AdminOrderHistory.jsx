@@ -22,12 +22,16 @@ import {
     RefreshCw,
     Wallet,
 } from "lucide-react";
+import { getSocket } from "../../../socket/socket";
+import { SocketEvents } from "../../../socket/constants";
 
 
-const REFRESH_INTERVAL = 30000;
+const getISTDate = (date) =>
+    new Date(date).toLocaleDateString("en-CA", {
+        timeZone: "Asia/Kolkata",
+    });
 
-
-const todayStr = () => new Date().toISOString().split("T")[0];
+const todayStr = () => getISTDate(new Date());
 const formatDisplay = (iso) =>
     new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 
@@ -38,7 +42,10 @@ const toDate = (value) => (value ? new Date(value) : null);
 
 const toISO = (date) => {
     if (!date) return "";
-    return date.toISOString().split("T")[0];
+
+    return new Date(date).toLocaleDateString("en-CA", {
+        timeZone: "Asia/Kolkata",
+    });
 };
 
 const AdminOrderHistory = () => {
@@ -153,9 +160,25 @@ const AdminOrderHistory = () => {
     }, [dateFilter, selectedDate, dateRange]);
 
     useEffect(() => {
+
         fetchOrders();
-        const interval = setInterval(fetchOrders, REFRESH_INTERVAL);
-        return () => clearInterval(interval);
+
+        const socket = getSocket();
+
+        if (socket) {
+
+            socket.on(SocketEvents.ORDER_UPDATED, (order) => {
+
+                fetchOrders();
+
+            });
+
+        }
+
+        return () => {
+            socket?.off(SocketEvents.ORDER_UPDATED);
+        };
+
     }, [fetchOrders]);
 
     const dateFilteredOrders = useMemo(() => {

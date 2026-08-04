@@ -23,6 +23,8 @@ import {
   X,
   RefreshCw,
 } from 'lucide-react';
+import { getSocket } from "../../socket/socket";
+import { SocketEvents } from "../../socket/constants";
 
 // 🔥 Fill missing dates (timezone-safe: does all math on local Y/M/D parts,
 // never round-trips through toISOString for the arithmetic itself)
@@ -83,11 +85,13 @@ const STATUS_COLORS = {
   Refunded: "#06b6d4",     // Cyan
 };
 
-// How often to poll for "live" updates. Lower = more real-time feeling,
-// but more load on your backend. 15-20s is a good balance for a campus app.
-const POLL_INTERVAL_MS = 20000;
 
-const todayStr = () => new Date().toISOString().split('T')[0];
+const getISTDate = (date) =>
+  new Date(date).toLocaleDateString("en-CA", {
+    timeZone: "Asia/Kolkata",
+  });
+
+const todayStr = () => getISTDate(new Date());
 
 const formatDisplayDate = (isoStr) => {
   if (!isoStr) return '';
@@ -267,20 +271,28 @@ const AdminAnalytics = () => {
   }, [range, specificDate]);
 
   useEffect(() => {
-    if (range === 'specific' && !specificDate) {
-      // specific date selected in menu but not applied yet — don't fetch
+
+    if (range === "specific" && !specificDate) {
       return;
     }
 
     fetchAnalytics(false);
 
-    const interval = setInterval(() => {
-      if (!rateLimitedRef.current) {
-        fetchAnalytics(true); // background refresh, no skeleton/spinner flash
-      }
-    }, POLL_INTERVAL_MS);
+    const socket = getSocket();
 
-    return () => clearInterval(interval);
+    if (socket) {
+
+      socket.on(SocketEvents.ANALYTICS_UPDATED, () => {
+
+        fetchAnalytics(true);
+
+      });
+
+    }
+
+    return () => {
+      socket?.off(SocketEvents.ANALYTICS_UPDATED);
+    };
 
   }, [range, specificDate, fetchAnalytics]);
 

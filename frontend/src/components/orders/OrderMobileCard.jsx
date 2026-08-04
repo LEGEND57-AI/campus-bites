@@ -11,6 +11,7 @@ import { useNavigate } from "react-router-dom";
 import { downloadReceipt } from "../../utils/downloadReceipt";
 import { orderAPI } from "../../services/api";
 import { useCart } from "../../context/CartContext";
+import { formatPrice } from "../../utils/formatPrice";
 
 const OrderMobileCard = ({ order }) => {
 
@@ -394,7 +395,7 @@ overflow-hidden
         mt-1
     "
                                 >
-                                    ₹{Number(order.total_amount).toFixed(2)}
+                                    ₹{formatPrice(order.total_amount)}
                                 </h4>
 
                             </div>

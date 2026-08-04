@@ -2,7 +2,6 @@ import React, {
     useCallback,
     useEffect,
     useMemo,
-    useRef,
     useState,
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -18,6 +17,9 @@ import DashboardHeader from "../components/dashboard/DashboardHeader";
 import MobileBottomNav from "../components/dashboard/MobileBottomNav";
 import NotificationCard from "../components/notifications/NotificationCard";
 import NotificationSkeleton from "../components/notifications/NotificationSkeleton";
+
+import { getSocket } from "../socket/socket";
+import { SocketEvents } from "../socket/constants";
 
 import { notificationAPI } from "../services/api";
 
@@ -71,29 +73,29 @@ const Notifications = () => {
         }
     }, []);
 
-    const refreshNotifications = useCallback(async () => {
-        try {
-            const { data } = await notificationAPI.getNotifications();
-
-            setNotifications(data.notifications || data || []);
-        } catch (err) {
-            console.error(err);
-        }
-    }, []);
 
     useEffect(() => {
+
         loadNotifications();
+
+        const socket = getSocket();
+
+        if (socket) {
+
+            socket.on(SocketEvents.NOTIFICATION_NEW, (notification) => {
+
+                loadNotifications();
+
+            });
+
+        }
+
+        return () => {
+            socket?.off(SocketEvents.NOTIFICATION_NEW);
+        };
+
     }, [loadNotifications]);
 
-    useEffect(() => {
-        const interval = setInterval(() => {
-            if (!document.hidden && !loading) {
-                refreshNotifications();
-            }
-        }, 5000);
-
-        return () => clearInterval(interval);
-    }, [refreshNotifications, loading]);
 
     const handleMarkRead = async (id) => {
         setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: true } : n)));

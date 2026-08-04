@@ -1,5 +1,12 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+} from "react";
 import { favoriteAPI } from "../services/api";
+
 
 const FavoriteContext = createContext();
 
@@ -8,7 +15,7 @@ export const FavoriteProvider = ({ children }) => {
   const [favorites, setFavorites] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const loadFavorites = async () => {
+  const loadFavorites = useCallback(async () => {
 
     const token = localStorage.getItem("token");
 
@@ -24,7 +31,6 @@ export const FavoriteProvider = ({ children }) => {
       setLoading(true);
 
       const { data } = await favoriteAPI.getAll();
-      await new Promise(resolve => setTimeout(resolve, 3000));
 
       setFavorites(data || []);
 
@@ -39,7 +45,7 @@ export const FavoriteProvider = ({ children }) => {
 
     }
 
-  };
+  }, []);
 
   useEffect(() => {
 
@@ -50,7 +56,7 @@ export const FavoriteProvider = ({ children }) => {
 
     loadFavorites();
 
-  }, []);
+  }, [loadFavorites]);
 
 
   return (

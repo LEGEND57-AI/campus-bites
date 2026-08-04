@@ -34,7 +34,9 @@ router.get("/", async (req, res) => {
 
         if (error) throw error;
 
-        const favorites = data.map((item) => item.food_items);
+        const favorites = data
+            .map((item) => item.food_items)
+            .filter((item) => item && item.available === true);
 
         res.json(favorites);
 

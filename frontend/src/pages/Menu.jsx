@@ -6,6 +6,8 @@ import toast from "react-hot-toast";
 
 import { useCart } from "../context/CartContext";
 import { foodAPI, categoryAPI } from "../services/api";
+import { getSocket } from "../socket/socket";
+import { SocketEvents } from "../socket/constants";
 
 import Sidebar from "../components/dashboard/Sidebar";
 import DashboardHeader from "../components/dashboard/DashboardHeader";
@@ -74,6 +76,30 @@ const Menu = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+
+    const socket = getSocket();
+
+    if (!socket) return;
+
+    const handleMenuUpdate = () => {
+
+      fetchCategories();
+
+      fetchFoodItems();
+
+    };
+
+    socket.on(SocketEvents.MENU_UPDATED, handleMenuUpdate);
+
+    return () => {
+
+      socket.off(SocketEvents.MENU_UPDATED, handleMenuUpdate);
+
+    };
+
+  }, []);
 
   return (
     <div className="min-h-screen bg-[#F3F6FB] p-3 lg:p-5">

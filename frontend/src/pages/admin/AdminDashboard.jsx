@@ -11,6 +11,8 @@ import {
 } from "lucide-react";
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
+import { getSocket } from "../../socket/socket";
+import { SocketEvents } from "../../socket/constants";
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -33,12 +35,39 @@ const AdminDashboard = () => {
     fetchStats();
     fetchRecentOrders();
 
-    const interval = setInterval(() => {
-      fetchStats();
-      fetchRecentOrders();
-    }, 5000);
+    const socket = getSocket();
 
-    return () => clearInterval(interval);
+    const handleAnalyticsUpdate = () => {
+      fetchStats();
+    };
+
+    const handleOrderUpdate = () => {
+      fetchRecentOrders();
+    };
+
+    if (socket) {
+      socket.on(
+        SocketEvents.ANALYTICS_UPDATED,
+        handleAnalyticsUpdate
+      );
+
+      socket.on(
+        SocketEvents.ORDER_UPDATED,
+        handleOrderUpdate
+      );
+    }
+
+    return () => {
+      socket?.off(
+        SocketEvents.ANALYTICS_UPDATED,
+        handleAnalyticsUpdate
+      );
+
+      socket?.off(
+        SocketEvents.ORDER_UPDATED,
+        handleOrderUpdate
+      );
+    };
   }, []);
 
   const fetchStats = async () => {

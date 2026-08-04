@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 
 import {
     ArrowLeft,
@@ -22,7 +22,8 @@ import { useNavigate, useParams } from "react-router-dom";
 import toast from "react-hot-toast";
 
 import { orderAPI } from "../services/api";
-import { supabase } from "../lib/supabaseClient";
+import { getSocket } from "../socket/socket";
+import { SocketEvents } from "../socket/constants";
 
 import Sidebar from "../components/dashboard/Sidebar";
 import DashboardHeader from "../components/dashboard/DashboardHeader";
@@ -37,40 +38,7 @@ const TrackOrder = () => {
     const [loading, setLoading] = useState(true);
     const [order, setOrder] = useState(null);
 
-    useEffect(() => {
-
-        window.scrollTo(0, 0);
-
-        fetchOrder();
-
-        const channel = supabase
-            .channel(`order-${id}`)
-            .on(
-                "postgres_changes",
-                {
-                    event: "UPDATE",
-                    schema: "public",
-                    table: "orders",
-                    filter: `id=eq.${id}`,
-                },
-                () => {
-                    fetchOrder();
-                }
-            )
-            .subscribe();
-
-        const interval = setInterval(() => {
-            fetchOrder();
-        }, 5000);
-
-        return () => {
-            supabase.removeChannel(channel);
-            clearInterval(interval);
-        };
-
-    }, [id]);
-
-    const fetchOrder = async () => {
+    const fetchOrder = useCallback(async () => {
 
         try {
 
@@ -87,13 +55,41 @@ const TrackOrder = () => {
 
         finally {
 
-            if (loading) {
-                setLoading(false);
-            }
+            setLoading(false);
 
         }
+    }, [id]);
 
-    };
+    useEffect(() => {
+
+        window.scrollTo(0, 0);
+
+        fetchOrder();
+
+        const socket = getSocket();
+
+        if (!socket) return;
+
+        const handleOrderUpdate = (updatedOrder) => {
+
+            if (updatedOrder.id === Number(id)) {
+
+                fetchOrder();
+
+            }
+
+        };
+
+        socket.on(SocketEvents.ORDER_UPDATED, handleOrderUpdate);
+
+        return () => {
+
+            socket.off(SocketEvents.ORDER_UPDATED, handleOrderUpdate);
+
+        };
+
+    }, [id, fetchOrder]);
+
 
     const statusIndex = {
         Pending: 0,

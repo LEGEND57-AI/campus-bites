@@ -1,5 +1,4 @@
-import jwt from 'jsonwebtoken';
-import { supabase } from '../db.js';
+import { getUserFromToken } from "../utils/auth.js";
 
 export const authenticate = async (req, res, next) => {
   try {
@@ -9,19 +8,7 @@ export const authenticate = async (req, res, next) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET, {
-      algorithms: ["HS256"],
-    });
-
-    const { data: user, error } = await supabase
-      .from('users')
-      .select('id, email, name, phone, role') // 🔥 FIX HERE
-      .eq('id', decoded.userId)
-      .single();
-
-    if (error || !user) {
-      return res.status(401).json({ error: 'Invalid token' });
-    }
+    const user = await getUserFromToken(token);
 
     req.user = user;
 

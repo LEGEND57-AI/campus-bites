@@ -73,8 +73,8 @@ const AdminMenu = () => {
     selectedCategory === 'all'
       ? items
       : items.filter(
-          (item) => item.category_id?.toString() === selectedCategory
-        );
+        (item) => item.category_id?.toString() === selectedCategory
+      );
 
   const resetForm = () => {
     setFormData({
@@ -105,7 +105,7 @@ const AdminMenu = () => {
     setFormData({
       name: item.name || '',
       description: item.description || '',
-      price: item.price || '',
+      price: Math.round(Number(item.price)) || '',
       image_url: item.image_url || '',
       category_id: item.category_id || '',
       available: item.available ?? true,
@@ -147,7 +147,7 @@ const AdminMenu = () => {
     try {
       const payload = {
         ...formData,
-        price: parseFloat(formData.price),
+        price: Math.round(Number(formData.price)),
       };
 
       if (editingItem) {
@@ -318,7 +318,9 @@ const AdminMenu = () => {
                 </h3>
 
                 <p className="text-blue-600 font-bold text-3xl mt-2">
-                  ₹{Number(item.price || 0).toFixed(2)}
+                  ₹{Number(item.price) % 1 === 0
+                    ? Number(item.price)
+                    : Number(item.price).toFixed(2)}
                 </p>
 
                 <p className="text-gray-500 mt-3 min-h-[45px] text-base leading-relaxed">
@@ -437,7 +439,7 @@ const AdminMenu = () => {
                   </label>
                   <input
                     type="number"
-                    step="0.01"
+                    step="1"
                     min="0"
                     placeholder="Enter price"
                     className="w-full border border-gray-200 rounded-2xl p-3

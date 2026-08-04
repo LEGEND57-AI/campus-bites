@@ -23,6 +23,9 @@ import {
   XCircle,
 } from "lucide-react";
 
+import { getSocket } from "../../socket/socket";
+import { SocketEvents } from "../../socket/constants";
+
 // ---------------- Constants ----------------
 const STATUS_STYLES = {
   Pending: "bg-yellow-100 text-yellow-700",
@@ -105,6 +108,12 @@ const formatToken = (order) =>
     ? `#${String(order.token_number).padStart(2, "0")}`
     : `#${order.id}`;
 
+const getISTDate = (date) => {
+  return new Date(date).toLocaleDateString("en-CA", {
+    timeZone: "Asia/Kolkata",
+  });
+};
+
 const AdminOrders = () => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -125,9 +134,7 @@ const AdminOrders = () => {
   const [refundLoading, setRefundLoading] = useState(false);
   const [selectedItems, setSelectedItems] = useState([]);
   const [activeStat, setActiveStat] = useState("");
-  const now = new Date();
-  const today =
-    `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const today = getISTDate(new Date());
   const [dateFilter, setDateFilter] = useState(today);
   const [currentDate, setCurrentDate] = useState(today);
   const [page, setPage] = useState(1);
@@ -188,15 +195,25 @@ const AdminOrders = () => {
   }, []);
 
   useEffect(() => {
+
     fetchOrders();
 
-    const interval = setInterval(() => {
-      if (!rateLimitedRef.current) {
-        fetchOrders();
-      }
-    }, REFRESH_INTERVAL);
+    const socket = getSocket();
 
-    return () => clearInterval(interval);
+    if (socket) {
+
+      socket.on(SocketEvents.ORDER_UPDATED, (order) => {
+
+        fetchOrders();
+
+      });
+
+    }
+
+    return () => {
+      socket?.off(SocketEvents.ORDER_UPDATED);
+    };
+
   }, [fetchOrders]);
 
   useEffect(() => {
@@ -212,10 +229,8 @@ const AdminOrders = () => {
       const delay = nextMidnight.getTime() - now.getTime();
 
       timeoutId = setTimeout(() => {
-        const now = new Date();
 
-        const today =
-          `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+        const today = getISTDate(new Date());
 
         setCurrentDate(today);
         setDateFilter(today);
@@ -420,7 +435,7 @@ const AdminOrders = () => {
   // ---------------- Filtering for Today ----------------
   const todayOrders = useMemo(() => {
     return orders.filter((order) => {
-      const orderDate = order.created_at?.split("T")[0];
+      const orderDate = getISTDate(order.created_at);
       return orderDate === today;
     });
   }, [orders, today]);
@@ -443,7 +458,10 @@ const AdminOrders = () => {
       }
 
       if (dateFilter) {
-        const orderDate = order.created_at?.split("T")[0];
+        const orderDate = new Date(order.created_at)
+          .toLocaleDateString("en-CA", {
+            timeZone: "Asia/Kolkata",
+          });
         if (orderDate !== dateFilter) return false;
       }
 

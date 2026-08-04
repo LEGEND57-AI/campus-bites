@@ -8,11 +8,14 @@ import {
     History,
     ArrowRight,
 } from "lucide-react";
-import { supabase } from "../lib/supabaseClient";
+
 
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import toast from "react-hot-toast";
+
+import { getSocket } from "../socket/socket";
+import { SocketEvents } from "../socket/constants";
 
 import { orderAPI } from "../services/api";
 
@@ -34,30 +37,19 @@ const Orders = () => {
 
         fetchOrders();
 
-        const channel = supabase
-            .channel("orders-realtime")
-            .on(
-                "postgres_changes",
-                {
-                    event: "*",
-                    schema: "public",
-                    table: "orders",
-                },
-                (payload) => {
-                    fetchOrders();
-                }
-            )
+        const socket = getSocket();
 
-            .subscribe((status) => {
+        if (socket) {
+            socket.on(SocketEvents.ORDER_UPDATED, (updatedOrder) => {
+
+                fetchOrders();
             });
+        }
 
-        const interval = setInterval(() => {
-            fetchOrders();
-        }, 5000);
-
+        
         return () => {
-            supabase.removeChannel(channel);
-            clearInterval(interval);
+            socket?.off(SocketEvents.ORDER_UPDATED);
+            
         };
 
     }, []);

@@ -6,6 +6,13 @@ import { adminLimiter } from "../middleware/rateLimiter.js";
 import { autoCancelExpiredCashOrders } from "../utils/autoCancelOrders.js";
 import { createNotification } from "../utils/notificationService.js";
 import { razorpay } from "../utils/razorpay.js";
+import {
+  emitOrderUpdate,
+  emitAdminOrderUpdate,
+  emitNotification,
+  emitAnalyticsUpdate,
+  emitMenuUpdate,
+} from "../socket/emitters.js";
 
 const router = express.Router();
 
@@ -65,7 +72,7 @@ router.patch('/orders/:id/payment', async (req, res) => {
     if (error) throw error;
 
 
-    await createNotification({
+    const notification = await createNotification({
       userId: data.user_id,
       title: "Order Accepted",
       message: `Your Token #${data.token_number} has been accepted.`,
@@ -76,9 +83,14 @@ router.patch('/orders/:id/payment', async (req, res) => {
       actionUrl: `/track-order/${data.id}`,
     });
 
+    emitNotification(data.user_id, notification);
+    emitOrderUpdate(data.user_id, data);
+    emitAdminOrderUpdate(data);
+    emitAnalyticsUpdate();
+
     res.json({
       success: true,
-      message: 'Payment received successfully',
+      message: "Payment received successfully",
       order: data
     });
 
@@ -180,7 +192,8 @@ router.patch('/orders/:id/status', async (req, res) => {
     }
 
     if (title) {
-      await createNotification({
+
+      const notification = await createNotification({
         userId: order.user_id,
         title,
         message,
@@ -190,7 +203,13 @@ router.patch('/orders/:id/status', async (req, res) => {
         tokenNumber: order.token_number,
         actionUrl: `/track-order/${order.id}`,
       });
+
+      emitNotification(order.user_id, notification);
     }
+
+    emitOrderUpdate(order.user_id, order);
+    emitAdminOrderUpdate(order);
+    emitAnalyticsUpdate();
 
     res.json({
       success: true,
@@ -314,7 +333,13 @@ router.post("/orders/:id/refund", async (req, res) => {
 
     if (updateError) throw updateError;
 
-    await createNotification({
+    const { data: updatedOrder } = await supabase
+      .from("orders")
+      .select("*")
+      .eq("id", id)
+      .single();
+
+    const notification = await createNotification({
       userId: order.user_id,
       title: "Refund Initiated",
       message: `₹${finalRefundAmount} refund has been initiated. It will be credited within 3–7 business days.`,
@@ -324,6 +349,11 @@ router.post("/orders/:id/refund", async (req, res) => {
       tokenNumber: order.token_number,
       actionUrl: `/track-order/${order.id}`,
     });
+
+    emitNotification(order.user_id, notification);
+    emitOrderUpdate(order.user_id, updatedOrder);
+    emitAdminOrderUpdate(updatedOrder);
+    emitAnalyticsUpdate();
 
     res.json({
       success: true,
@@ -375,6 +405,8 @@ router.patch('/menu/:id/availability', async (req, res) => {
       .single();
 
     if (error) throw error;
+
+    emitMenuUpdate();
 
     res.json({
       success: true,
@@ -431,6 +463,8 @@ router.post('/menu', async (req, res) => {
 
     if (error) throw error;
 
+    emitMenuUpdate();
+
     res.status(201).json(data);
   } catch (err) {
     console.error('Add menu item error:', err);
@@ -477,6 +511,8 @@ router.put('/menu/:id', async (req, res) => {
 
     if (error) throw error;
 
+    emitMenuUpdate();
+
     res.json(data);
   } catch (err) {
     console.error('Update menu item error:', err);
@@ -496,6 +532,8 @@ router.delete('/menu/:id', async (req, res) => {
 
 
     if (error) throw error;
+
+    emitMenuUpdate();
 
     res.json({
       success: true,

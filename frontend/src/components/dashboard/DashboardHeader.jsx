@@ -10,6 +10,9 @@ import {
 import { useNavigate, useLocation } from "react-router-dom";
 import toast from "react-hot-toast";
 
+import { getSocket } from "../../socket/socket";
+import { SocketEvents } from "../../socket/constants";
+
 import { useAuth } from "../../context/AuthContext";
 import { useCart } from "../../context/CartContext";
 import { notificationAPI } from "../../services/api";
@@ -36,19 +39,29 @@ const DashboardHeader = ({
   };
 
   useEffect(() => {
-    // Initial load
+
     loadUnreadCount();
 
-    // Auto refresh every 10 seconds
-    const interval = setInterval(() => {
-      loadUnreadCount();
-    }, 10000);
+    const socket = getSocket();
 
-    return () => clearInterval(interval);
+    if (socket) {
+
+      socket.on(SocketEvents.NOTIFICATION_NEW, (notification) => {
+
+        setUnreadCount((prev) => prev + 1);
+
+      });
+
+    }
+
+    return () => {
+      socket?.off(SocketEvents.NOTIFICATION_NEW);
+    };
+
   }, []);
 
+
   const handleNotification = () => {
-    loadUnreadCount();
     navigate("/notifications");
   };
 

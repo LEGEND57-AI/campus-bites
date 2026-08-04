@@ -1,6 +1,6 @@
 import express from "express";
 import bcrypt from "bcrypt";
-import jwt from "jsonwebtoken";
+import { generateToken } from "../utils/jwt.js";
 import SibApiV3Sdk from "sib-api-v3-sdk";
 import { supabase } from "../db.js";
 import { OAuth2Client } from "google-auth-library";
@@ -574,21 +574,10 @@ router.post("/google", loginLimiter, async (req, res) => {
     // ================= GENERATE JWT =================
 
 
-    const token = jwt.sign(
-
-      {
-        userId: user.id,
-
-        role: user.role,
-      },
-
-      process.env.JWT_SECRET,
-
-      {
-        expiresIn: "7d",
-      }
-
-    );
+    const token = generateToken({
+      userId: user.id,
+      role: user.role,
+    });
 
 
     // REMOVE PASSWORD
@@ -672,16 +661,10 @@ router.post("/login", loginLimiter, async (req, res) => {
       });
     }
 
-    const token = jwt.sign(
-      {
-        userId: user.id,
-        role: user.role,
-      },
-      process.env.JWT_SECRET,
-      {
-        expiresIn: "7d",
-      },
-    );
+    const token = generateToken({
+      userId: user.id,
+      role: user.role,
+    });
 
     const safeUser = { ...user };
 

@@ -11,6 +11,7 @@ import { useNavigate } from "react-router-dom";
 import { useCart } from "../../context/CartContext";
 import { downloadReceipt } from "../../utils/downloadReceipt";
 import { orderAPI } from "../../services/api";
+import { formatPrice } from "../../utils/formatPrice";
 
 const OrderDesktopCard = ({ order }) => {
 
@@ -331,7 +332,7 @@ const OrderDesktopCard = ({ order }) => {
                 text-slate-900
               "
               >
-                ₹{Number(order.total_amount).toFixed(2)}
+                ₹{formatPrice(order.total_amount)}
               </h2>
             </div>
 

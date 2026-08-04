@@ -3,17 +3,22 @@ import DashboardHeader from "../components/dashboard/DashboardHeader";
 import MobileBottomNav from "../components/dashboard/MobileBottomNav";
 import FavoritesGrid from "../components/favorites/FavoritesGrid";
 import { useCart } from "../context/CartContext";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useFavorite } from "../context/FavoriteContext";
-
+import { getSocket } from "../socket/socket";
+import { SocketEvents } from "../socket/constants";
 
 
 const Favorite = () => {
     const [activeCategory, setActiveCategory] = useState("All");
     const { addToCart } = useCart();
-    const { favorites, loading } = useFavorite();
+    const {
+        favorites,
+        loading,
+        loadFavorites,
+    } = useFavorite();
 
-    
+
     const categories = [
         "All",
         ...new Set(
@@ -30,6 +35,29 @@ const Favorite = () => {
             : favorites.filter(
                 (item) => item.categories?.name === activeCategory
             );
+
+
+    useEffect(() => {
+
+        const socket = getSocket();
+
+        if (!socket) return;
+
+        const handleMenuUpdate = () => {
+
+            loadFavorites();
+
+        };
+
+        socket.on(SocketEvents.MENU_UPDATED, handleMenuUpdate);
+
+        return () => {
+
+            socket.off(SocketEvents.MENU_UPDATED, handleMenuUpdate);
+
+        };
+
+    }, [loadFavorites]);
 
 
     return (

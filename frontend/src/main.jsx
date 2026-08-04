@@ -8,6 +8,7 @@ import './index.css';
 import { AuthProvider } from './context/AuthContext';
 import { FavoriteProvider } from './context/FavoriteContext';
 import { GoogleOAuthProvider } from '@react-oauth/google';
+import { SocketProvider } from "./socket/SocketProvider";
 
 
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -17,9 +18,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     >
       <BrowserRouter>
         <AuthProvider>
-          <FavoriteProvider>
-            <App />
-          </FavoriteProvider>
+          <SocketProvider>
+            <FavoriteProvider>
+              <App />
+            </FavoriteProvider>
+          </SocketProvider>
         </AuthProvider>
       </BrowserRouter>
     </GoogleOAuthProvider>

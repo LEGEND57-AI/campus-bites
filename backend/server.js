@@ -1,3 +1,4 @@
+import http from "http";
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -19,10 +20,14 @@ import uploadRoutes from './routes/upload.js';
 import paymentRoutes from "./routes/payment.js";
 import notificationRoutes from "./routes/notifications.js";
 import { autoCancelExpiredCashOrders } from "./utils/autoCancelOrders.js";
+import { initializeSocket } from "./socket/index.js";
 
 dotenv.config();
 
 const app = express();
+const server = http.createServer(app);
+initializeSocket(server);
+
 app.set("trust proxy", 1);
 const PORT = process.env.PORT || 5000;
 
@@ -108,6 +113,6 @@ setInterval(async () => {
 
 // ================== SERVER ==================
 
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });

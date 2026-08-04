@@ -184,6 +184,8 @@ export const AuthProvider = ({ children }) => {
     });
   };
 
+  const token = localStorage.getItem("token");
+
   // 🛡 ADMIN CHECK
   const isAdmin = () => user?.role === 'admin';
 
@@ -191,6 +193,7 @@ export const AuthProvider = ({ children }) => {
     <AuthContext.Provider
       value={{
         user,
+        token,
         loading,
 
         // 🔐 Authentication

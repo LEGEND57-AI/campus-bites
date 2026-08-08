@@ -237,16 +237,25 @@ const Orders = () => {
     };
 
     return (
-        <div className="min-h-screen bg-[#F3F6FB] p-3 lg:p-5">
 
-            <div className="
-        bg-white
-        rounded-[32px]
-        overflow-hidden
-        min-h-[calc(100vh-24px)]
-        shadow-[0_15px_40px_rgba(0,0,0,0.08)]
-        flex
-      ">
+        <div className="min-h-screen bg-[#F3F6FB] p-0 md:p-3 lg:p-5">
+
+            <div
+                className="
+            bg-white
+            flex
+            min-h-screen
+
+            rounded-none
+            shadow-none
+            overflow-visible
+
+            md:rounded-[32px]
+            md:overflow-hidden
+            md:min-h-[calc(100vh-24px)]
+            md:shadow-[0_15px_40px_rgba(0,0,0,0.08)]
+        "
+            >
 
                 <Sidebar />
 
@@ -254,13 +263,20 @@ const Orders = () => {
 
                     <DashboardHeader />
 
-                    <main className="
-            px-4
-            md:px-6
-            lg:px-8
-            py-5
-            pb-24
-          ">
+                    <main
+                        className="
+        px-3
+        sm:px-4
+        md:px-6
+        lg:px-8
+        py-4
+        md:py-5
+        pb-24
+        min-w-0
+        overflow-x-hidden
+    "
+
+                    >
 
                         {/* HEADER */}
 
@@ -401,40 +417,90 @@ const Orders = () => {
                         {
                             loading ? (
 
-                                <div className="space-y-5">
+                                <div className="space-y-5 w-full min-w-0">
 
                                     {[1, 2, 3].map((item) => (
 
                                         <div
                                             key={item}
                                             className="
-          bg-white
-          rounded-[24px]
-          border
-          border-slate-100
-          p-6
-          animate-pulse
-        "
+                        w-full
+                        max-w-full
+                        min-w-0
+                        overflow-hidden
+                        bg-white
+                        rounded-[24px]
+                        border
+                        border-slate-100
+                        p-4
+                        sm:p-5
+                        animate-pulse
+                    "
                                         >
 
-                                            <div className="flex gap-5">
+                                            <div className="flex items-center gap-4 min-w-0">
 
-                                                <div className="w-24 h-24 rounded-2xl bg-slate-200" />
+                                                {/* Image */}
 
-                                                <div className="flex-1">
+                                                <div
+                                                    className="
+                                w-20
+                                h-20
+                                sm:w-24
+                                sm:h-24
+                                shrink-0
+                                rounded-2xl
+                                bg-slate-200
+                            "
+                                                />
 
-                                                    <div className="h-6 w-44 bg-slate-200 rounded mb-3" />
-                                                    <div className="h-4 w-32 bg-slate-200 rounded mb-5" />
-                                                    <div className="h-5 w-72 bg-slate-200 rounded mb-3" />
-                                                    <div className="h-4 w-36 bg-slate-200 rounded" />
+                                                {/* Content */}
 
-                                                </div>
+                                                <div className="flex-1 min-w-0 space-y-3">
 
-                                                <div className="w-44">
+                                                    <div
+                                                        className="
+                                    h-5
+                                    w-32
+                                    sm:w-44
+                                    max-w-full
+                                    bg-slate-200
+                                    rounded
+                                "
+                                                    />
 
-                                                    <div className="h-8 w-28 bg-slate-200 rounded-full ml-auto mb-5" />
-                                                    <div className="h-4 w-24 bg-slate-200 rounded ml-auto mb-2" />
-                                                    <div className="h-5 w-36 bg-slate-200 rounded ml-auto" />
+                                                    <div
+                                                        className="
+                                    h-4
+                                    w-24
+                                    sm:w-32
+                                    max-w-full
+                                    bg-slate-200
+                                    rounded
+                                "
+                                                    />
+
+                                                    <div
+                                                        className="
+                                    h-4
+                                    w-40
+                                    sm:w-64
+                                    max-w-full
+                                    bg-slate-200
+                                    rounded
+                                "
+                                                    />
+
+                                                    <div
+                                                        className="
+                                    h-4
+                                    w-28
+                                    sm:w-36
+                                    max-w-full
+                                    bg-slate-200
+                                    rounded
+                                "
+                                                    />
 
                                                 </div>
 
@@ -519,16 +585,40 @@ const Orders = () => {
 
                                                                 <React.Fragment key={order.id}>
 
-                                                                    <div
+                                                                    <motion.div
                                                                         ref={isLast ? lastOrderRef : null}
+                                                                        initial={{
+                                                                            opacity: 0,
+                                                                            y: 20,
+                                                                        }}
+                                                                        animate={{
+                                                                            opacity: 1,
+                                                                            y: 0,
+                                                                        }}
+                                                                        transition={{
+                                                                            delay: index * 0.03,
+                                                                        }}
                                                                         className="hidden lg:block"
                                                                     >
                                                                         <OrderDesktopCard order={order} />
-                                                                    </div>
+                                                                    </motion.div>
 
-                                                                    <div className="lg:hidden">
+                                                                    <motion.div
+                                                                        initial={{
+                                                                            opacity: 0,
+                                                                            y: 20,
+                                                                        }}
+                                                                        animate={{
+                                                                            opacity: 1,
+                                                                            y: 0,
+                                                                        }}
+                                                                        transition={{
+                                                                            delay: index * 0.03,
+                                                                        }}
+                                                                        className="lg:hidden"
+                                                                    >
                                                                         <OrderMobileCard order={order} />
-                                                                    </div>
+                                                                    </motion.div>
 
                                                                 </React.Fragment>
 
@@ -569,17 +659,46 @@ const Orders = () => {
 
                                                     <div className="space-y-5">
 
-                                                        {recentOrders.slice(0, 5).map((order) => (
+                                                        {recentOrders.slice(0, 5).map((order, index) => (
 
                                                             <React.Fragment key={order.id}>
 
-                                                                <div className="hidden lg:block">
+                                                                {/* Desktop */}
+                                                                <motion.div
+                                                                    initial={{
+                                                                        opacity: 0,
+                                                                        y: 20,
+                                                                    }}
+                                                                    animate={{
+                                                                        opacity: 1,
+                                                                        y: 0,
+                                                                    }}
+                                                                    transition={{
+                                                                        delay: index * 0.03,
+                                                                    }}
+                                                                    className="hidden lg:block"
+                                                                >
                                                                     <OrderDesktopCard order={order} />
-                                                                </div>
+                                                                </motion.div>
 
-                                                                <div className="lg:hidden">
+
+                                                                {/* Mobile */}
+                                                                <motion.div
+                                                                    initial={{
+                                                                        opacity: 0,
+                                                                        y: 20,
+                                                                    }}
+                                                                    animate={{
+                                                                        opacity: 1,
+                                                                        y: 0,
+                                                                    }}
+                                                                    transition={{
+                                                                        delay: index * 0.03,
+                                                                    }}
+                                                                    className="lg:hidden"
+                                                                >
                                                                     <OrderMobileCard order={order} />
-                                                                </div>
+                                                                </motion.div>
 
                                                             </React.Fragment>
 
@@ -621,16 +740,40 @@ const Orders = () => {
 
                                                         <React.Fragment key={order.id}>
 
-                                                            <div
+                                                            <motion.div
                                                                 ref={isLast ? lastOrderRef : null}
+                                                                initial={{
+                                                                    opacity: 0,
+                                                                    y: 20,
+                                                                }}
+                                                                animate={{
+                                                                    opacity: 1,
+                                                                    y: 0,
+                                                                }}
+                                                                transition={{
+                                                                    delay: index * 0.03,
+                                                                }}
                                                                 className="hidden lg:block"
                                                             >
                                                                 <OrderDesktopCard order={order} />
-                                                            </div>
+                                                            </motion.div>
 
-                                                            <div className="lg:hidden">
+                                                            <motion.div
+                                                                initial={{
+                                                                    opacity: 0,
+                                                                    y: 20,
+                                                                }}
+                                                                animate={{
+                                                                    opacity: 1,
+                                                                    y: 0,
+                                                                }}
+                                                                transition={{
+                                                                    delay: index * 0.03,
+                                                                }}
+                                                                className="lg:hidden"
+                                                            >
                                                                 <OrderMobileCard order={order} />
-                                                            </div>
+                                                            </motion.div>
 
                                                         </React.Fragment>
 
@@ -661,10 +804,12 @@ const Orders = () => {
                             )
                         }
 
-                        {/* HUNGRY AGAIN SECTION */}
+                        {!loading && (
+                            <>
+                                {/* HUNGRY AGAIN SECTION */}
 
-                        <div
-                            className="
+                                <div
+                                    className="
     mt-10
 
     bg-[#F7FAFF]
@@ -685,36 +830,36 @@ const Orders = () => {
 
     gap-6
   "
-                        >
+                                >
 
-                            <div>
+                                    <div>
 
-                                <h2
-                                    className="
+                                        <h2
+                                            className="
         text-3xl
         font-bold
         text-slate-900
       "
-                                >
-                                    Hungry Again? 🍔
-                                </h2>
+                                        >
+                                            Hungry Again? 🍔
+                                        </h2>
 
-                                <p
-                                    className="
+                                        <p
+                                            className="
         mt-2
         text-gray-500
       "
-                                >
-                                    Explore delicious meals and order your favorites again.
-                                </p>
+                                        >
+                                            Explore delicious meals and order your favorites again.
+                                        </p>
 
-                            </div>
+                                    </div>
 
-                            <button
-                                onClick={() =>
-                                    navigate("/menu")
-                                }
-                                className="
+                                    <button
+                                        onClick={() =>
+                                            navigate("/menu")
+                                        }
+                                        className="
       bg-blue-600
       text-white
 
@@ -734,15 +879,18 @@ const Orders = () => {
       items-center
       gap-2
     "
-                            >
+                                    >
 
-                                Browse Menu
+                                        Browse Menu
 
-                                <ArrowRight size={18} />
+                                        <ArrowRight size={18} />
 
-                            </button>
+                                    </button>
 
-                        </div>
+                                </div>
+
+                            </>
+                        )}
 
                     </main>
 

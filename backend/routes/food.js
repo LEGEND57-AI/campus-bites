@@ -21,28 +21,88 @@ router.get('/items', async (req, res) => {
   try {
     const { categoryId, search } = req.query;
 
+    // Pagination
+    const page = Math.max(
+      parseInt(req.query.page) || 1,
+      1
+    );
+
+    const limit = Math.min(
+      Math.max(
+        parseInt(req.query.limit) || 12,
+        1
+      ),
+      24
+    );
+
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+
     let query = supabase
       .from('food_items')
-      .select(`
-        *,
-        categories (id, name)
-      `)
+      .select(
+        `
+                *,
+                categories (id, name)
+                `,
+        {
+          count: 'exact',
+        }
+      )
       .eq('available', true);
 
+    // Category filter
     if (categoryId && categoryId !== 'all') {
-      query = query.eq('category_id', parseInt(categoryId));
+      query = query.eq(
+        'category_id',
+        parseInt(categoryId)
+      );
     }
 
+    // Search filter
     if (search) {
-      query = query.ilike('name', `%${search}%`);
+      query = query.ilike(
+        'name',
+        `%${search}%`
+      );
     }
 
-    const { data, error } = await query;
+    // Pagination + stable ordering
+    query = query
+      .order('id', { ascending: true })
+      .range(from, to);
+
+    const {
+      data,
+      error,
+      count,
+    } = await query;
 
     if (error) throw error;
-    res.json(data);
+
+    const total = count || 0;
+
+    const hasMore =
+      from + data.length < total;
+
+    res.json({
+      items: data || [],
+      page,
+      limit,
+      total,
+      hasMore,
+    });
+
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch food items' });
+
+    console.error(
+      'Food items error:',
+      error
+    );
+
+    res.status(500).json({
+      error: 'Failed to fetch food items',
+    });
   }
 });
 

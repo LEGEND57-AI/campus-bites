@@ -282,17 +282,23 @@ const NewCart = () => {
 
   return (
 
-    <div className="min-h-screen bg-[#F4F7FC] p-3 lg:p-5">
+    <div className="min-h-screen bg-[#F4F7FC] p-0 md:p-3 lg:p-5">
 
       <div
         className="
-          bg-white
-          rounded-[34px]
-          shadow-[0_15px_45px_rgba(0,0,0,0.08)]
-          overflow-hidden
-          min-h-[calc(100vh-24px)]
-          flex
-        "
+      bg-white
+      flex
+      min-h-screen
+
+      rounded-none
+      shadow-none
+      overflow-visible
+
+      md:rounded-[34px]
+      md:overflow-hidden
+      md:min-h-[calc(100vh-24px)]
+      md:shadow-[0_15px_45px_rgba(0,0,0,0.08)]
+    "
       >
 
         <Sidebar />
@@ -303,12 +309,15 @@ const NewCart = () => {
 
           <main
             className="
-              flex-1
-              px-5
-              lg:px-8
-              py-8
-              pb-28
-            "
+    flex-1
+    px-3
+    sm:px-4
+    md:px-6
+    lg:px-8
+    py-5
+    md:py-8
+    pb-28
+  "
           >
 
             <button

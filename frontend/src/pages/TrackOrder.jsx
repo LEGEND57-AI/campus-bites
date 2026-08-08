@@ -212,9 +212,24 @@ const TrackOrder = () => {
 
         return (
 
-            <div className="min-h-screen bg-[#F3F6FB] lg:p-5 animate-pulse">
+            <div className="min-h-screen bg-[#F3F6FB] p-0 md:p-3 lg:p-5 animate-pulse">
 
-                <div className="bg-white min-h-screen lg:min-h-[calc(100vh-40px)] lg:rounded-[34px] flex">
+                <div
+                    className="
+            bg-white
+            min-h-screen
+            flex
+
+            rounded-none
+            shadow-none
+            overflow-visible
+
+            md:min-h-[calc(100vh-40px)]
+            md:rounded-[34px]
+            md:overflow-hidden
+            md:shadow-[0_15px_45px_rgba(0,0,0,.08)]
+        "
+                >
 
                     <Sidebar />
 
@@ -222,7 +237,7 @@ const TrackOrder = () => {
 
                         <DashboardHeader />
 
-                        <main className="px-4 lg:px-8 py-6">
+                        <main className="px-3 sm:px-4 md:px-6 lg:px-8 py-4 md:py-6">
 
                             {/* Hero Skeleton */}
 
@@ -265,18 +280,23 @@ const TrackOrder = () => {
     if (!order) return null;
 
     return (
-        <div className="min-h-screen bg-[#F3F6FB] lg:p-5">
+        <div className="min-h-screen bg-[#F3F6FB] p-0 md:p-3 lg:p-5">
 
             <div
                 className="
-      bg-white
-      min-h-screen
-      lg:min-h-[calc(100vh-40px)]
-      lg:rounded-[34px]
-      overflow-hidden
-      shadow-[0_15px_45px_rgba(0,0,0,.08)]
-      flex
-    "
+            bg-white
+            min-h-screen
+            flex
+
+            rounded-none
+            shadow-none
+            overflow-visible
+
+            md:min-h-[calc(100vh-40px)]
+            md:rounded-[34px]
+            md:overflow-hidden
+            md:shadow-[0_15px_45px_rgba(0,0,0,.08)]
+        "
             >
 
                 <Sidebar />
@@ -285,7 +305,17 @@ const TrackOrder = () => {
 
                     <DashboardHeader />
 
-                    <main className="px-4 lg:px-8 py-6 pb-28">
+                    <main
+                        className="
+        px-3
+        sm:px-4
+        md:px-6
+        lg:px-8
+        py-4
+        md:py-6
+        pb-28
+    "
+                    >
 
                         {/* HERO */}
 

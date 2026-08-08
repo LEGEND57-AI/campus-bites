@@ -66,10 +66,6 @@ export async function sendPushNotification(
                     .delete()
                     .eq("endpoint", sub.endpoint);
 
-                console.log(
-                    "🗑 Removed expired push subscription"
-                );
-
             }
 
         }

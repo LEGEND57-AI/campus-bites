@@ -4,8 +4,6 @@ export async function requestNotificationPermission() {
 
     if (!("Notification" in window)) {
 
-        console.log("Notifications not supported");
-
         return false;
 
     }
@@ -63,10 +61,6 @@ export async function registerPushSubscription() {
             await subscribeToPush();
 
         await pushAPI.subscribe(subscription);
-
-        console.log(
-            "✅ Push subscription saved"
-        );
 
     } catch (err) {
 

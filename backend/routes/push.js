@@ -21,7 +21,7 @@ router.use(authenticate);
 
 router.post("/subscribe", async (req, res) => {
     try {
-        console.log("📲 Push subscription request received");
+        
 
         const { endpoint, keys } = req.body;
 

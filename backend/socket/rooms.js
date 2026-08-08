@@ -10,8 +10,6 @@ export async function joinUserRoom(socket) {
   const room = getUserRoom(socket.user.id);
 
   await socket.join(room);
-
-  console.log(`👤 ${socket.user.name} joined ${room}`);
 }
 
 export async function joinAdminRoom(socket) {
@@ -23,5 +21,4 @@ export async function joinAdminRoom(socket) {
 
   await socket.join(room);
 
-  console.log(`🛡️ Admin ${socket.user.name} joined ${room}`);
 }

@@ -122,7 +122,7 @@ router.post("/refresh", async (req, res) => {
             .cookie("refreshToken", newRefreshToken, {
                 httpOnly: true,
                 secure: process.env.NODE_ENV === "production",
-                sameSite: "strict",
+                sameSite: "none",
                 maxAge: 1000 * 60 * 60 * 24 * 30,
             })
             .json({

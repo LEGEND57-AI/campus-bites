@@ -71,6 +71,7 @@ app.options("*", cors(corsOptions));
 app.use(
   helmet({
     crossOriginResourcePolicy: false,
+    crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
   })
 );
 app.use(express.json());

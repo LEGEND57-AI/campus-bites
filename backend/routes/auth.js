@@ -3,7 +3,6 @@ import bcrypt from "bcrypt";
 import { v4 as uuidv4 } from "uuid";
 import SibApiV3Sdk from "sib-api-v3-sdk";
 import { supabase } from "../db.js";
-import { OAuth2Client } from "google-auth-library";
 import {
   loginLimiter,
   otpLimiter,
@@ -52,12 +51,6 @@ const sendEmail = async (to, subject, html) => {
     throw new Error("Failed to send email");
   }
 };
-
-// ================= GOOGLE AUTH =================
-
-const googleClient = new OAuth2Client(
-  process.env.GOOGLE_CLIENT_ID
-);
 
 // ================= EMAIL TEMPLATE =================
 const generateEmailTemplate = (otp, type = "verify") => {
@@ -447,31 +440,37 @@ router.post("/google", loginLimiter, async (req, res) => {
 
   try {
 
-    const { credential } = req.body;
+    const { accessToken: googleAccessToken } = req.body;
 
 
-    if (!credential) {
+    if (!googleAccessToken) {
 
       return res.status(400).json({
-        error: "Google credential missing",
+        error: "Google access token missing",
       });
 
     }
 
 
-    // VERIFY GOOGLE TOKEN
+    // VERIFY GOOGLE ACCESS TOKEN by fetching the user's profile.
+    // (useGoogleLogin on the frontend returns an OAuth access_token,
+    // not a JWT id_token — so we verify it against Google's userinfo
+    // endpoint instead of using verifyIdToken.)
 
-    const ticket =
-      await googleClient.verifyIdToken({
+    const googleRes = await fetch(
+      `https://www.googleapis.com/oauth2/v3/userinfo?access_token=${googleAccessToken}`
+    );
 
-        idToken: credential,
+    if (!googleRes.ok) {
+      const errText = await googleRes.text();
+      console.error("Google userinfo error:", errText);
 
-        audience: process.env.GOOGLE_CLIENT_ID,
-
+      return res.status(401).json({
+        error: "Invalid Google access token",
       });
+    }
 
-
-    const payload = ticket.getPayload();
+    const payload = await googleRes.json();
 
 
     const {

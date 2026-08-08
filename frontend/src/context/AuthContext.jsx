@@ -126,13 +126,13 @@ export const AuthProvider = ({ children }) => {
   };
 
   // 🔥 GOOGLE LOGIN
-  const googleLogin = async (credential) => {
+  const googleLogin = async (accessToken) => {
 
     try {
       const { data } = await api.post(
         '/auth/google',
         {
-          credential
+          accessToken
         }
       );
 

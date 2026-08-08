@@ -21,7 +21,7 @@ router.use(authenticate);
 
 router.post("/subscribe", async (req, res) => {
     try {
-        
+
 
         const { endpoint, keys } = req.body;
 
@@ -38,6 +38,7 @@ router.post("/subscribe", async (req, res) => {
                 endpoint,
                 p256dh: keys.p256dh,
                 auth: keys.auth,
+                origin: req.headers.origin || null,
             });
 
         if (error) throw error;
@@ -46,7 +47,7 @@ router.post("/subscribe", async (req, res) => {
             success: true,
         });
 
-    }  catch (err) {
+    } catch (err) {
 
         console.error("❌ PUSH SUBSCRIBE ERROR:", {
             message: err.message,

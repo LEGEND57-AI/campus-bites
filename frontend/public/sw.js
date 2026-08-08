@@ -54,27 +54,39 @@ self.addEventListener("notificationclick", (event) => {
             includeUncontrolled: true,
         })
 
-            .then((clientList) => {
+        .then((clientList) => {
 
-                for (const client of clientList) {
+            const rawUrl =
+                event.notification.data?.url ||
+                "/notifications";
 
-                    if ("focus" in client) {
+            const targetUrl =
+                new URL(
+                    rawUrl,
+                    self.location.origin
+                ).href;
 
-                        client.navigate(
-                            event.notification.data.url
-                        );
+            // Existing CampusCraves tab
+            for (const client of clientList) {
 
-                        return client.focus();
+                if (
+                    client.url.startsWith(
+                        self.location.origin
+                    ) &&
+                    "focus" in client
+                ) {
 
-                    }
+                    client.navigate(targetUrl);
 
+                    return client.focus();
                 }
 
-                return clients.openWindow(
-                    event.notification.data.url
-                );
+            }
 
-            })
+            // No existing CampusCraves tab
+            return clients.openWindow(targetUrl);
+
+        })
 
     );
 

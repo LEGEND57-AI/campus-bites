@@ -22,7 +22,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import toast from "react-hot-toast";
 
 import { orderAPI } from "../services/api";
-import { getSocket } from "../socket/socket";
+import { useSocket } from "../socket/SocketProvider";
 import { SocketEvents } from "../socket/constants";
 
 import Sidebar from "../components/dashboard/Sidebar";
@@ -34,6 +34,8 @@ const TrackOrder = () => {
 
     const navigate = useNavigate();
     const { id } = useParams();
+
+    const socket = useSocket();
 
     const [loading, setLoading] = useState(true);
     const [order, setOrder] = useState(null);
@@ -51,44 +53,64 @@ const TrackOrder = () => {
             console.error(err);
             toast.error("Failed to load order");
 
-        }
-
-        finally {
+        } finally {
 
             setLoading(false);
 
         }
+
     }, [id]);
 
+    // Initial order load
     useEffect(() => {
 
         window.scrollTo(0, 0);
 
         fetchOrder();
 
-        const socket = getSocket();
+    }, [id, fetchOrder]);
+
+    // Live socket updates
+    useEffect(() => {
 
         if (!socket) return;
 
         const handleOrderUpdate = (updatedOrder) => {
 
-            if (updatedOrder.id === Number(id)) {
-
-                fetchOrder();
-
+            if (String(updatedOrder.id) !== String(id)) {
+                return;
             }
+
+            setOrder((prev) => {
+
+                if (!prev) {
+                    return updatedOrder;
+                }
+
+                return {
+                    ...prev,
+                    ...updatedOrder,
+                };
+
+            });
 
         };
 
-        socket.on(SocketEvents.ORDER_UPDATED, handleOrderUpdate);
+        socket.on(
+            SocketEvents.ORDER_UPDATED,
+            handleOrderUpdate
+        );
 
         return () => {
 
-            socket.off(SocketEvents.ORDER_UPDATED, handleOrderUpdate);
+            socket.off(
+                SocketEvents.ORDER_UPDATED,
+                handleOrderUpdate
+            );
 
         };
 
-    }, [id, fetchOrder]);
+    }, [socket, id]);
 
 
     const statusIndex = {

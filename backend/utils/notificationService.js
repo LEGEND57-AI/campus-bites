@@ -1,4 +1,9 @@
 import { supabase } from "../db.js";
+import {
+    emitNotification,
+} from "../socket/emitters.js";
+
+import { sendPushNotification } from "./pushNotification.js";
 
 /**
  * Create a new notification
@@ -27,6 +32,21 @@ const createNotification = async ({
         .single();
 
     if (error) throw error;
+
+    // 🔔 Real-time Socket Notification
+    emitNotification(userId, data);
+
+    // 📱 Web Push Notification
+    await sendPushNotification(
+        userId,
+        title,
+        message,
+        {
+            orderId,
+            actionUrl,
+            tokenNumber,
+        }
+    );
 
     return data;
 };

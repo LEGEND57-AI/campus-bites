@@ -19,8 +19,14 @@ import categoryRoutes from './routes/category.js';
 import uploadRoutes from './routes/upload.js';
 import paymentRoutes from "./routes/payment.js";
 import notificationRoutes from "./routes/notifications.js";
+import pushRoutes from "./routes/push.js";
 import { autoCancelExpiredCashOrders } from "./utils/autoCancelOrders.js";
 import { initializeSocket } from "./socket/index.js";
+import sessionRoutes from "./routes/session.js";
+import cookieParser from "cookie-parser";
+import logger from "./utils/logger.js";
+import pinoHttp from "pino-http";
+
 
 dotenv.config();
 
@@ -69,6 +75,13 @@ app.use(
 );
 app.use(express.json());
 
+app.use(cookieParser());
+
+app.use(
+  pinoHttp({
+    logger,
+  })
+);
 
 // ================== HEALTH ROUTES ==================
 
@@ -101,6 +114,8 @@ app.use('/api/categories', categoryRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use("/api/payment", paymentRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/push", pushRoutes);
+app.use("/api/session", sessionRoutes);
 
 // Auto cancel expired cash orders every 1 minute
 setInterval(async () => {
@@ -114,5 +129,5 @@ setInterval(async () => {
 // ================== SERVER ==================
 
 server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  logger.info(`Server running on port ${PORT}`);
 });

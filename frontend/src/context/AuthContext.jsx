@@ -2,6 +2,10 @@ import React, { createContext, useState, useContext, useEffect } from 'react';
 import { authAPI } from '../services/api';
 import api from '../services/api';
 import toast from 'react-hot-toast';
+import {
+  requestNotificationPermission,
+  registerPushSubscription,
+} from "../utils/pushNotifications";
 
 const AuthContext = createContext();
 export const useAuth = () => useContext(AuthContext);
@@ -38,12 +42,28 @@ export const AuthProvider = ({ children }) => {
         return { success: false };
       }
 
-      localStorage.setItem('token', data.token);
+      localStorage.setItem(
+        "token",
+        data.accessToken
+      );
       localStorage.setItem('user', JSON.stringify(data.user));
 
       setUser(data.user);
 
-      return { success: true, user: data.user };
+      // 🔔 Ask notification permission
+      const granted =
+        await requestNotificationPermission();
+
+      if (granted) {
+
+        await registerPushSubscription();
+
+      }
+
+      return {
+        success: true,
+        user: data.user,
+      };
 
     } catch (error) {
       toast.error(error.response?.data?.error || 'Login failed');
@@ -127,8 +147,8 @@ export const AuthProvider = ({ children }) => {
 
       // SAVE TOKEN
       localStorage.setItem(
-        'token',
-        data.token
+        "token",
+        data.accessToken
       );
 
       // SAVE USER
@@ -138,13 +158,21 @@ export const AuthProvider = ({ children }) => {
       );
 
       // UPDATE STATE
-      setUser(
-        data.user
-      );
+      setUser(data.user);
+
+      // 🔔 Ask notification permission
+      const granted =
+        await requestNotificationPermission();
+
+      if (granted) {
+
+        await registerPushSubscription();
+
+      }
 
       return {
         success: true,
-        user: data.user
+        user: data.user,
       };
 
     } catch (error) {
@@ -161,11 +189,28 @@ export const AuthProvider = ({ children }) => {
   };
 
   // 🚪 LOGOUT
-  const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+  const logout = async () => {
+
+    try {
+
+      await api.post("/session/logout");
+
+    } catch (error) {
+
+      console.error(
+        "Logout Error:",
+        error.response?.data || error.message
+      );
+
+    }
+
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+
     setUser(null);
-    toast.success('Logged out successfully');
+
+    toast.success("Logged out successfully");
+
   };
 
   // ✏️ UPDATE USER (NEW)

@@ -25,7 +25,10 @@ const DashboardHeader = ({
   const navigate = useNavigate();
   const location = useLocation();
 
-  const { user } = useAuth();
+  const {
+    user,
+    loading: authLoading,
+  } = useAuth();
   const { getItemCount } = useCart();
   const [unreadCount, setUnreadCount] = useState(0);
 
@@ -40,25 +43,31 @@ const DashboardHeader = ({
 
   useEffect(() => {
 
+    if (authLoading) return;
+    if (!user) return;
+
     loadUnreadCount();
 
     const socket = getSocket();
 
     if (socket) {
-
-      socket.on(SocketEvents.NOTIFICATION_NEW, (notification) => {
-
-        setUnreadCount((prev) => prev + 1);
-
-      });
-
+      socket.on(
+        SocketEvents.NOTIFICATION_NEW,
+        () => {
+          setUnreadCount(
+            (prev) => prev + 1
+          );
+        }
+      );
     }
 
     return () => {
-      socket?.off(SocketEvents.NOTIFICATION_NEW);
+      socket?.off(
+        SocketEvents.NOTIFICATION_NEW
+      );
     };
 
-  }, []);
+  }, [authLoading, user]);
 
 
   const handleNotification = () => {

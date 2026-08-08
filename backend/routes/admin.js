@@ -83,7 +83,7 @@ router.patch('/orders/:id/payment', async (req, res) => {
       actionUrl: `/track-order/${data.id}`,
     });
 
-    emitNotification(data.user_id, notification);
+  
     emitOrderUpdate(data.user_id, data);
     emitAdminOrderUpdate(data);
     emitAnalyticsUpdate();
@@ -204,7 +204,6 @@ router.patch('/orders/:id/status', async (req, res) => {
         actionUrl: `/track-order/${order.id}`,
       });
 
-      emitNotification(order.user_id, notification);
     }
 
     emitOrderUpdate(order.user_id, order);
@@ -283,6 +282,13 @@ router.post("/orders/:id/refund", async (req, res) => {
 
     if (itemsError) throw itemsError;
 
+    const orderItemMap = new Map(
+      orderItems.map(item => [
+        item.food_item_id,
+        item,
+      ])
+    );
+
     let finalRefundAmount = 0;
 
     if (refundType === "full") {
@@ -291,8 +297,8 @@ router.post("/orders/:id/refund", async (req, res) => {
 
       for (const item of refundedItems) {
 
-        const dbItem = orderItems.find(
-          i => i.food_item_id === item.food_item_id
+        const dbItem = orderItemMap.get(
+          item.food_item_id
         );
 
         if (!dbItem) {
@@ -350,7 +356,7 @@ router.post("/orders/:id/refund", async (req, res) => {
       actionUrl: `/track-order/${order.id}`,
     });
 
-    emitNotification(order.user_id, notification);
+    
     emitOrderUpdate(order.user_id, updatedOrder);
     emitAdminOrderUpdate(updatedOrder);
     emitAnalyticsUpdate();

@@ -18,7 +18,11 @@ router.use(authenticate);
 router.post('/', async (req, res) => {
   try {
 
+    const requestStart = performance.now();
+
     const { items, paymentMethod } = req.body;
+
+    const validationStart = performance.now();
 
     // Validate items
     if (!items || items.length === 0) {
@@ -72,8 +76,16 @@ router.post('/', async (req, res) => {
       uniqueItems.add(item.foodItemId);
     }
 
+    console.log(
+      "Validation:",
+      (performance.now() - validationStart).toFixed(2),
+      "ms"
+    );
+
     // Get latest food prices
     const itemIds = items.map(item => item.foodItemId);
+
+    const foodQueryStart = performance.now();
 
     const { data: foodItems, error: fetchError } =
       await supabase
@@ -84,15 +96,27 @@ router.post('/', async (req, res) => {
 
     if (fetchError) throw fetchError;
 
+    console.log(
+      "Food Query:",
+      (performance.now() - foodQueryStart).toFixed(2),
+      "ms"
+    );
+
+    const foodMap = new Map(
+      foodItems.map(food => [
+        food.id,
+        food
+      ])
+    );
+
 
     let totalAmount = 0;
 
 
     const orderItemsWithPrices = items.map(item => {
 
-      const foodItem = foodItems.find(
-        fi => fi.id === item.foodItemId
-      );
+      const foodItem =
+        foodMap.get(item.foodItemId);
 
 
       if (!foodItem) {
@@ -120,11 +144,21 @@ router.post('/', async (req, res) => {
       });
     }
 
+    const tokenStart = performance.now();
+
     // Generate daily token
     const {
       token_number,
       token_date
     } = await generateDailyToken();
+
+    console.log(
+      "Token:",
+      (performance.now() - tokenStart).toFixed(2),
+      "ms"
+    );
+
+    const orderInsertStart = performance.now();
 
     // Create CASH order
     const { data: order, error: orderError } =
@@ -152,6 +186,12 @@ router.post('/', async (req, res) => {
         .select()
         .single();
 
+    console.log(
+      "Order Insert:",
+      (performance.now() - orderInsertStart).toFixed(2),
+      "ms"
+    );
+
     if (orderError) {
 
       // Unique token conflict
@@ -172,6 +212,8 @@ router.post('/', async (req, res) => {
         order_id: order.id
       }));
 
+    const orderItemsStart = performance.now();
+
 
     const { error: itemsError } =
       await supabase
@@ -179,6 +221,14 @@ router.post('/', async (req, res) => {
         .insert(orderItemsWithOrderId);
 
     if (itemsError) throw itemsError;
+
+    console.log(
+      "Order Items:",
+      (performance.now() - orderItemsStart).toFixed(2),
+      "ms"
+    );
+
+    const notificationStart = performance.now();
 
     const notification = await createNotification({
       userId: req.user.id,
@@ -191,10 +241,21 @@ router.post('/', async (req, res) => {
       actionUrl: `/track-order/${order.id}`,
     });
 
-    emitNotification(req.user.id, notification);
+    console.log(
+      "Notification:",
+      (performance.now() - notificationStart).toFixed(2),
+      "ms"
+    );
+
+    
     emitOrderUpdate(req.user.id, order);
     emitAdminOrderUpdate(order);
-
+    
+    console.log(
+      "TOTAL:",
+      (performance.now() - requestStart).toFixed(2),
+      "ms"
+    );
 
     res.status(201).json({
       success: true,
@@ -333,30 +394,64 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-router.get('/', async (req, res) => {
+router.get("/", async (req, res) => {
   try {
-    const { data: orders, error } = await supabase
-      .from('orders')
-      .select(`
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+
+    const {
+      data: orders,
+      error,
+      count,
+    } = await supabase
+      .from("orders")
+      .select(
+        `
         *,
         order_items (
-  id,
-  quantity,
-  price_at_time,
-  food_items (
-    id,
-    name,
-    image_url
-  )
-)
-      `)
-      .eq('user_id', req.user.id)
-      .order('created_at', { ascending: false });
+          id,
+          quantity,
+          price_at_time,
+          food_items (
+            id,
+            name,
+            image_url
+          )
+        )
+            `,
+        {
+          count: "exact",
+        }
+      )
+      .eq("user_id", req.user.id)
+      .order("created_at", { ascending: false })
+      .range(from, to);
 
     if (error) throw error;
-    res.json(orders);
+
+    res.json({
+      page,
+      limit,
+
+      total: count,
+
+      hasMore: to + 1 < count,
+
+      orders,
+    });
+
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch orders' });
+
+    console.error(error);
+
+    res.status(500).json({
+      error: "Failed to fetch orders",
+    });
+
   }
 });
 

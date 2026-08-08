@@ -95,7 +95,7 @@ export const orderLimiter = rateLimit({
 
   max: process.env.NODE_ENV === "production"
     ? 50
-    : 500,
+    : 100000,
 
 });
 

@@ -6,6 +6,7 @@ import {
   useCallback,
 } from "react";
 import { favoriteAPI } from "../services/api";
+import { useAuth } from "./AuthContext";
 
 
 const FavoriteContext = createContext();
@@ -14,6 +15,7 @@ export const FavoriteProvider = ({ children }) => {
 
   const [favorites, setFavorites] = useState([]);
   const [loading, setLoading] = useState(true);
+  const { user, loading: authLoading } = useAuth();
 
   const loadFavorites = useCallback(async () => {
 
@@ -49,14 +51,19 @@ export const FavoriteProvider = ({ children }) => {
 
   useEffect(() => {
 
-    if (!localStorage.getItem("token")) {
+    if (authLoading) {
+      return;
+    }
+
+    if (!user) {
+      setFavorites([]);
       setLoading(false);
       return;
     }
 
     loadFavorites();
 
-  }, [loadFavorites]);
+  }, [authLoading, user, loadFavorites]);
 
 
   return (

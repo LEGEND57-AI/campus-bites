@@ -3,11 +3,52 @@ import axios from 'axios';
 // Base API URL
 const API_URL = `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api`;
 
+// ================= TOKEN REFRESH =================
+
+let isRefreshing = false;
+
+let failedQueue = [];
+
+const processQueue = (token = null, error = null) => {
+
+  failedQueue.forEach((promise) => {
+
+    if (error) {
+
+      promise.reject(error);
+
+    } else {
+
+      promise.resolve(token);
+
+    }
+
+  });
+
+  failedQueue = [];
+
+};
+
 // Axios Instance
 const api = axios.create({
   baseURL: API_URL,
+
+  withCredentials: true,
+
   headers: {
-    'Content-Type': 'application/json',
+    "Content-Type": "application/json",
+  },
+});
+
+// ================= REFRESH CLIENT =================
+
+const refreshClient = axios.create({
+  baseURL: API_URL,
+
+  withCredentials: true,
+
+  headers: {
+    "Content-Type": "application/json",
   },
 });
 
@@ -31,27 +72,95 @@ api.interceptors.request.use(
 // ================= RESPONSE INTERCEPTOR =================
 
 api.interceptors.response.use(
+
   (response) => response,
-  (error) => {
 
-    if (error.response) {
+  async (error) => {
 
-      console.error('API Error:', error.response.data);
+    const originalRequest = error.config || {};
 
-      if (error.response.status === 401) {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-      }
+    if (
 
-    } else {
+      error.response?.status !== 401 ||
 
-      console.error('Network Error:', error.message);
+      originalRequest._retry
+
+    ) {
+
+      return Promise.reject(error);
 
     }
 
-    return Promise.reject(error);
+    originalRequest._retry = true;
+
+    // ================= ALREADY REFRESHING =================
+
+    if (isRefreshing) {
+
+      return new Promise((resolve, reject) => {
+
+        failedQueue.push({
+          resolve,
+          reject,
+        });
+
+      }).then((token) => {
+
+        originalRequest.headers.Authorization =
+          `Bearer ${token}`;
+
+        return api(originalRequest);
+
+      });
+
+    }
+
+    isRefreshing = true;
+
+    try {
+
+      // ================= REFRESH ACCESS TOKEN =================
+
+      const { data } =
+        await refreshClient.post("/session/refresh");
+
+      const newAccessToken =
+        data.accessToken;
+
+      localStorage.setItem(
+        "token",
+        newAccessToken
+      );
+
+      api.defaults.headers.Authorization =
+        `Bearer ${newAccessToken}`;
+
+      originalRequest.headers.Authorization =
+        `Bearer ${newAccessToken}`;
+
+      processQueue(newAccessToken);
+
+      return api(originalRequest);
+
+    } catch (refreshError) {
+
+      processQueue(null, refreshError);
+
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
+
+      window.location.href = "/login";
+
+      return Promise.reject(refreshError);
+
+    } finally {
+
+      isRefreshing = false;
+
+    }
 
   }
+
 );
 
 
@@ -125,8 +234,16 @@ export const orderAPI = {
   placeOrder: (data) =>
     api.post('/orders', data),
 
-  getOrders: () =>
-    api.get('/orders'),
+  getOrders: (
+    page = 1,
+    limit = 20
+  ) =>
+    api.get("/orders", {
+      params: {
+        page,
+        limit,
+      },
+    }),
 
   getOrder: (id) =>
     api.get(`/orders/${id}`),
@@ -286,6 +403,20 @@ export const notificationAPI = {
     api.delete(`/notifications/${id}`),
 
 };
+
+
+// ================= PUSH =================
+
+export const pushAPI = {
+
+  subscribe: (subscription) =>
+    api.post(
+      "/push/subscribe",
+      subscription
+    ),
+
+};
+
 
 
 // ================= UPLOAD =================

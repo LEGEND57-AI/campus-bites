@@ -1,4 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, {
+    useEffect,
+    useState,
+    useRef,
+    useCallback,
+} from "react";
 import {
     ClipboardList,
     Plus,
@@ -32,45 +37,148 @@ const Orders = () => {
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState("all");
+    const [page, setPage] = useState(1);
+
+    const [hasMore, setHasMore] = useState(true);
+
+    const [loadingMore, setLoadingMore] = useState(false);
+    const observer = useRef();
 
     useEffect(() => {
 
-        fetchOrders();
+        fetchOrders(1);
 
         const socket = getSocket();
 
         if (socket) {
-            socket.on(SocketEvents.ORDER_UPDATED, (updatedOrder) => {
 
-                fetchOrders();
-            });
+            socket.on(
+                SocketEvents.ORDER_UPDATED,
+                (updatedOrder) => {
+
+                    setOrders((prev) =>
+                        prev.map((order) =>
+                            order.id === updatedOrder.id
+                                ? {
+                                    ...order,
+                                    ...updatedOrder,
+                                }
+                                : order
+                        )
+                    );
+
+                }
+            );
+
         }
 
-        
         return () => {
             socket?.off(SocketEvents.ORDER_UPDATED);
-            
         };
 
     }, []);
 
-    const fetchOrders = async () => {
+    const fetchOrders = async (
+        pageNumber = 1,
+        append = false
+    ) => {
+
         try {
 
-            const { data } = await orderAPI.getOrders();
-            setOrders(data || []);
+            if (pageNumber === 1) {
+                setLoading(true);
+            } else {
+                setLoadingMore(true);
+            }
+
+            const { data } =
+                await orderAPI.getOrders(
+                    pageNumber,
+                    20
+                );
+
+            if (append) {
+
+                setOrders(prev => [
+                    ...prev,
+                    ...data.orders
+                ]);
+
+            } else {
+
+                setOrders(data.orders);
+
+            }
+
+            setHasMore(data.hasMore);
 
         } catch (error) {
 
             console.error(error);
-            toast.error("Failed to load orders");
+
+            toast.error(
+                "Failed to load orders"
+            );
 
         } finally {
 
             setLoading(false);
 
+            setLoadingMore(false);
+
         }
+
     };
+
+    const lastOrderRef = useCallback(
+
+        (node) => {
+
+            if (loadingMore) return;
+
+            if (observer.current) {
+                observer.current.disconnect();
+            }
+
+            observer.current =
+                new IntersectionObserver(
+
+                    (entries) => {
+
+                        if (
+                            entries[0].isIntersecting &&
+                            hasMore
+                        ) {
+
+                            const nextPage =
+                                page + 1;
+
+                            setPage(nextPage);
+
+                            fetchOrders(
+                                nextPage,
+                                true
+                            );
+
+                        }
+
+                    }
+
+                );
+
+            if (node) {
+                observer.current.observe(node);
+            }
+
+        },
+
+        [
+            loadingMore,
+            hasMore,
+            page,
+        ]
+
+    );
 
     const filteredOrders = orders.filter((order) => {
 
@@ -402,21 +510,31 @@ const Orders = () => {
 
                                                     <div className="space-y-5">
 
-                                                        {activeOrders.map((order) => (
+                                                        {activeOrders.map((order, index) => {
 
-                                                            <React.Fragment key={order.id}>
+                                                            const isLast =
+                                                                index === activeOrders.length - 1;
 
-                                                                <div className="hidden lg:block">
-                                                                    <OrderDesktopCard order={order} />
-                                                                </div>
+                                                            return (
 
-                                                                <div className="lg:hidden">
-                                                                    <OrderMobileCard order={order} />
-                                                                </div>
+                                                                <React.Fragment key={order.id}>
 
-                                                            </React.Fragment>
+                                                                    <div
+                                                                        ref={isLast ? lastOrderRef : null}
+                                                                        className="hidden lg:block"
+                                                                    >
+                                                                        <OrderDesktopCard order={order} />
+                                                                    </div>
 
-                                                        ))}
+                                                                    <div className="lg:hidden">
+                                                                        <OrderMobileCard order={order} />
+                                                                    </div>
+
+                                                                </React.Fragment>
+
+                                                            );
+
+                                                        })}
 
                                                     </div>
 
@@ -494,25 +612,47 @@ const Orders = () => {
 
                                             <div className="space-y-5">
 
-                                                {filteredOrders.map((order) => (
+                                                {filteredOrders.map((order, index) => {
 
-                                                    <React.Fragment key={order.id}>
+                                                    const isLast =
+                                                        index === filteredOrders.length - 1;
 
-                                                        <div className="hidden lg:block">
-                                                            <OrderDesktopCard order={order} />
-                                                        </div>
+                                                    return (
 
-                                                        <div className="lg:hidden">
-                                                            <OrderMobileCard order={order} />
-                                                        </div>
+                                                        <React.Fragment key={order.id}>
 
-                                                    </React.Fragment>
+                                                            <div
+                                                                ref={isLast ? lastOrderRef : null}
+                                                                className="hidden lg:block"
+                                                            >
+                                                                <OrderDesktopCard order={order} />
+                                                            </div>
 
-                                                ))}
+                                                            <div className="lg:hidden">
+                                                                <OrderMobileCard order={order} />
+                                                            </div>
+
+                                                        </React.Fragment>
+
+                                                    );
+
+                                                })}
 
                                             </div>
 
                                         </>
+
+                                    )}
+
+                                    {loadingMore && (
+
+                                        <div className="py-8 text-center">
+
+                                            <p className="text-slate-500">
+                                                Loading more orders...
+                                            </p>
+
+                                        </div>
 
                                     )}
 

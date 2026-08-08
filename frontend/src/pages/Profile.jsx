@@ -49,7 +49,7 @@ const Profile = () => {
 
             setProfile(profileRes.data);
 
-            setOrders(ordersRes.data || []);
+            setOrders(ordersRes.data.orders || []);
 
         } catch (err) {
 

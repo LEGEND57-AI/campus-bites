@@ -1,6 +1,6 @@
 import express from "express";
 import bcrypt from "bcrypt";
-import { generateToken } from "../utils/jwt.js";
+import { v4 as uuidv4 } from "uuid";
 import SibApiV3Sdk from "sib-api-v3-sdk";
 import { supabase } from "../db.js";
 import { OAuth2Client } from "google-auth-library";
@@ -8,6 +8,13 @@ import {
   loginLimiter,
   otpLimiter,
 } from "../middleware/rateLimiter.js";
+import {
+  generateAccessToken,
+  generateRefreshToken,
+} from "../utils/jwt.js";
+import {
+  createSession,
+} from "../services/sessionService.js";
 
 const router = express.Router();
 
@@ -574,35 +581,52 @@ router.post("/google", loginLimiter, async (req, res) => {
     // ================= GENERATE JWT =================
 
 
-    const token = generateToken({
+    // Generate Session ID
+    const sessionId = uuidv4();
+
+    // Generate Access Token
+    const accessToken = generateAccessToken({
       userId: user.id,
       role: user.role,
     });
 
+    // Generate Refresh Token
+    const refreshToken = generateRefreshToken({
+      userId: user.id,
+      sessionId,
+    });
 
-    // REMOVE PASSWORD
+    // Refresh expiry
+    const refreshExpiry = new Date();
+    refreshExpiry.setDate(refreshExpiry.getDate() + 30);
 
+    // Save session
+    await createSession({
+      sessionId,
+      userId: user.id,
+      refreshToken,
+      expiresAt: refreshExpiry.toISOString(),
 
-    const safeUser = {
+      deviceName: req.headers["user-agent"] || null,
+      browser: req.headers["user-agent"] || null,
+      ipAddress: req.ip,
+    });
 
-      ...user,
-
-    };
-
+    const safeUser = { ...user };
 
     delete safeUser.password_hash;
 
-
-    // SUCCESS RESPONSE
-
-
-    res.json({
-
-      token,
-
-      user: safeUser,
-
-    });
+    return res
+      .cookie("refreshToken", refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        maxAge: 1000 * 60 * 60 * 24 * 30,
+      })
+      .json({
+        accessToken,
+        user: safeUser,
+      });
 
 
   } catch (error) {
@@ -661,19 +685,53 @@ router.post("/login", loginLimiter, async (req, res) => {
       });
     }
 
-    const token = generateToken({
+    // Generate Session ID
+    const sessionId = uuidv4();
+
+    // Generate Access Token
+    const accessToken = generateAccessToken({
       userId: user.id,
       role: user.role,
+    });
+
+    // Generate Refresh Token
+    const refreshToken = generateRefreshToken({
+      userId: user.id,
+      sessionId,
+    });
+
+    // Refresh expiry
+    const refreshExpiry = new Date();
+    refreshExpiry.setDate(refreshExpiry.getDate() + 30);
+
+    // Save session
+    await createSession({
+      sessionId,
+      userId: user.id,
+      refreshToken,
+      expiresAt: refreshExpiry.toISOString(),
+
+      deviceName: req.headers["user-agent"] || null,
+      browser: req.headers["user-agent"] || null,
+      ipAddress: req.ip,
     });
 
     const safeUser = { ...user };
 
     delete safeUser.password_hash;
 
-    res.json({
-      token,
-      user: safeUser,
-    });
+    return res
+      .cookie("refreshToken", refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        maxAge: 1000 * 60 * 60 * 24 * 30,
+      })
+      .json({
+        accessToken,
+        user: safeUser,
+      });
+
   } catch (err) {
     console.error(err);
 

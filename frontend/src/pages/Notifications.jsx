@@ -56,27 +56,83 @@ const GROUP_ORDER = ["Today", "Yesterday", "This Week", "Earlier"];
 const Notifications = () => {
     const [notifications, setNotifications] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [page, setPage] = useState(1);
 
-    const loadNotifications = useCallback(async () => {
-        setLoading(true);
+    const [hasMore, setHasMore] = useState(true);
 
-        try {
-            const { data } = await notificationAPI.getNotifications();
+    const [loadingMore, setLoadingMore] = useState(false);
 
-            setNotifications(data.notifications || data || []);
+    const [observerTarget, setObserverTarget] = useState(null);
 
-        } catch (err) {
-            console.error(err);
-            toast.error("Failed to load notifications");
-        } finally {
-            setLoading(false);
-        }
-    }, []);
+    const loadNotifications = useCallback(
+        async (pageNumber = 1, append = false) => {
+
+            if (pageNumber === 1) {
+                setLoading(true);
+            } else {
+                setLoadingMore(true);
+            }
+
+            try {
+
+                const { data } =
+                    await notificationAPI.getNotifications(
+                        pageNumber,
+                        10
+                    );
+
+                if (append) {
+
+                    setNotifications(prev => {
+
+                        const ids = new Set(prev.map(n => n.id));
+
+                        const newNotifications =
+                            data.notifications.filter(
+                                n => !ids.has(n.id)
+                            );
+
+                        return [
+                            ...prev,
+                            ...newNotifications,
+                        ];
+
+                    });
+
+                } else {
+
+                    setNotifications(
+                        data.notifications
+                    );
+
+                }
+
+                setHasMore(data.hasMore);
+
+            } catch (err) {
+
+                console.error(err);
+
+                toast.error(
+                    "Failed to load notifications"
+                );
+
+            } finally {
+
+                setLoading(false);
+
+                setLoadingMore(false);
+
+            }
+
+        },
+        []
+    );
 
 
     useEffect(() => {
 
-        loadNotifications();
+        loadNotifications(1, false);
 
         const socket = getSocket();
 
@@ -84,7 +140,21 @@ const Notifications = () => {
 
             socket.on(SocketEvents.NOTIFICATION_NEW, (notification) => {
 
-                loadNotifications();
+                setNotifications((prev) => {
+
+                    if (prev.some((n) => n.id === notification.id)) {
+                        return prev;
+                    }
+
+                    return [
+                        notification,
+                        ...prev,
+                    ];
+
+                });
+
+                setHasMore(true);
+
 
             });
 
@@ -131,6 +201,45 @@ const Notifications = () => {
             items: groups[g],
         }));
     }, [filteredNotifications]);
+
+    useEffect(() => {
+
+        if (!observerTarget || !hasMore || loadingMore) return;
+
+        const observer = new IntersectionObserver(
+
+            (entries) => {
+
+                if (entries[0].isIntersecting) {
+
+                    setPage((prev) => {
+                        const next = prev + 1;
+                        loadNotifications(next, true);
+                        return next;
+                    });
+
+                }
+
+            },
+
+            {
+                threshold: 0.2,
+                rootMargin: "200px",
+            }
+
+        );
+
+        observer.observe(observerTarget);
+
+        return () => observer.disconnect();
+
+    }, [
+        observerTarget,
+        hasMore,
+        loadingMore,
+        loadNotifications,
+
+    ]);
 
     const unreadInView = filteredNotifications.filter((n) => !n.is_read).length;
 
@@ -214,19 +323,59 @@ const Notifications = () => {
 
                                             <div className="space-y-3">
                                                 <AnimatePresence initial={false}>
-                                                    {group.items.map((notification) => (
-                                                        <NotificationCard
-                                                            key={notification.id}
-                                                            notification={notification}
-                                                            onMarkRead={handleMarkRead}
-                                                            onDelete={handleDelete}
-                                                        />
-                                                    ))}
+                                                    {group.items.map((notification, index) => {
+
+                                                        const isLast =
+                                                            group === groupedNotifications[groupedNotifications.length - 1] &&
+                                                            index === group.items.length - 1;
+
+                                                        return (
+
+                                                            <div
+                                                                key={notification.id}
+                                                                ref={isLast ? setObserverTarget : null}
+                                                            >
+
+                                                                <NotificationCard
+                                                                    notification={notification}
+                                                                    onMarkRead={handleMarkRead}
+                                                                    onDelete={handleDelete}
+                                                                />
+
+                                                            </div>
+
+                                                        );
+
+                                                    })}
                                                 </AnimatePresence>
+
                                             </div>
                                         </div>
                                     ))}
 
+                                    {loadingMore && (
+
+                                        <div className="py-6 flex justify-center">
+
+                                            <NotificationSkeleton />
+
+                                        </div>
+
+                                    )}
+
+                                    {!hasMore && notifications.length > 0 && (
+
+                                        <div className="py-6 text-center">
+
+                                            <p className="text-slate-400 text-sm">
+
+                                                You're all caught up 🎉
+
+                                            </p>
+
+                                        </div>
+
+                                    )}
 
                                 </div>
                             )}

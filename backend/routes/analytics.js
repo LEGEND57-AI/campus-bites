@@ -153,7 +153,13 @@ async function fetchOrders() {
 
         .from("orders")
 
-        .select("*")
+        .select(`
+    id,
+    user_id,
+    total_amount,
+    status,
+    created_at
+`)
 
         .order("created_at", {
 
@@ -173,7 +179,12 @@ async function fetchUsers() {
 
         .from("users")
 
-        .select("*");
+        .select(`
+    id,
+    name,
+    email,
+    role
+`)
 
     if (error) throw error;
 
@@ -187,7 +198,10 @@ async function fetchFoodItems() {
 
         .from("food_items")
 
-        .select("*");
+        .select(`
+    id,
+    available
+`)
 
     if (error) throw error;
 
@@ -201,7 +215,10 @@ async function fetchCategories() {
 
         .from("categories")
 
-        .select("*");
+        .select(`
+    id,
+    name
+`)
 
     if (error) throw error;
 
@@ -319,29 +336,33 @@ router.get("/dashboard", async (req, res) => {
         ===================================================== */
 
 
-        const activeOrders =
-            filteredOrders.filter(order =>
-                ACTIVE_STATUSES.includes(
-                    String(order.status || "").toLowerCase()
-                )
-            );
+        let activeOrders = 0;
+        let completedOrders = 0;
+        let cancelledOrders = 0;
+        let totalRevenue = 0;
 
-        const completedOrders =
-            filteredOrders.filter(order =>
-                REVENUE_STATUSES.includes(
-                    String(order.status || "").toLowerCase()
-                )
-            );
+        for (const order of filteredOrders) {
 
-        const cancelledOrders =
-            filteredOrders.filter(order =>
-                CANCELLED_STATUSES.includes(
-                    String(order.status || "").toLowerCase()
-                )
-            );
+            const status = String(
+                order.status || ""
+            ).toLowerCase();
 
-        const totalRevenue =
-            sumRevenue(completedOrders);
+            if (ACTIVE_STATUSES.includes(status)) {
+                activeOrders++;
+            }
+
+            if (REVENUE_STATUSES.includes(status)) {
+                completedOrders++;
+                totalRevenue += Number(
+                    order.total_amount || 0
+                );
+            }
+
+            if (CANCELLED_STATUSES.includes(status)) {
+                cancelledOrders++;
+            }
+
+        }
 
         /* =====================================================
    REVENUE TREND
@@ -566,17 +587,20 @@ router.get("/dashboard", async (req, res) => {
            TOP CATEGORIES
         ===================================================== */
 
+        const categoryLookup = new Map(
+            categories.map(category => [
+                category.id,
+                category,
+            ])
+        );
+
         const categoryMap = {};
 
         popularItems.forEach(item => {
 
             const category =
-                categories.find(
-
-                    c =>
-                        c.id ===
-                        item.category_id
-
+                categoryLookup.get(
+                    item.category_id
                 );
 
             const name =
@@ -657,13 +681,13 @@ router.get("/dashboard", async (req, res) => {
 
             totalRevenue: formatMoney(totalRevenue),
 
-            activeOrders: activeOrders.length,
+            activeOrders: activeOrders,
 
             completedOrders:
-                completedOrders.length,
+                completedOrders,
 
             cancelledOrders:
-                cancelledOrders.length,
+                cancelledOrders,
 
             totalCustomers:
                 users.filter(
@@ -904,15 +928,25 @@ router.get("/customers", async (req, res) => {
                     user.role === "student"
             );
 
+        const userOrdersMap = new Map();
+
+        for (const order of orders) {
+
+            if (!userOrdersMap.has(order.user_id)) {
+                userOrdersMap.set(order.user_id, []);
+            }
+
+            userOrdersMap
+                .get(order.user_id)
+                .push(order);
+
+        }
+
         const customerStats =
             students.map(student => {
 
                 const customerOrders =
-                    orders.filter(
-                        order =>
-                            order.user_id ===
-                            student.id
-                    );
+                    userOrdersMap.get(student.id) || [];
 
                 return {
 

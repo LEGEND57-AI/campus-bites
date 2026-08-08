@@ -40,10 +40,7 @@ if ("serviceWorker" in navigator) {
       const registration =
         await navigator.serviceWorker.register("/sw.js");
 
-      console.log(
-        "✅ Service Worker Registered",
-        registration
-      );
+      
 
     } catch (err) {
 

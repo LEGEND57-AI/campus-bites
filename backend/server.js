@@ -18,6 +18,7 @@ import analyticsRoutes from "./routes/analytics.js";
 import categoryRoutes from './routes/category.js';
 import uploadRoutes from './routes/upload.js';
 import paymentRoutes from "./routes/payment.js";
+import paymentWebhookRoutes from "./routes/paymentWebhook.js";
 import notificationRoutes from "./routes/notifications.js";
 import pushRoutes from "./routes/push.js";
 import { autoCancelExpiredCashOrders } from "./utils/autoCancelOrders.js";
@@ -74,6 +75,17 @@ app.use(
     crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
   })
 );
+
+// Razorpay webhook must be mounted before the global express.json() parser
+// below so the request body stays a raw Buffer — Razorpay signs the exact
+// raw bytes it sends, and re-serializing a parsed JSON object would not
+// reliably reproduce them, breaking signature verification.
+app.use(
+  "/api/payment/webhook",
+  express.raw({ type: "application/json" }),
+  paymentWebhookRoutes
+);
+
 app.use(express.json());
 
 app.use(cookieParser());
@@ -126,6 +138,20 @@ setInterval(async () => {
     console.error("Auto Cancel Scheduler Error:", err);
   }
 }, 60000);
+
+// ================== GLOBAL ERROR HANDLER ==================
+// Must be registered after all routes/middleware. Catches anything not
+// handled by a route's own try/catch (e.g. errors thrown synchronously
+// in middleware, or passed to next(err)).
+app.use((err, req, res, next) => {
+  if (res.headersSent) {
+    return next(err);
+  }
+
+  (req.log || logger).error({ err }, "Unhandled error");
+
+  res.status(500).json({ error: "Internal server error" });
+});
 
 // ================== SERVER ==================
 

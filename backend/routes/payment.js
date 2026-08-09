@@ -108,7 +108,16 @@ router.post("/create-order", async (req, res) => {
 
             receipt: `receipt_${Date.now()}`,
 
-            payment_capture: 1
+            payment_capture: 1,
+
+            // Lets the webhook (routes/paymentWebhook.js) identify which
+            // user a payment belongs to if /verify never runs (e.g. the
+            // browser closes after payment but before the callback fires).
+            // Only the user id is stored here, not the cart, to stay well
+            // under Razorpay's per-note size limit.
+            notes: {
+                user_id: String(req.user.id),
+            },
 
         };
 

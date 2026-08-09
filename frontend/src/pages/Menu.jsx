@@ -23,246 +23,140 @@ import FoodCard from "../components/FoodCard";
 import CategoryFilter from "../components/CategoryFilter";
 import LoadingSkeleton from "../components/LoadingSkeleton";
 
-
 const PAGE_SIZE = 12;
 
-
 const Menu = () => {
-
   const [searchParams] = useSearchParams();
 
   const { addToCart } = useCart();
 
-
   // ================= DATA =================
 
   const [foodItems, setFoodItems] = useState([]);
-
   const [categories, setCategories] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState("all");
 
-  const [selectedCategory, setSelectedCategory] =
-    useState("all");
-
-  const [searchQuery, setSearchQuery] =
-    useState(
-      searchParams.get("search") || ""
-    );
-
+  const [searchQuery, setSearchQuery] = useState(
+    searchParams.get("search") || ""
+  );
 
   // ================= PAGINATION =================
 
   const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [totalItems, setTotalItems] = useState(0);
 
-  const [hasMore, setHasMore] =
-    useState(true);
-
-  const [totalItems, setTotalItems] =
-    useState(0);
-
-  const [loading, setLoading] =
-    useState(true);
-
+  const [loading, setLoading] = useState(true);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
-
-  const [loadingMore, setLoadingMore] =
-    useState(false);
-
+  const [loadingMore, setLoadingMore] = useState(false);
 
   // ================= REFS =================
 
   const requestIdRef = useRef(0);
-
   const pageRef = useRef(1);
   const loadingMoreRef = useRef(false);
-
 
   // ================= SEARCH PARAM =================
 
   useEffect(() => {
-
-    const search =
-      searchParams.get("search") || "";
-
+    const search = searchParams.get("search") || "";
     setSearchQuery(search);
-
   }, [searchParams]);
-
 
   // ================= FETCH CATEGORIES =================
 
   const fetchCategories = useCallback(async () => {
-
     try {
-
-      const { data } =
-        await categoryAPI.getAll();
+      const { data } = await categoryAPI.getAll();
 
       setCategories(data || []);
-
     } catch (error) {
-
       console.error(error);
-
     }
-
   }, []);
-
 
   // ================= FETCH FOOD ITEMS =================
 
   const fetchFoodItems = useCallback(
     async (pageNumber = 1, append = false) => {
-
-      const requestId =
-        ++requestIdRef.current;
+      const requestId = ++requestIdRef.current;
 
       try {
-
         if (append) {
-
           setLoadingMore(true);
-
         } else {
-
           setLoading(true);
-
         }
-
 
         const params = {
-
           page: pageNumber,
-
           limit: PAGE_SIZE,
-
         };
 
-
-        if (
-          selectedCategory !== "all"
-        ) {
-
-          params.categoryId =
-            selectedCategory;
-
+        if (selectedCategory !== "all") {
+          params.categoryId = selectedCategory;
         }
-
 
         if (searchQuery.trim()) {
-
-          params.search =
-            searchQuery.trim();
-
+          params.search = searchQuery.trim();
         }
 
-
-        const { data } =
-          await foodAPI.getItems(params);
-
+        const { data } = await foodAPI.getItems(params);
 
         // Ignore outdated request
-        if (
-          requestId !==
-          requestIdRef.current
-        ) {
+        if (requestId !== requestIdRef.current) {
           return;
         }
 
-
-        const newItems =
-          data?.items || [];
+        const newItems = data?.items || [];
 
         setHasLoadedOnce(true);
 
-
         if (append) {
+          setFoodItems((previousItems) => {
+            const existingIds = new Set(
+              previousItems.map((item) => item.id)
+            );
 
-          setFoodItems(
-            (previousItems) => {
+            const uniqueNewItems = newItems.filter(
+              (item) => !existingIds.has(item.id)
+            );
 
-              const existingIds =
-                new Set(
-                  previousItems.map(
-                    (item) =>
-                      item.id
-                  )
-                );
-
-
-              const uniqueNewItems =
-                newItems.filter(
-                  (item) =>
-                    !existingIds.has(
-                      item.id
-                    )
-                );
-
-
-              return [
-                ...previousItems,
-                ...uniqueNewItems,
-              ];
-
-            }
-          );
-
+            return [
+              ...previousItems,
+              ...uniqueNewItems,
+            ];
+          });
         } else {
-
-          setFoodItems(
-            newItems
-          );
-
+          setFoodItems(newItems);
         }
-
 
         const currentPage =
           data?.page || pageNumber;
 
         pageRef.current = currentPage;
-
         setPage(currentPage);
 
-        setHasMore(
-          Boolean(data?.hasMore)
-        );
+        setHasMore(Boolean(data?.hasMore));
 
-
-        setTotalItems(
-          data?.total || 0
-        );
-
-
+        setTotalItems(data?.total || 0);
       } catch (error) {
-
         console.error(
           "Failed to load food items:",
           error
         );
 
         if (!append) {
-
-          toast.error(
-            "Failed to load menu"
-          );
-
+          toast.error("Failed to load menu");
         }
-
       } finally {
-
         if (append) {
-
           loadingMoreRef.current = false;
-
           setLoadingMore(false);
-
         } else {
-
           setLoading(false);
-
         }
-
       }
-
     },
     [
       selectedCategory,
@@ -270,18 +164,13 @@ const Menu = () => {
     ]
   );
 
-
   // ================= INITIAL / FILTER LOAD =================
 
   useEffect(() => {
-
     fetchCategories();
-
   }, [fetchCategories]);
 
-
   useEffect(() => {
-
     // Reset pagination
     setFoodItems([]);
 
@@ -297,18 +186,15 @@ const Menu = () => {
 
     // Load first page
     fetchFoodItems(1, false);
-
   }, [
     selectedCategory,
     searchQuery,
     fetchFoodItems,
   ]);
 
-
   // ================= LOAD MORE =================
 
   const loadMore = useCallback(() => {
-
     if (
       loading ||
       loadingMoreRef.current ||
@@ -328,20 +214,16 @@ const Menu = () => {
       nextPage,
       true
     );
-
   }, [
     loading,
     hasMore,
     fetchFoodItems,
   ]);
 
-
   // ================= INFINITE SCROLL =================
 
   useEffect(() => {
-
     const handleScroll = () => {
-
       if (
         loading ||
         loadingMoreRef.current ||
@@ -357,14 +239,13 @@ const Menu = () => {
       const documentHeight =
         document.documentElement.scrollHeight;
 
-      // Start loading before reaching the bottom
+      // Start loading before reaching bottom
       if (
         scrollPosition >=
         documentHeight - 600
       ) {
         loadMore();
       }
-
     };
 
     window.addEventListener(
@@ -373,36 +254,28 @@ const Menu = () => {
       { passive: true }
     );
 
-    // Check once after initial render
     handleScroll();
 
     return () => {
-
       window.removeEventListener(
         "scroll",
         handleScroll
       );
-
     };
-
   }, [
     loading,
     hasMore,
     loadMore,
   ]);
 
-
   // ================= SOCKET MENU UPDATE =================
 
   useEffect(() => {
-
     const socket = getSocket();
 
     if (!socket) return;
 
-
     const handleMenuUpdate = () => {
-
       fetchCategories();
 
       // Refresh from page 1
@@ -422,413 +295,395 @@ const Menu = () => {
         1,
         false
       );
-
     };
-
 
     socket.on(
       SocketEvents.MENU_UPDATED,
       handleMenuUpdate
     );
 
-
     return () => {
-
       socket.off(
         SocketEvents.MENU_UPDATED,
         handleMenuUpdate
       );
-
     };
-
   }, [
     fetchCategories,
     fetchFoodItems,
   ]);
 
-
   // ================= UI =================
 
   return (
+    <div className="min-h-screen bg-[#F3F6FB] p-0 md:p-3 lg:p-5">
 
-    <div
-      className="
-                bg-white
-                flex
-                min-h-screen
+      {/* ================= DESKTOP CARD ================= */}
 
-                rounded-none
-                shadow-none
-                overflow-visible
+      <div
+        className="
+          bg-white
+          flex
+          min-h-screen
 
-                md:rounded-[32px]
-                md:overflow-hidden
-                md:min-h-[calc(100vh-24px)]
-                md:shadow-[0_15px_40px_rgba(0,0,0,0.08)]
-            "
-    >
+          rounded-none
+          shadow-none
+          overflow-visible
 
-      {/* Sidebar Desktop */}
+          md:rounded-[32px]
+          md:overflow-hidden
+          md:min-h-[calc(100vh-24px)]
+          md:shadow-[0_15px_40px_rgba(0,0,0,0.08)]
+        "
+      >
 
-      <Sidebar />
+        {/* Sidebar */}
 
+        <Sidebar />
 
-      {/* Right Content */}
+        {/* Right Content */}
 
-      <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0">
 
-        {/* Header */}
+          {/* Header */}
 
-        <DashboardHeader />
+          <DashboardHeader />
 
+          {/* Main Area */}
 
-        {/* Main Area */}
-
-        <main
-          className="
-                        px-3
-                        sm:px-4
-                        md:px-6
-                        lg:px-8
-                        py-4
-                        md:py-5
-                        pb-24
-                        max-w-full
-                        md:max-w-none
-                        overflow-x-hidden
-                    "
-        >
-
-          {/* PAGE TITLE */}
-
-          <div className="mb-7 md:mb-8">
-
-            <h1
-              className="
-                                text-3xl
-                                md:text-4xl
-                                font-bold
-                                text-slate-900
-                            "
-            >
-              Menu
-            </h1>
-
-
-            <p
-              className="
-                                text-gray-500
-                                mt-2
-                                text-sm
-                                md:text-base
-                            "
-            >
-              Discover delicious meals
-              and snacks on campus.
-            </p>
-
-          </div>
-
-
-          {/* SEARCH BAR */}
-
-          <div className="mb-7 md:mb-8">
-
-            <div className="relative">
-
-              <Search
-                size={20}
-                className="
-                                    absolute
-                                    left-4
-                                    top-1/2
-                                    -translate-y-1/2
-                                    text-gray-400
-                                "
-              />
-
-
-              <input
-                type="text"
-                placeholder="Search food, drinks, snacks..."
-                value={searchQuery}
-                onChange={(e) =>
-                  setSearchQuery(
-                    e.target.value
-                  )
-                }
-                className="
-                                    w-full
-                                    h-12
-                                    lg:h-14
-                                    pl-12
-                                    pr-4
-                                    rounded-2xl
-                                    border
-                                    border-gray-200
-                                    bg-white
-                                    outline-none
-                                    focus:border-blue-500
-                                    focus:ring-4
-                                    focus:ring-blue-100
-                                "
-              />
-
-            </div>
-
-          </div>
-
-
-          {/* CATEGORY FILTER */}
-
-          <div className="mb-7 md:mb-8">
-
-            <CategoryFilter
-              categories={categories}
-              selectedCategory={
-                selectedCategory
-              }
-              onSelectCategory={
-                setSelectedCategory
-              }
-            />
-
-          </div>
-
-
-          {/* ALL ITEMS HEADER */}
-
-          <div
+          <main
             className="
-                            flex
-                            items-center
-                            justify-between
-                            mb-5
-                            md:mb-6
-                        "
+              px-3
+              sm:px-4
+              md:px-6
+              lg:px-8
+              py-4
+              md:py-5
+              pb-24
+              max-w-full
+              md:max-w-none
+              overflow-x-hidden
+            "
           >
 
-            <h2
-              className="
-                                text-xl
-                                md:text-2xl
-                                font-bold
-                                text-slate-900
-                            "
-            >
-              All Items
-            </h2>
+            {/* PAGE TITLE */}
 
+            <div className="mb-7 md:mb-8">
 
-            <span
-              className="
-                                text-sm
-                                text-gray-500
-                            "
-            >
-              {totalItems} Items
-            </span>
+              <h1
+                className="
+                  text-3xl
+                  md:text-4xl
+                  font-bold
+                  text-slate-900
+                "
+              >
+                Menu
+              </h1>
 
-          </div>
+              <p
+                className="
+                  text-gray-500
+                  mt-2
+                  text-sm
+                  md:text-base
+                "
+              >
+                Discover delicious meals
+                and snacks on campus.
+              </p>
 
-
-          {/* INITIAL LOADING */}
-
-          {loading || (foodItems.length === 0 && !hasLoadedOnce) ? (
-
-            <LoadingSkeleton />
-
-          ) : foodItems.length === 0 ? (
-
-            <div className="
-        bg-white
-        rounded-3xl
-        py-20
-        text-center
-        text-gray-400
-    ">
-              No food items found 😔
             </div>
 
-          ) : (
+            {/* SEARCH BAR */}
 
-            <>
+            <div className="mb-7 md:mb-8">
 
-              {/* FOOD GRID */}
+              <div className="relative">
 
-              <div
-                className="
-                                    grid
-                                    grid-cols-1
-                                    sm:grid-cols-2
-                                    xl:grid-cols-4
-                                    gap-4
-                                    sm:gap-6
-                                "
-              >
+                <Search
+                  size={20}
+                  className="
+                    absolute
+                    left-4
+                    top-1/2
+                    -translate-y-1/2
+                    text-gray-400
+                  "
+                />
 
-                {foodItems.map(
-                  (
-                    item,
-                    index
-                  ) => (
-
-                    <motion.div
-                      key={item.id}
-                      initial={{
-                        opacity: 0,
-                        y: 20,
-                      }}
-                      animate={{
-                        opacity: 1,
-                        y: 0,
-                      }}
-                      transition={{
-                        delay:
-                          index *
-                          0.03,
-                      }}
-                    >
-
-                      <FoodCard
-                        item={item}
-                        onAddToCart={
-                          addToCart
-                        }
-                      />
-
-                    </motion.div>
-
-                  )
-                )}
+                <input
+                  type="text"
+                  placeholder="Search food, drinks, snacks..."
+                  value={searchQuery}
+                  onChange={(e) =>
+                    setSearchQuery(
+                      e.target.value
+                    )
+                  }
+                  className="
+                    w-full
+                    h-12
+                    lg:h-14
+                    pl-12
+                    pr-4
+                    rounded-2xl
+                    border
+                    border-gray-200
+                    bg-white
+                    outline-none
+                    focus:border-blue-500
+                    focus:ring-4
+                    focus:ring-blue-100
+                  "
+                />
 
               </div>
 
+            </div>
 
-              {/* LOAD MORE AREA */}
+            {/* CATEGORY FILTER */}
 
-              {hasMore && (
+            <div className="mb-7 md:mb-8">
 
-                <div className="w-full py-8">
+              <CategoryFilter
+                categories={categories}
+                selectedCategory={
+                  selectedCategory
+                }
+                onSelectCategory={
+                  setSelectedCategory
+                }
+              />
 
-                  {loadingMore && (
+            </div>
 
-                    <div
-                      className="
-                                                grid
-                                                grid-cols-1
-                                                sm:grid-cols-2
-                                                xl:grid-cols-4
-                                                gap-4
-                                                sm:gap-6
-                                            "
-                    >
+            {/* ALL ITEMS HEADER */}
 
-                      {[1, 2, 3, 4].map(
-                        (
-                          item
-                        ) => (
+            <div
+              className="
+                flex
+                items-center
+                justify-between
+                mb-5
+                md:mb-6
+              "
+            >
 
-                          <div
-                            key={
-                              item
-                            }
-                            className="
-                                                            bg-white
-                                                            rounded-3xl
-                                                            border
-                                                            border-slate-100
-                                                            overflow-hidden
-                                                            shadow-sm
-                                                            animate-pulse
-                                                        "
-                          >
+              <h2
+                className="
+                  text-xl
+                  md:text-2xl
+                  font-bold
+                  text-slate-900
+                "
+              >
+                All Items
+              </h2>
 
-                            <div
-                              className="
-                                                                h-48
-                                                                bg-slate-200
-                                                            "
-                            />
+              <span
+                className="
+                  text-sm
+                  text-gray-500
+                "
+              >
+                {totalItems} Items
+              </span>
 
-                            <div
-                              className="
-                                                                p-5
-                                                            "
-                            >
+            </div>
 
-                              <div
-                                className="
-                                                                    h-5
-                                                                    w-2/3
-                                                                    bg-slate-200
-                                                                    rounded
-                                                                    mb-3
-                                                                "
-                              />
+            {/* INITIAL LOADING */}
 
-                              <div
-                                className="
-                                                                    h-4
-                                                                    w-full
-                                                                    bg-slate-200
-                                                                    rounded
-                                                                    mb-2
-                                                                "
-                              />
+            {loading ||
+            (
+              foodItems.length === 0 &&
+              !hasLoadedOnce
+            ) ? (
 
-                              <div
-                                className="
-                                                                    h-4
-                                                                    w-3/4
-                                                                    bg-slate-200
-                                                                    rounded
-                                                                    mb-5
-                                                                "
-                              />
+              <LoadingSkeleton />
 
-                              <div
-                                className="
-                                                                    h-10
-                                                                    w-full
-                                                                    bg-slate-200
-                                                                    rounded-2xl
-                                                                "
-                              />
+            ) : foodItems.length === 0 ? (
 
-                            </div>
+              <div
+                className="
+                  bg-white
+                  rounded-3xl
+                  py-20
+                  text-center
+                  text-gray-400
+                "
+              >
+                No food items found 😔
+              </div>
 
-                          </div>
+            ) : (
 
-                        )
-                      )}
+              <>
 
-                    </div>
+                {/* FOOD GRID */}
 
+                <div
+                  className="
+                    grid
+                    grid-cols-1
+                    sm:grid-cols-2
+                    xl:grid-cols-4
+                    gap-4
+                    sm:gap-6
+                  "
+                >
+
+                  {foodItems.map(
+                    (item, index) => (
+
+                      <motion.div
+                        key={item.id}
+                        initial={{
+                          opacity: 0,
+                          y: 20,
+                        }}
+                        animate={{
+                          opacity: 1,
+                          y: 0,
+                        }}
+                        transition={{
+                          delay:
+                            index * 0.03,
+                        }}
+                      >
+
+                        <FoodCard
+                          item={item}
+                          onAddToCart={
+                            addToCart
+                          }
+                        />
+
+                      </motion.div>
+
+                    )
                   )}
 
                 </div>
 
-              )}
+                {/* LOAD MORE AREA */}
 
+                {hasMore && (
 
-            </>
+                  <div className="w-full py-8">
 
-          )}
+                    {loadingMore && (
 
-        </main>
+                      <div
+                        className="
+                          grid
+                          grid-cols-1
+                          sm:grid-cols-2
+                          xl:grid-cols-4
+                          gap-4
+                          sm:gap-6
+                        "
+                      >
 
+                        {[1, 2, 3, 4].map(
+                          (item) => (
 
-        {/* Mobile Bottom Navigation */}
+                            <div
+                              key={item}
+                              className="
+                                bg-white
+                                rounded-3xl
+                                border
+                                border-slate-100
+                                overflow-hidden
+                                shadow-sm
+                                animate-pulse
+                              "
+                            >
 
-        <MobileBottomNav />
+                              <div
+                                className="
+                                  h-48
+                                  bg-slate-200
+                                "
+                              />
+
+                              <div
+                                className="
+                                  p-5
+                                "
+                              >
+
+                                <div
+                                  className="
+                                    h-5
+                                    w-2/3
+                                    bg-slate-200
+                                    rounded
+                                    mb-3
+                                  "
+                                />
+
+                                <div
+                                  className="
+                                    h-4
+                                    w-full
+                                    bg-slate-200
+                                    rounded
+                                    mb-2
+                                  "
+                                />
+
+                                <div
+                                  className="
+                                    h-4
+                                    w-3/4
+                                    bg-slate-200
+                                    rounded
+                                    mb-5
+                                  "
+                                />
+
+                                <div
+                                  className="
+                                    h-10
+                                    w-full
+                                    bg-slate-200
+                                    rounded-2xl
+                                  "
+                                />
+
+                              </div>
+
+                            </div>
+
+                          )
+                        )}
+
+                      </div>
+
+                    )}
+
+                  </div>
+
+                )}
+
+              </>
+
+            )}
+
+          </main>
+
+          {/* Mobile Bottom Navigation */}
+
+          <MobileBottomNav />
+
+        </div>
 
       </div>
 
     </div>
-
   );
-
 };
 
 export default Menu;

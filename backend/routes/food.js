@@ -108,50 +108,24 @@ router.get('/items', async (req, res) => {
 
 router.get('/popular', async (req, res) => {
   try {
-
     const { data, error } = await supabase
-      .from('order_items')
-      .select(`
-        quantity,
-        food_items (
-          id,
-          name,
-          price,
-          image_url,
-          available,
-          category_id,
-          categories (
-            id,
-            name
-          )
-        )
-      `);
+      .rpc('get_popular_food_items', { item_limit: 8 });
 
     if (error) throw error;
 
-    const itemMap = {};
-
-    data.forEach((order) => {
-
-      const item = order.food_items;
-
-      if (!item) return;
-
-      if (!itemMap[item.id]) {
-        itemMap[item.id] = {
-          ...item,
-          totalOrders: 0,
-        };
-      }
-
-      itemMap[item.id].totalOrders += order.quantity;
-
-    });
-
-    const popularItems = Object.values(itemMap)
-      .filter(item => item.available === true)
-      .sort((a, b) => b.totalOrders - a.totalOrders)
-      .slice(0, 8);
+    const popularItems = (data || []).map((item) => ({
+      id: item.id,
+      name: item.name,
+      description: item.description,
+      price: item.price,
+      image_url: item.image_url,
+      available: item.available,
+      category_id: item.category_id,
+      categories: item.category_id
+        ? { id: item.category_id, name: item.category_name }
+        : null,
+      totalOrders: Number(item.total_orders),
+    }));
 
     res.json(popularItems);
 

@@ -159,110 +159,146 @@ const Dashboard = () => {
 
     return (
 
-        <div
-            className="
-                bg-white
-                rounded-none
-                shadow-none
-                min-h-screen
-                overflow-visible
-                flex
+        /*
+         * Mobile:
+         * Full-screen / flat layout
+         *
+         * Desktop:
+         * Rounded white dashboard card with shadow
+         * Same structure as Orders page
+         */
 
-                md:rounded-[32px]
-                md:overflow-hidden
-                md:min-h-[calc(100vh-24px)]
-                md:shadow-[0_15px_40px_rgba(0,0,0,0.08)]
-            "
-        >
+        <div className="min-h-screen bg-[#F3F6FB] p-0 md:p-3 lg:p-5">
 
-            {/* ================= SIDEBAR ================= */}
+            <div
+                className="
+                    bg-white
+                    flex
+                    min-h-screen
 
-            <Sidebar />
+                    rounded-none
+                    shadow-none
+                    overflow-visible
 
+                    md:rounded-[32px]
+                    md:overflow-hidden
+                    md:min-h-[calc(100vh-24px)]
+                    md:shadow-[0_15px_40px_rgba(0,0,0,0.08)]
+                "
+            >
 
-            {/* ================= RIGHT CONTENT ================= */}
+                {/* ================= SIDEBAR ================= */}
 
-            <div className="flex-1 min-w-0">
-
-
-                {/* ================= HEADER ================= */}
-
-                <DashboardHeader />
-
-
-                {/* ================= MAIN AREA ================= */}
-
-                <main
-                    className="
-                        px-3
-                        sm:px-4
-                        md:px-6
-                        lg:px-8
-                        py-4
-                        md:py-5
-                        pb-24
-                        max-w-full
-                        md:max-w-none
-                    "
-                >
+                <Sidebar />
 
 
-                    {/* ================= HERO ================= */}
+                {/* ================= RIGHT CONTENT ================= */}
 
-                    <HeroBanner />
-
-
-                    {/* ================= DASHBOARD CONTENT ================= */}
-
-                    <div className="mt-6">
+                <div className="flex-1 min-w-0">
 
 
-                        {/* ================= SECTION HEADING ================= */}
+                    {/* ================= HEADER ================= */}
 
-                        <div
-                            className="
-                                flex
-                                justify-between
-                                items-center
-                                mb-6
-                            "
-                        >
-
-                            <div>
-
-                                <h2
-                                    className="
-                                        text-2xl
-                                        font-bold
-                                        text-gray-900
-                                    "
-                                >
-                                    Popular Right Now 🔥
-                                </h2>
+                    <DashboardHeader />
 
 
-                                <p
-                                    className="
-                                        text-gray-500
-                                        text-sm
-                                        mt-1
-                                    "
-                                >
-                                    Fresh picks loved by students
-                                </p>
+                    {/* ================= MAIN AREA ================= */}
+
+                    <main
+                        className="
+                            px-3
+                            sm:px-4
+                            md:px-6
+                            lg:px-8
+                            py-4
+                            md:py-5
+                            pb-24
+                            max-w-full
+                            md:max-w-none
+                        "
+                    >
 
 
-                                {/* Mobile View Full Menu */}
+                        {/* ================= HERO ================= */}
+
+                        <HeroBanner />
+
+
+                        {/* ================= DASHBOARD CONTENT ================= */}
+
+                        <div className="mt-6">
+
+
+                            {/* ================= SECTION HEADING ================= */}
+
+                            <div
+                                className="
+                                    flex
+                                    justify-between
+                                    items-center
+                                    mb-6
+                                "
+                            >
+
+                                <div>
+
+                                    <h2
+                                        className="
+                                            text-2xl
+                                            font-bold
+                                            text-gray-900
+                                        "
+                                    >
+                                        Popular Right Now 🔥
+                                    </h2>
+
+
+                                    <p
+                                        className="
+                                            text-gray-500
+                                            text-sm
+                                            mt-1
+                                        "
+                                    >
+                                        Fresh picks loved by students
+                                    </p>
+
+
+                                    {/* Mobile View Full Menu */}
+
+                                    <button
+                                        onClick={() =>
+                                            navigate("/menu")
+                                        }
+                                        className="
+                                            md:hidden
+                                            mt-3
+                                            text-blue-600
+                                            font-semibold
+                                        "
+                                    >
+                                        View Full Menu →
+                                    </button>
+
+                                </div>
+
+
+                                {/* Desktop View Full Menu */}
 
                                 <button
                                     onClick={() =>
                                         navigate("/menu")
                                     }
                                     className="
-                                        md:hidden
-                                        mt-3
+                                        hidden
+                                        md:flex
+                                        items-center
+                                        gap-2
                                         text-blue-600
                                         font-semibold
+                                        hover:text-blue-700
+                                        transition-all
+                                        duration-200
                                     "
                                 >
                                     View Full Menu →
@@ -271,109 +307,87 @@ const Dashboard = () => {
                             </div>
 
 
-                            {/* Desktop View Full Menu */}
+                            {/* ================= FOOD GRID ================= */}
 
-                            <button
-                                onClick={() =>
-                                    navigate("/menu")
-                                }
-                                className="
-                                    hidden
-                                    md:flex
-                                    items-center
-                                    gap-2
-                                    text-blue-600
-                                    font-semibold
-                                    hover:text-blue-700
-                                    transition-all
-                                    duration-200
-                                "
-                            >
-                                View Full Menu →
-                            </button>
+                            {popularLoading ? (
+
+                                <LoadingSkeleton />
+
+                            ) : popularItems.length === 0 ? (
+
+                                <div
+                                    className="
+                                        bg-white
+                                        rounded-3xl
+                                        py-20
+                                        text-center
+                                        text-gray-400
+                                        shadow-sm
+                                    "
+                                >
+                                    No food items found 😔
+                                </div>
+
+                            ) : (
+
+                                <div
+                                    className="
+                                        grid
+                                        grid-cols-1
+                                        gap-4
+
+                                        sm:grid-cols-2
+                                        sm:gap-6
+
+                                        xl:grid-cols-4
+                                    "
+                                >
+
+                                    {popularItems.map(
+                                        (item, index) => (
+
+                                            <motion.div
+                                                key={item.id}
+                                                initial={{
+                                                    opacity: 0,
+                                                    y: 20,
+                                                }}
+                                                animate={{
+                                                    opacity: 1,
+                                                    y: 0,
+                                                }}
+                                                transition={{
+                                                    delay:
+                                                        index * 0.04,
+                                                }}
+                                            >
+
+                                                <FoodCard
+                                                    item={item}
+                                                    onAddToCart={
+                                                        addToCart
+                                                    }
+                                                />
+
+                                            </motion.div>
+
+                                        )
+                                    )}
+
+                                </div>
+
+                            )}
 
                         </div>
 
-
-                        {/* ================= FOOD GRID ================= */}
-
-                        {popularLoading ? (
-
-                            <LoadingSkeleton />
-
-                        ) : popularItems.length === 0 ? (
-
-                            <div
-                                className="
-                                    bg-white
-                                    rounded-3xl
-                                    py-20
-                                    text-center
-                                    text-gray-400
-                                    shadow-sm
-                                "
-                            >
-                                No food items found 😔
-                            </div>
-
-                        ) : (
-
-                            <div
-                                className="
-                                    grid
-                                    grid-cols-1
-                                    gap-4
-
-                                    sm:grid-cols-2
-                                    sm:gap-6
-
-                                    xl:grid-cols-4
-                                "
-                            >
-
-                                {popularItems.map(
-                                    (item, index) => (
-
-                                        <motion.div
-                                            key={item.id}
-                                            initial={{
-                                                opacity: 0,
-                                                y: 20,
-                                            }}
-                                            animate={{
-                                                opacity: 1,
-                                                y: 0,
-                                            }}
-                                            transition={{
-                                                delay:
-                                                    index * 0.04,
-                                            }}
-                                        >
-
-                                            <FoodCard
-                                                item={item}
-                                                onAddToCart={
-                                                    addToCart
-                                                }
-                                            />
-
-                                        </motion.div>
-
-                                    )
-                                )}
-
-                            </div>
-
-                        )}
-
-                    </div>
-
-                </main>
+                    </main>
 
 
-                {/* ================= MOBILE NAV ================= */}
+                    {/* ================= MOBILE NAV ================= */}
 
-                <MobileBottomNav />
+                    <MobileBottomNav />
+
+                </div>
 
             </div>
 

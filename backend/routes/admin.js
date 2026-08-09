@@ -30,8 +30,7 @@ router.get('/orders', async (req, res) => {
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    const { data, error } = await supabase
-
+    let query = supabase
       .from('orders')
       .select(`
         *,
@@ -41,7 +40,15 @@ router.get('/orders', async (req, res) => {
           price_at_time,
           food_items (id, name, image_url, category_id)
         )
-      `)
+      `);
+
+    if (req.query.all !== 'true') {
+      query = query
+        .gte('created_at', today.toISOString())
+        .lt('created_at', tomorrow.toISOString());
+    }
+
+    const { data, error } = await query
       .order('created_at', { ascending: false });
 
     if (error) throw error;

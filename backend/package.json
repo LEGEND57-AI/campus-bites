@@ -8,7 +8,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.103.3",
-    "bcrypt": "^5.1.1",
+    "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
@@ -19,7 +19,6 @@
     "helmet": "^8.2.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.1.1",
-    "nodemailer": "^8.0.7",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
     "razorpay": "^2.9.6",

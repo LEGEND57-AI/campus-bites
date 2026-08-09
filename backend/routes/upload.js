@@ -53,7 +53,8 @@ router.post(
         });
 
       if (error) {
-        return res.status(500).json({ error: error.message });
+        console.error('Upload error:', error);
+        return res.status(500).json({ error: "Failed to upload image" });
       }
 
       // 🔥 PUBLIC URL

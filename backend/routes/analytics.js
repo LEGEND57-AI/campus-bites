@@ -739,9 +739,6 @@ router.get("/dashboard", async (req, res) => {
             message:
                 "Failed to load analytics.",
 
-            error:
-                error.message,
-
         });
 
     }
@@ -804,12 +801,14 @@ router.get("/revenue", async (req, res) => {
 
     catch (error) {
 
+        console.error("Revenue analytics error:", error);
+
         res.status(500).json({
 
             success: false,
 
             message:
-                error.message,
+                "Failed to load revenue analytics.",
 
         });
 
@@ -843,12 +842,14 @@ router.get("/orders", async (req, res) => {
 
     catch (error) {
 
+        console.error("Orders analytics error:", error);
+
         res.status(500).json({
 
             success: false,
 
             message:
-                error.message,
+                "Failed to load orders analytics.",
 
         });
 
@@ -895,12 +896,14 @@ router.get("/food", async (req, res) => {
 
     catch (error) {
 
+        console.error("Food analytics error:", error);
+
         res.status(500).json({
 
             success: false,
 
             message:
-                error.message,
+                "Failed to load food analytics.",
 
         });
 
@@ -993,12 +996,14 @@ router.get("/customers", async (req, res) => {
 
     catch (error) {
 
+        console.error("Customer analytics error:", error);
+
         res.status(500).json({
 
             success: false,
 
             message:
-                error.message,
+                "Failed to load customer analytics.",
 
         });
 
@@ -1082,7 +1087,7 @@ router.get("/dashboard-summary", async (req, res) => {
 
             success: false,
 
-            message: error.message
+            message: "Failed to load dashboard summary."
 
         });
 
@@ -1140,12 +1145,14 @@ router.get("/overview", async (req, res) => {
 
     catch (error) {
 
+        console.error("Overview analytics error:", error);
+
         res.status(500).json({
 
             success: false,
 
             message:
-                error.message,
+                "Failed to load analytics overview.",
 
         });
 

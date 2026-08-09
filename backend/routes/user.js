@@ -28,7 +28,6 @@ phone
 
     res.status(500).json({
       error: "Failed to fetch profile",
-      message: error.message,
     });
 
   }
@@ -75,7 +74,6 @@ phone
 
     res.status(500).json({
       error: "Failed to fetch profile",
-      message: error.message,
     });
 
   }

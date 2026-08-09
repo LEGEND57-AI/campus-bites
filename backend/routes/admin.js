@@ -56,7 +56,7 @@ router.get('/orders', async (req, res) => {
     res.json(data);
   } catch (err) {
     console.error('Orders fetch error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Failed to fetch orders' });
   }
 });
 
@@ -107,7 +107,7 @@ router.patch('/orders/:id/payment', async (req, res) => {
     console.error('Payment update error:', err);
 
     res.status(500).json({
-      error: err.message
+      error: 'Failed to update payment'
     });
 
   }
@@ -223,7 +223,7 @@ router.patch('/orders/:id/status', async (req, res) => {
     });
   } catch (err) {
     console.error('Order status update error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Failed to update order status' });
   }
 });
 
@@ -378,7 +378,7 @@ router.post("/orders/:id/refund", async (req, res) => {
     console.error(err);
 
     res.status(500).json({
-      error: err.message,
+      error: 'Failed to process refund',
     });
   }
 });
@@ -395,7 +395,7 @@ router.get('/menu', async (req, res) => {
     res.json(data);
   } catch (err) {
     console.error('Menu fetch error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Failed to fetch menu' });
   }
 });
 
@@ -430,7 +430,7 @@ router.patch('/menu/:id/availability', async (req, res) => {
     console.error('Availability update error:', err);
 
     res.status(500).json({
-      error: err.message
+      error: 'Failed to update availability'
     });
   }
 });
@@ -481,7 +481,7 @@ router.post('/menu', async (req, res) => {
     res.status(201).json(data);
   } catch (err) {
     console.error('Add menu item error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Failed to add menu item' });
   }
 });
 
@@ -529,7 +529,7 @@ router.put('/menu/:id', async (req, res) => {
     res.json(data);
   } catch (err) {
     console.error('Update menu item error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Failed to update menu item' });
   }
 });
 
@@ -558,7 +558,7 @@ router.delete('/menu/:id', async (req, res) => {
     console.error('Delete menu item error:', err);
 
     res.status(500).json({
-      error: err.message
+      error: 'Failed to delete menu item'
     });
 
   }

@@ -50,7 +50,7 @@ router.get("/", async (req, res) => {
         res.json(data);
     } catch (err) {
         console.error("History fetch error:", err);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: "Failed to fetch order history" });
     }
 });
 

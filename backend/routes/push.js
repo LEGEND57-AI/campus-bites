@@ -22,7 +22,6 @@ router.use(authenticate);
 router.post("/subscribe", async (req, res) => {
     try {
 
-
         const { endpoint, keys } = req.body;
 
         if (!endpoint || !keys?.p256dh || !keys?.auth) {
@@ -39,6 +38,8 @@ router.post("/subscribe", async (req, res) => {
                 p256dh: keys.p256dh,
                 auth: keys.auth,
                 origin: req.headers.origin || null,
+            }, {
+                onConflict: "user_id,endpoint",
             });
 
         if (error) throw error;
@@ -49,16 +50,12 @@ router.post("/subscribe", async (req, res) => {
 
     } catch (err) {
 
-        console.error("❌ PUSH SUBSCRIBE ERROR:", {
-            message: err.message,
-            code: err.code,
-            details: err.details,
-            hint: err.hint,
-        });
+        console.error(err);
 
         res.status(500).json({
             error: "Failed to save subscription",
         });
+
     }
 });
 

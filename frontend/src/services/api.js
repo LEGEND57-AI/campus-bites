@@ -132,6 +132,12 @@ api.interceptors.response.use(
         newAccessToken
       );
 
+      window.dispatchEvent(
+        new CustomEvent("auth:token-refreshed", {
+          detail: newAccessToken,
+        })
+      );
+
       api.defaults.headers.Authorization =
         `Bearer ${newAccessToken}`;
 

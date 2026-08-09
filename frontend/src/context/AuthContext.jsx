@@ -13,23 +13,44 @@ export const useAuth = () => useContext(AuthContext);
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [token, setToken] = useState(() => localStorage.getItem('token'));
 
   // 🔄 LOAD USER
   useEffect(() => {
-    const token = localStorage.getItem('token');
+    const storedToken = localStorage.getItem('token');
     const storedUser = localStorage.getItem('user');
 
-    if (token && storedUser && storedUser !== "undefined") {
+    if (storedToken && storedUser && storedUser !== "undefined") {
       try {
         const parsedUser = JSON.parse(storedUser);
         setUser(parsedUser);
       } catch {
         localStorage.removeItem('user');
         localStorage.removeItem('token');
+        setToken(null);
       }
     }
 
     setLoading(false);
+  }, []);
+
+  // 🔄 SYNC TOKEN AFTER SILENT REFRESH
+  // api.js refreshes the access token entirely outside React (inside an
+  // axios interceptor), so this state would otherwise never update after
+  // the first render -- meaning SocketProvider (and anything else reading
+  // `token` from this context) would keep using the original, eventually
+  // expired token. api.js broadcasts this event whenever it rotates the
+  // token; we just mirror it into state here.
+  useEffect(() => {
+    const handleTokenRefreshed = (event) => {
+      setToken(event.detail);
+    };
+
+    window.addEventListener("auth:token-refreshed", handleTokenRefreshed);
+
+    return () => {
+      window.removeEventListener("auth:token-refreshed", handleTokenRefreshed);
+    };
   }, []);
 
   // 🔐 LOGIN
@@ -48,6 +69,7 @@ export const AuthProvider = ({ children }) => {
       );
       localStorage.setItem('user', JSON.stringify(data.user));
 
+      setToken(data.accessToken);
       setUser(data.user);
 
       // 🔔 Ask notification permission
@@ -158,6 +180,7 @@ export const AuthProvider = ({ children }) => {
       );
 
       // UPDATE STATE
+      setToken(data.accessToken);
       setUser(data.user);
 
       // 🔔 Ask notification permission
@@ -207,6 +230,7 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
 
+    setToken(null);
     setUser(null);
 
     toast.success("Logged out successfully");
@@ -228,8 +252,6 @@ export const AuthProvider = ({ children }) => {
       return newUser;
     });
   };
-
-  const token = localStorage.getItem("token");
 
   // 🛡 ADMIN CHECK
   const isAdmin = () => user?.role === 'admin';

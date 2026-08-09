@@ -20,7 +20,23 @@ export function connectSocket(token) {
     reconnectionDelay: 1000,
   });
 
+  // Defensive fallback: socket.io's own reconnection logic replays the
+  // `auth` object exactly as it was when the socket was created. If the
+  // access token has since rotated (see api.js's refresh interceptor),
+  // a reconnect triggered by a network drop -- not by React re-rendering
+  // SocketProvider -- would otherwise keep retrying with the stale,
+  // expired token and eventually give up entirely.
+  socket.io.on("reconnect_attempt", () => {
+    socket.auth.token = localStorage.getItem("token");
+  });
+
   return socket;
+}
+
+export function updateSocketToken(token) {
+  if (socket) {
+    socket.auth.token = token;
+  }
 }
 
 export function getSocket() {

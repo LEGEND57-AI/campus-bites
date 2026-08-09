@@ -14,10 +14,12 @@ import LogoutModal from "../components/profile/LogoutModal";
 
 import { userAPI, orderAPI } from "../services/api";
 import { useFavorite } from "../context/FavoriteContext";
+import { useAuth } from "../context/AuthContext";
 
 const Profile = () => {
 
     const navigate = useNavigate();
+    const { logout } = useAuth();
 
     const [profile, setProfile] = useState(null);
 
@@ -63,10 +65,16 @@ const Profile = () => {
 
     };
 
-    const handleLogout = () => {
+    const handleLogout = async () => {
 
-        localStorage.removeItem("token");
-        localStorage.removeItem("user");
+        // Previously this cleared localStorage directly and skipped
+        // AuthContext entirely -- it never called /session/logout, so
+        // the refresh session stayed valid server-side, and it never
+        // updated AuthContext's user/token state either. Using the
+        // real logout() here revokes the session properly and keeps
+        // the rest of the app in sync.
+        await logout();
+
         localStorage.removeItem("profile");
 
         setShowLogoutModal(false);

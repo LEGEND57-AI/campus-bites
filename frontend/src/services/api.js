@@ -3,6 +3,43 @@ import axios from 'axios';
 // Base API URL
 const API_URL = `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api`;
 
+// ================= ACCESS TOKEN STORE =================
+// The access token lives in memory only, never in localStorage. It's a
+// live bearer credential -- anything with JS execution on the page
+// (e.g. a future XSS bug) can read localStorage, but it can't read a
+// plain module-level variable from outside this module's own code.
+// The refresh token stays exactly where it always was: an httpOnly
+// cookie, invisible to JS either way.
+//
+// The tradeoff: a page reload wipes this variable, so on every fresh
+// load the app has to silently re-authenticate using the httpOnly
+// refresh cookie before it has a usable access token again. See
+// bootstrapSession() below.
+
+let accessToken = null;
+
+export function getAccessToken() {
+  return accessToken;
+}
+
+export function setAccessToken(token) {
+  accessToken = token;
+
+  if (token) {
+    api.defaults.headers.common.Authorization = `Bearer ${token}`;
+  } else {
+    delete api.defaults.headers.common.Authorization;
+  }
+
+  // AuthContext (and anything else that needs to react to the token
+  // changing, like SocketProvider) listens for this.
+  window.dispatchEvent(
+    new CustomEvent("auth:token-refreshed", {
+      detail: token,
+    })
+  );
+}
+
 // ================= TOKEN REFRESH =================
 
 let isRefreshing = false;
@@ -52,15 +89,25 @@ const refreshClient = axios.create({
   },
 });
 
+// ================= SILENT SESSION BOOTSTRAP =================
+// Called once when the app first loads. Memory holds no access token
+// yet at this point (a reload always wipes it), so this uses the
+// httpOnly refresh cookie -- which the browser sends automatically --
+// to fetch a fresh one. If there's no valid session, this simply
+// fails and the caller treats it as "not logged in".
+export async function bootstrapSession() {
+  const { data } = await refreshClient.post("/session/refresh");
+  setAccessToken(data.accessToken);
+  return data.accessToken;
+}
+
 
 // ================= REQUEST INTERCEPTOR =================
 
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token');
-
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+    if (accessToken) {
+      config.headers.Authorization = `Bearer ${accessToken}`;
     }
 
     return config;
@@ -127,19 +174,7 @@ api.interceptors.response.use(
       const newAccessToken =
         data.accessToken;
 
-      localStorage.setItem(
-        "token",
-        newAccessToken
-      );
-
-      window.dispatchEvent(
-        new CustomEvent("auth:token-refreshed", {
-          detail: newAccessToken,
-        })
-      );
-
-      api.defaults.headers.Authorization =
-        `Bearer ${newAccessToken}`;
+      setAccessToken(newAccessToken);
 
       originalRequest.headers.Authorization =
         `Bearer ${newAccessToken}`;
@@ -152,7 +187,7 @@ api.interceptors.response.use(
 
       processQueue(null, refreshError);
 
-      localStorage.removeItem("token");
+      setAccessToken(null);
       localStorage.removeItem("user");
 
       window.location.href = "/login";

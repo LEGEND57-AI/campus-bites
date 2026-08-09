@@ -13,14 +13,21 @@ export async function sendPushNotification(
     body,
     data = {}
 ) {
-
     const { data: subscriptions, error } =
         await supabase
             .from("push_subscriptions")
-            .select("*")
+            .select("endpoint, p256dh, auth")
             .eq("user_id", userId);
 
-    if (error || !subscriptions?.length) {
+    if (error) {
+        console.error(
+            "Push subscription query failed:",
+            error.message
+        );
+        return;
+    }
+
+    if (!subscriptions?.length) {
         return;
     }
 
@@ -30,46 +37,64 @@ export async function sendPushNotification(
         data,
     });
 
-    for (const sub of subscriptions) {
+    const results = await Promise.allSettled(
+        subscriptions.map(async (sub) => {
 
-        try {
+            try {
 
-            await webpush.sendNotification(
-                {
-                    endpoint: sub.endpoint,
-                    keys: {
-                        p256dh: sub.p256dh,
-                        auth: sub.auth,
+                await webpush.sendNotification(
+                    {
+                        endpoint: sub.endpoint,
+                        keys: {
+                            p256dh: sub.p256dh,
+                            auth: sub.auth,
+                        },
                     },
-                },
-                payload,
-                {
-                    TTL: 60,
+                    payload,
+                    {
+                        TTL: 60,
+                    }
+                );
+
+                return {
+                    success: true,
+                    endpoint: sub.endpoint,
+                };
+
+            } catch (err) {
+
+                console.error(
+                    "Push Error:",
+                    err.statusCode || err.message
+                );
+
+                // Subscription expired / no longer valid
+                if (
+                    err.statusCode === 404 ||
+                    err.statusCode === 410
+                ) {
+
+                    const { error: deleteError } =
+                        await supabase
+                            .from("push_subscriptions")
+                            .delete()
+                            .eq("endpoint", sub.endpoint);
+
+                    if (deleteError) {
+                        console.error(
+                            "Failed to remove expired subscription:",
+                            deleteError.message
+                        );
+                    }
                 }
-            );
 
-        } catch (err) {
-
-            console.error(
-                "Push Error:",
-                err.statusCode || err.message
-            );
-
-            // Subscription expired
-            if (
-                err.statusCode === 404 ||
-                err.statusCode === 410
-            ) {
-
-                await supabase
-                    .from("push_subscriptions")
-                    .delete()
-                    .eq("endpoint", sub.endpoint);
-
+                return {
+                    success: false,
+                    endpoint: sub.endpoint,
+                };
             }
+        })
+    );
 
-        }
-
-    }
-
+    return results;
 }

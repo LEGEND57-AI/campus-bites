@@ -208,8 +208,12 @@ router.post("/verify-otp", otpLimiter, async (req, res) => {
       .single();
 
     if (error || !user) {
+      // Deliberately the same response as an incorrect OTP below --
+      // this endpoint is directly callable with any email, so
+      // distinguishing "no such user" from "wrong code" would let
+      // someone enumerate registered emails without ever registering.
       return res.status(400).json({
-        error: "User not found",
+        error: "Invalid OTP",
       });
     }
 
@@ -268,6 +272,10 @@ router.post("/resend-otp", otpLimiter, async (req, res) => {
 
   email = email.trim().toLowerCase();
 
+  const genericResponse = {
+    message: "If an account exists for this email, a new OTP has been sent.",
+  };
+
   try {
     const { data: user, error } = await supabase
       .from("users")
@@ -275,10 +283,10 @@ router.post("/resend-otp", otpLimiter, async (req, res) => {
       .eq("email", email)
       .single();
 
-    if (error || !user) {
-      return res.status(400).json({
-        error: "User not found",
-      });
+    // Don't reveal whether this email is registered (or already
+    // verified) -- every branch below returns the same response.
+    if (error || !user || user.is_verified) {
+      return res.json(genericResponse);
     }
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
@@ -302,14 +310,12 @@ router.post("/resend-otp", otpLimiter, async (req, res) => {
       generateEmailTemplate(otp, "resend")
     );
 
-    res.json({
-      message: "OTP resent",
-    });
+    res.json(genericResponse);
   } catch (err) {
     console.error(err);
 
     res.status(500).json({
-      error: "Resend failed",
+      error: "Failed to resend OTP. Please try again.",
     });
   }
 });
@@ -320,6 +326,11 @@ router.post("/forgot-password", otpLimiter, async (req, res) => {
 
   email = email.trim().toLowerCase();
 
+  const genericResponse = {
+    message: "If an account exists for this email, a reset OTP has been sent.",
+    email,
+  };
+
   try {
     const { data: user, error } = await supabase
       .from("users")
@@ -327,10 +338,10 @@ router.post("/forgot-password", otpLimiter, async (req, res) => {
       .eq("email", email)
       .single();
 
+    // Don't reveal whether this email is registered -- both branches
+    // below return the identical response.
     if (error || !user) {
-      return res.status(400).json({
-        error: "User not found",
-      });
+      return res.json(genericResponse);
     }
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
@@ -354,15 +365,12 @@ router.post("/forgot-password", otpLimiter, async (req, res) => {
       generateEmailTemplate(otp, "reset")
     );
 
-    res.json({
-      message: "Reset OTP sent",
-      email,
-    });
+    res.json(genericResponse);
   } catch (err) {
     console.error(err);
 
     res.status(500).json({
-      error: "Failed",
+      error: "Failed to process request. Please try again.",
     });
   }
 });
@@ -396,13 +404,10 @@ router.post("/reset-password", otpLimiter, async (req, res) => {
       .eq("email", email)
       .single();
 
-    if (error || !user) {
-      return res.status(404).json({
-        error: "User not found",
-      });
-    }
-
-    if (!user.reset_verified) {
+    if (error || !user || !user.reset_verified) {
+      // Same response whether the account doesn't exist or just hasn't
+      // completed OTP verification yet -- avoids leaking which emails
+      // are registered via this endpoint.
       return res.status(403).json({
         error: "Please verify OTP first",
       });
@@ -657,12 +662,29 @@ router.post("/login", loginLimiter, async (req, res) => {
 
   email = email.trim().toLowerCase();
 
+  // A real bcrypt hash of random bytes, never matched to any account.
+  // Comparing against this when no matching user exists means a
+  // "no such account" response takes roughly as long as a "wrong
+  // password" response -- otherwise the early-return below (skipping
+  // the ~100ms bcrypt.compare entirely) would let someone time
+  // responses to tell which emails are registered.
+  const DUMMY_HASH =
+    "$2b$10$lSiZtxkFnN0tXd2t.NwXHOJ4zuWQlClC7mxkYHd/Trg0BbhnOtAGS";
+
   try {
     const { data: user, error } = await supabase
       .from("users")
       .select("*")
       .eq("email", email)
       .single();
+
+    const accountUsable =
+      !error && !!user && user.is_verified && !!user.password_hash;
+
+    const valid = await bcrypt.compare(
+      password,
+      accountUsable ? user.password_hash : DUMMY_HASH
+    );
 
     if (error || !user || !user.is_verified) {
       return res.status(401).json({
@@ -675,8 +697,6 @@ router.post("/login", loginLimiter, async (req, res) => {
         error: "This account uses Google Sign-In. Please continue with Google."
       });
     }
-
-    const valid = await bcrypt.compare(password, user.password_hash);
 
     if (!valid) {
       return res.status(401).json({

@@ -19,10 +19,10 @@ export const FavoriteProvider = ({ children }) => {
 
   const loadFavorites = useCallback(async () => {
 
-    const token = localStorage.getItem("token");
-
-    // Don't call API if user isn't logged in
-    if (!token) {
+    // Don't call API if user isn't logged in. (Previously checked
+    // localStorage for a token, but the access token now lives in
+    // memory only -- `user` from AuthContext is the right signal here.)
+    if (!user) {
       setFavorites([]);
       setLoading(false);
       return;
@@ -47,7 +47,7 @@ export const FavoriteProvider = ({ children }) => {
 
     }
 
-  }, []);
+  }, [user]);
 
   useEffect(() => {
 

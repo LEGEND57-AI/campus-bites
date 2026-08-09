@@ -17,6 +17,7 @@ const createNotification = async ({
     tokenNumber,
     actionUrl,
 }) => {
+
     const { data, error } = await supabase
         .from("notifications")
         .insert({
@@ -37,7 +38,8 @@ const createNotification = async ({
     emitNotification(userId, data);
 
     // 📱 Web Push Notification
-    await sendPushNotification(
+    // Do not block the order API response.
+    sendPushNotification(
         userId,
         title,
         message,
@@ -46,7 +48,12 @@ const createNotification = async ({
             actionUrl,
             tokenNumber,
         }
-    );
+    ).catch((error) => {
+        console.error(
+            "Push notification failed:",
+            error?.message || error
+        );
+    });
 
     return data;
 };

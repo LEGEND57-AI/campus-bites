@@ -1,4 +1,5 @@
 import { io } from "socket.io-client";
+import { getAccessToken } from "../services/api";
 
 let socket = null;
 
@@ -27,7 +28,7 @@ export function connectSocket(token) {
   // SocketProvider -- would otherwise keep retrying with the stale,
   // expired token and eventually give up entirely.
   socket.io.on("reconnect_attempt", () => {
-    socket.auth.token = localStorage.getItem("token");
+    socket.auth.token = getAccessToken();
   });
 
   return socket;

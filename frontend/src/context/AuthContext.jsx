@@ -1,5 +1,5 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
-import { authAPI } from '../services/api';
+import { authAPI, setAccessToken, bootstrapSession } from '../services/api';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import {
@@ -13,25 +13,46 @@ export const useAuth = () => useContext(AuthContext);
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [token, setToken] = useState(() => localStorage.getItem('token'));
+  // The access token lives in memory (see services/api.js), never in
+  // localStorage -- it starts null on every fresh load and is restored
+  // below via a silent refresh against the httpOnly refresh cookie.
+  const [token, setToken] = useState(null);
 
   // 🔄 LOAD USER
+  // On a fresh page load there is no access token in memory yet (see
+  // services/api.js for why). If there's a cached user profile from a
+  // previous session, attempt a silent refresh using the httpOnly
+  // refresh cookie to get a working access token again. The cached
+  // user object itself is not a credential (no token, no password) --
+  // just display data -- so keeping it in localStorage for instant UI
+  // paint is fine; it gets thrown away below if the refresh fails.
   useEffect(() => {
-    const storedToken = localStorage.getItem('token');
-    const storedUser = localStorage.getItem('user');
+    const restoreSession = async () => {
+      const storedUser = localStorage.getItem('user');
 
-    if (storedToken && storedUser && storedUser !== "undefined") {
+      if (!storedUser || storedUser === "undefined") {
+        setLoading(false);
+        return;
+      }
+
       try {
         const parsedUser = JSON.parse(storedUser);
+        const freshToken = await bootstrapSession();
+
+        setToken(freshToken);
         setUser(parsedUser);
       } catch {
+        // No valid session (refresh cookie missing/expired/revoked) --
+        // treat as logged out.
         localStorage.removeItem('user');
-        localStorage.removeItem('token');
-        setToken(null);
+        setAccessToken(null);
+        setUser(null);
+      } finally {
+        setLoading(false);
       }
-    }
+    };
 
-    setLoading(false);
+    restoreSession();
   }, []);
 
   // 🔄 SYNC TOKEN AFTER SILENT REFRESH
@@ -63,10 +84,7 @@ export const AuthProvider = ({ children }) => {
         return { success: false };
       }
 
-      localStorage.setItem(
-        "token",
-        data.accessToken
-      );
+      setAccessToken(data.accessToken);
       localStorage.setItem('user', JSON.stringify(data.user));
 
       setToken(data.accessToken);
@@ -167,11 +185,8 @@ export const AuthProvider = ({ children }) => {
         };
       }
 
-      // SAVE TOKEN
-      localStorage.setItem(
-        "token",
-        data.accessToken
-      );
+      // SAVE TOKEN (in memory only, see services/api.js)
+      setAccessToken(data.accessToken);
 
       // SAVE USER
       localStorage.setItem(
@@ -227,9 +242,9 @@ export const AuthProvider = ({ children }) => {
 
     }
 
-    localStorage.removeItem("token");
     localStorage.removeItem("user");
 
+    setAccessToken(null);
     setToken(null);
     setUser(null);
 

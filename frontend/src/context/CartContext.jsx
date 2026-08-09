@@ -158,10 +158,16 @@ export const CartProvider = ({ children }) => {
 
     try {
 
-      // Latest available menu
-      const { data } = await foodAPI.getItems();
+      let availableItems = [];
+      let page = 1;
+      let hasMore = true;
 
-      const availableItems = data || [];
+      while (hasMore) {
+        const { data } = await foodAPI.getItems({ page, limit: 24 });
+        availableItems = availableItems.concat(data?.items || []);
+        hasMore = Boolean(data?.hasMore);
+        page += 1;
+      }
 
       let addedCount = 0;
       let unavailableCount = 0;

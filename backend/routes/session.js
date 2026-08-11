@@ -19,6 +19,26 @@ import { supabase } from "../db.js";
 
 const router = express.Router();
 
+// Cookie policy for the refresh-token cookie.
+//
+// SameSite=None requires Secure -- browsers reject that combination
+// outright, so it can never be used over plain HTTP (e.g. local dev on
+// http://localhost). Production serves the frontend and backend as
+// separate HTTPS origins, which requires SameSite=None + Secure to
+// allow the browser to send the cookie cross-site at all. Locally,
+// same-site Lax is both sufficient (frontend/backend share the
+// `localhost` host) and actually deliverable.
+export function getRefreshCookieOptions() {
+  const isProduction = process.env.NODE_ENV === "production";
+
+  return {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: isProduction ? "none" : "lax",
+    maxAge: 1000 * 60 * 60 * 24 * 30,
+  };
+}
+
 router.post("/refresh", async (req, res) => {
 
     try {
@@ -119,12 +139,11 @@ router.post("/refresh", async (req, res) => {
         }
 
         return res
-            .cookie("refreshToken", newRefreshToken, {
-                httpOnly: true,
-                secure: process.env.NODE_ENV === "production",
-                sameSite: "none",
-                maxAge: 1000 * 60 * 60 * 24 * 30,
-            })
+            .cookie(
+                "refreshToken",
+                newRefreshToken,
+                getRefreshCookieOptions()
+            )
             .json({
                 accessToken,
             });

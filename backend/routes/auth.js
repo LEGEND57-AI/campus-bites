@@ -14,6 +14,7 @@ import {
 import {
   createSession,
 } from "../services/sessionService.js";
+import { getRefreshCookieOptions } from "./session.js";
 
 const router = express.Router();
 
@@ -621,12 +622,11 @@ router.post("/google", loginLimiter, async (req, res) => {
     delete safeUser.password_hash;
 
     return res
-      .cookie("refreshToken", refreshToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "none",
-        maxAge: 1000 * 60 * 60 * 24 * 30,
-      })
+      .cookie(
+        "refreshToken",
+        refreshToken,
+        getRefreshCookieOptions()
+      )
       .json({
         accessToken,
         user: safeUser,
@@ -740,12 +740,11 @@ router.post("/login", loginLimiter, async (req, res) => {
     delete safeUser.password_hash;
 
     return res
-      .cookie("refreshToken", refreshToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "none",
-        maxAge: 1000 * 60 * 60 * 24 * 30,
-      })
+      .cookie(
+        "refreshToken",
+        refreshToken,
+        getRefreshCookieOptions()
+      )
       .json({
         accessToken,
         user: safeUser,

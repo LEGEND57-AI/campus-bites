@@ -66,6 +66,35 @@ router.patch('/orders/:id/payment', async (req, res) => {
 
   try {
 
+    const { data: existingOrder, error: fetchError } = await supabase
+      .from("orders")
+      .select("payment_method, status, payment_status, refund_status")
+      .eq("id", id)
+      .single();
+
+    if (fetchError) throw fetchError;
+
+    if (existingOrder.payment_method !== "CASH") {
+      return res.status(400).json({
+        error: "Only cash orders can be marked as paid through this action."
+      });
+    }
+
+    if (
+      existingOrder.status !== "Pending" ||
+      existingOrder.payment_status !== "PENDING"
+    ) {
+      return res.status(400).json({
+        error: "Order is not awaiting cash payment."
+      });
+    }
+
+    if (existingOrder.refund_status !== null) {
+      return res.status(400).json({
+        error: "Order has an active or completed refund and cannot be marked as paid."
+      });
+    }
+
     const { data, error } = await supabase
       .from('orders')
       .update({
@@ -73,10 +102,19 @@ router.patch('/orders/:id/payment', async (req, res) => {
         status: 'Accepted'
       })
       .eq('id', id)
+      .eq('status', 'Pending')
+      .eq('payment_status', 'PENDING')
+      .eq('payment_method', 'CASH')
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
+
+    if (!data) {
+      return res.status(409).json({
+        error: "Order was modified concurrently. Please refresh and try again."
+      });
+    }
 
 
     const notification = await createNotification({
@@ -114,6 +152,16 @@ router.patch('/orders/:id/payment', async (req, res) => {
 
 });
 
+// Only these forward transitions are allowed by this endpoint. Any
+// current status not listed here (Completed, Rejected, Cancelled,
+// Refunded) is terminal — no target status is reachable from it.
+const ALLOWED_STATUS_TRANSITIONS = {
+  Pending: ["Accepted", "Rejected"],
+  Accepted: ["Preparing", "Rejected"],
+  Preparing: ["Ready", "Rejected"],
+  Ready: ["Completed", "Rejected"],
+};
+
 // ---------- Update Order Status ----------
 router.patch('/orders/:id/status', async (req, res) => {
   const { id } = req.params;
@@ -133,6 +181,26 @@ router.patch('/orders/:id/status', async (req, res) => {
   }
 
   try {
+    const { data: existingOrder, error: fetchError } = await supabase
+      .from("orders")
+      .select("status, payment_method, payment_status, refund_status")
+      .eq("id", id)
+      .single();
+
+    if (fetchError) throw fetchError;
+
+    if (existingOrder.refund_status !== null) {
+      return res.status(400).json({
+        error: "Order has an active or completed refund and cannot change status."
+      });
+    }
+
+    if (!ALLOWED_STATUS_TRANSITIONS[existingOrder.status]?.includes(status)) {
+      return res.status(400).json({
+        error: `Cannot change order status from ${existingOrder.status} to ${status}.`
+      });
+    }
+
     const updates = {
       status,
     };
@@ -145,18 +213,33 @@ router.patch('/orders/:id/status', async (req, res) => {
       updates.cancel_reason = cancel_reason || "Cancelled by Admin";
       updates.cancelled_by = "ADMIN";
 
-      // Agar payment receive nahi hua tha to payment bhi cancel
-      updates.payment_status = "CANCELLED";
+      // Agar payment receive nahi hua tha to payment bhi cancel — but a
+      // captured Razorpay payment must go through the Refund action
+      // instead, so its payment_status must stay "PAID" here.
+      const isCapturedRazorpayPayment =
+        existingOrder.payment_method === "RAZORPAY" &&
+        existingOrder.payment_status === "PAID";
+
+      if (!isCapturedRazorpayPayment) {
+        updates.payment_status = "CANCELLED";
+      }
     }
 
     const { data: order, error } = await supabase
       .from("orders")
       .update(updates)
       .eq("id", id)
+      .eq("status", existingOrder.status)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
+
+    if (!order) {
+      return res.status(409).json({
+        error: "Order was modified concurrently. Please refresh and try again."
+      });
+    }
 
     let title = "";
     let message = "";
@@ -249,6 +332,40 @@ router.post("/orders/:id/refund", async (req, res) => {
     });
   }
 
+  // Set once this request has atomically claimed the order for refund
+  // processing (refund_status NULL -> PROCESSING). Used to know whether
+  // the claim needs reverting if something fails before Razorpay is called.
+  let claimed = false;
+
+  // Set once the Razorpay refund call has actually succeeded. Once true,
+  // the claim must never be reverted — the money has already moved.
+  let razorpaySucceeded = false;
+
+  async function revertClaim() {
+    if (!claimed) return;
+
+    try {
+      const { error: revertError } = await supabase
+        .from("orders")
+        .update({ refund_status: null })
+        .eq("id", id)
+        .eq("refund_status", "PROCESSING")
+        .is("refund_id", null);
+
+      if (revertError) {
+        console.error(
+          "Failed to revert refund claim after failure.",
+          { orderId: id, revertError }
+        );
+      }
+    } catch (revertCatchError) {
+      console.error(
+        "Unexpected error while reverting refund claim.",
+        { orderId: id, revertCatchError }
+      );
+    }
+  }
+
   try {
     const { data: order, error } = await supabase
       .from("orders")
@@ -276,11 +393,28 @@ router.post("/orders/:id/refund", async (req, res) => {
       });
     }
 
-    if (order.refund_id) {
+    // Atomically claim the order for refund processing so concurrent
+    // refund requests for the same order cannot both reach Razorpay.
+    const { data: claimedOrder, error: claimError } = await supabase
+      .from("orders")
+      .update({ refund_status: "PROCESSING" })
+      .eq("id", id)
+      .eq("payment_method", "RAZORPAY")
+      .eq("payment_status", "PAID")
+      .is("refund_id", null)
+      .is("refund_status", null)
+      .select()
+      .maybeSingle();
+
+    if (claimError) throw claimError;
+
+    if (!claimedOrder) {
       return res.status(400).json({
-        error: "Order already refunded.",
+        error: "Order already refunded or a refund is already in progress.",
       });
     }
+
+    claimed = true;
 
     const { data: orderItems, error: itemsError } = await supabase
       .from("order_items")
@@ -309,6 +443,7 @@ router.post("/orders/:id/refund", async (req, res) => {
         );
 
         if (!dbItem) {
+          await revertClaim();
           return res.status(400).json({
             error: "Invalid refund item."
           });
@@ -331,20 +466,69 @@ router.post("/orders/:id/refund", async (req, res) => {
       }
     );
 
+    // Money has moved on Razorpay's side. From this point the claim must
+    // never be reverted, even if finalizing the DB record below fails.
+    razorpaySucceeded = true;
+
+    const refundUpdatePayload = {
+      status: "Refunded",
+      payment_status: "REFUNDED",
+      refund_status: refund.status,
+      refund_type: refundType,
+      refund_reason: refundReason,
+      refund_amount: finalRefundAmount,
+      refund_id: refund.id,
+      refunded_at: new Date().toISOString(),
+    };
+
     const { error: updateError } = await supabase
       .from("orders")
-      .update({
-        status: "Refunded",
-        refund_status: refund.status,
-        refund_type: refundType,
-        refund_reason: refundReason,
-        refund_amount: finalRefundAmount,
-        refund_id: refund.id,
-        refunded_at: new Date().toISOString(),
-      })
-      .eq("id", id);
+      .update(refundUpdatePayload)
+      .eq("id", id)
+      .eq("refund_status", "PROCESSING")
+      .is("refund_id", null);
 
-    if (updateError) throw updateError;
+    if (updateError) {
+      // Razorpay has already processed the refund — never retry the
+      // Razorpay call itself. Retry only the DB finalization, once,
+      // using the same guarded conditional update.
+      console.error(
+        "Failed to finalize refund record after Razorpay refund succeeded — attempting reconciliation.",
+        { orderId: id, refundId: refund.id, updateError }
+      );
+
+      const { error: retryUpdateError } = await supabase
+        .from("orders")
+        .update(refundUpdatePayload)
+        .eq("id", id)
+        .eq("refund_status", "PROCESSING")
+        .is("refund_id", null);
+
+      if (retryUpdateError) {
+        console.error(
+          "Refund reconciliation retry also failed — Razorpay refund " +
+          "succeeded but the order row is not finalized. Needs urgent " +
+          "manual reconciliation.",
+          {
+            orderId: id,
+            refundId: refund.id,
+            refundAmount: finalRefundAmount,
+            retryUpdateError,
+          }
+        );
+
+        // Do not claim failure — the refund genuinely succeeded at
+        // Razorpay. Skip notifications/socket emits since the order row
+        // is still inconsistent; a retry via this endpoint is already
+        // blocked by the claim guard, so this is not a double-refund risk.
+        return res.status(200).json({
+          success: true,
+          message:
+            "Refund was processed by Razorpay, but could not be fully recorded. Please verify this order manually.",
+          refund,
+        });
+      }
+    }
 
     const { data: updatedOrder } = await supabase
       .from("orders")
@@ -363,7 +547,7 @@ router.post("/orders/:id/refund", async (req, res) => {
       actionUrl: `/track-order/${order.id}`,
     });
 
-    
+
     emitOrderUpdate(order.user_id, updatedOrder);
     emitAdminOrderUpdate(updatedOrder);
     emitAnalyticsUpdate();
@@ -376,6 +560,10 @@ router.post("/orders/:id/refund", async (req, res) => {
 
   } catch (err) {
     console.error(err);
+
+    if (!razorpaySucceeded) {
+      await revertClaim();
+    }
 
     res.status(500).json({
       error: 'Failed to process refund',

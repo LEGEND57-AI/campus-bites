@@ -160,31 +160,23 @@ router.post('/', async (req, res) => {
 
     const orderInsertStart = performance.now();
 
-    // Create CASH order
-    const { data: order, error: orderError } =
-      await supabase
-        .from("orders")
-        .insert([
-          {
-            user_id: req.user.id,
-            total_amount: totalAmount,
-
-            status: "Pending",
-
-            payment_method: "CASH",
-            payment_status: "PENDING",
-
-            // Payment expires after 15 minutes
-            payment_due_at: new Date(
-              Date.now() + 15 * 60 * 1000
-            ).toISOString(),
-
-            token_number,
-            token_date,
-          },
-        ])
-        .select()
-        .single();
+    // Create the CASH order and its order_items atomically in one
+    // transaction via the create_cash_order_with_items RPC — either
+    // both are committed together or neither is.
+    const { data: order, error: orderError } = await supabase.rpc(
+      "create_cash_order_with_items",
+      {
+        p_user_id: req.user.id,
+        p_total_amount: totalAmount,
+        p_token_number: token_number,
+        p_token_date: token_date,
+        // Payment expires after 15 minutes
+        p_payment_due_at: new Date(
+          Date.now() + 15 * 60 * 1000
+        ).toISOString(),
+        p_items: orderItemsWithPrices
+      }
+    );
 
     console.log(
       "Order Insert:",
@@ -203,30 +195,6 @@ router.post('/', async (req, res) => {
 
       throw orderError;
     }
-
-
-    // Add order items
-    const orderItemsWithOrderId =
-      orderItemsWithPrices.map(item => ({
-        ...item,
-        order_id: order.id
-      }));
-
-    const orderItemsStart = performance.now();
-
-
-    const { error: itemsError } =
-      await supabase
-        .from('order_items')
-        .insert(orderItemsWithOrderId);
-
-    if (itemsError) throw itemsError;
-
-    console.log(
-      "Order Items:",
-      (performance.now() - orderItemsStart).toFixed(2),
-      "ms"
-    );
 
     const notificationStart = performance.now();
 
@@ -323,7 +291,7 @@ router.patch("/:id/cancel", async (req, res) => {
       });
     }
 
-    const { error: updateError } = await supabase
+    const { data: updatedOrder, error: updateError } = await supabase
       .from("orders")
       .update({
         status: "Cancelled",
@@ -331,9 +299,21 @@ router.patch("/:id/cancel", async (req, res) => {
         cancel_reason: "Cancelled by Customer",
         cancelled_by: "CUSTOMER",
       })
-      .eq("id", id);
+      .eq("id", id)
+      .eq("user_id", req.user.id)
+      .eq("status", "Pending")
+      .eq("payment_status", "PENDING")
+      .eq("payment_method", "CASH")
+      .select()
+      .maybeSingle();
 
     if (updateError) throw updateError;
+
+    if (!updatedOrder) {
+      return res.status(409).json({
+        error: "Order was modified concurrently. Please refresh and try again.",
+      });
+    }
 
     res.json({
       success: true,

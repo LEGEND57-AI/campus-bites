@@ -12,7 +12,7 @@ import toast from "react-hot-toast";
 
 import { useCart } from "../context/CartContext";
 import { foodAPI, categoryAPI } from "../services/api";
-import { getSocket } from "../socket/socket";
+import { useSocket } from "../socket/SocketProvider";
 import { SocketEvents } from "../socket/constants";
 
 import Sidebar from "../components/dashboard/Sidebar";
@@ -26,6 +26,11 @@ import LoadingSkeleton from "../components/LoadingSkeleton";
 const PAGE_SIZE = 12;
 
 const Menu = () => {
+  // Reactive socket: getSocket() returned null on a fresh load because child
+  // effects run before SocketProvider's, leaving the listener unattached.
+  // Cleanup here was already handler-scoped and is left exactly as it was.
+  const socket = useSocket();
+
   const [searchParams] = useSearchParams();
 
   const { addToCart } = useCart();
@@ -271,8 +276,6 @@ const Menu = () => {
   // ================= SOCKET MENU UPDATE =================
 
   useEffect(() => {
-    const socket = getSocket();
-
     if (!socket) return;
 
     const handleMenuUpdate = () => {
@@ -309,6 +312,7 @@ const Menu = () => {
       );
     };
   }, [
+    socket,
     fetchCategories,
     fetchFoodItems,
   ]);

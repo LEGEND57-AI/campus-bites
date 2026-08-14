@@ -92,6 +92,17 @@ router.put("/:id/read", async (req, res) => {
 
     } catch (error) {
 
+        // markAsRead() filters on id AND user_id AND is_deleted, so PGRST116
+        // ("no rows" from .single()) means this notification does not exist,
+        // is not this user's, or is already deleted. All three are a 404 for
+        // this caller -- and answering the same way for all three keeps the
+        // response from revealing that someone else's notification exists.
+        if (error?.code === "PGRST116") {
+            return res.status(404).json({
+                error: "Notification not found",
+            });
+        }
+
         console.error("Mark Read Error:", error);
 
         res.status(500).json({

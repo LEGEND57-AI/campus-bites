@@ -22,7 +22,7 @@ import {
     RefreshCw,
     Wallet,
 } from "lucide-react";
-import { getSocket } from "../../../socket/socket";
+import { useSocket } from "../../../socket/SocketProvider";
 import { SocketEvents } from "../../../socket/constants";
 
 
@@ -49,6 +49,10 @@ const toISO = (date) => {
 };
 
 const AdminOrderHistory = () => {
+    // Reactive socket: getSocket() returned null on a fresh load because child
+    // effects run before SocketProvider's, leaving the listener unattached.
+    const socket = useSocket();
+
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
 
@@ -163,23 +167,27 @@ const AdminOrderHistory = () => {
 
         fetchOrders();
 
-        const socket = getSocket();
+    }, [fetchOrders]);
 
-        if (socket) {
+    // Split from the fetch above so it can depend on `socket`. The handler is
+    // a stored reference and cleanup passes it to off(); the previous
+    // socket.off(ORDER_UPDATED) removed every listener for that event on the
+    // shared socket, including other components'.
+    useEffect(() => {
 
-            socket.on(SocketEvents.ORDER_UPDATED, (order) => {
+        if (!socket) return;
 
-                fetchOrders();
-
-            });
-
-        }
-
-        return () => {
-            socket?.off(SocketEvents.ORDER_UPDATED);
+        const handleOrderUpdate = () => {
+            fetchOrders();
         };
 
-    }, [fetchOrders]);
+        socket.on(SocketEvents.ORDER_UPDATED, handleOrderUpdate);
+
+        return () => {
+            socket.off(SocketEvents.ORDER_UPDATED, handleOrderUpdate);
+        };
+
+    }, [socket, fetchOrders]);
 
     const dateFilteredOrders = useMemo(() => {
         return orders.filter((order) => {

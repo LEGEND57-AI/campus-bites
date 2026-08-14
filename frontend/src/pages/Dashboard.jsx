@@ -5,7 +5,7 @@ import { useNavigate } from "react-router-dom";
 
 import { useCart } from "../context/CartContext";
 import { foodAPI, categoryAPI } from "../services/api";
-import { getSocket } from "../socket/socket";
+import { useSocket } from "../socket/SocketProvider";
 import { SocketEvents } from "../socket/constants";
 
 import FoodCard from "../components/FoodCard";
@@ -17,6 +17,11 @@ import HeroBanner from "../components/dashboard/HeroBanner";
 import MobileBottomNav from "../components/dashboard/MobileBottomNav";
 
 const Dashboard = () => {
+
+    // Reactive socket: getSocket() returned null on a fresh load because child
+    // effects run before SocketProvider's, leaving the listener unattached.
+    // Cleanup here was already handler-scoped and is left exactly as it was.
+    const socket = useSocket();
 
     const navigate = useNavigate();
 
@@ -46,8 +51,6 @@ const Dashboard = () => {
 
     useEffect(() => {
 
-        const socket = getSocket();
-
         if (!socket) return;
 
         const handleMenuUpdate = () => {
@@ -72,7 +75,7 @@ const Dashboard = () => {
 
         };
 
-    }, []);
+    }, [socket]);
 
 
     // ================= FETCH CATEGORIES =================

@@ -71,6 +71,55 @@ export const otpLimiter = rateLimit({
 
 });
 
+// ================= SESSION =================
+
+// Guards POST /session/refresh and /session/logout, which authenticate purely
+// from the httpOnly refresh cookie and were previously unlimited.
+//
+// skipSuccessfulRequests is the important part. Rate limiting here is keyed by
+// IP, and a campus behind one NAT egress shares a single bucket -- with an
+// access-token lifetime of 15m, a few hundred students refreshing normally
+// would exhaust any tight limit and be force-logged-out en masse (api.js
+// redirects to /login on any refresh failure). Counting only failures means
+// legitimate traffic never consumes budget, while a flood of invalid or
+// replayed cookies still gets throttled. That is also the real threat model:
+// an HS256-signed refresh JWT cannot be meaningfully brute-forced, so what is
+// being protected is the database work each call performs.
+//
+// Note this interacts with Phase 2.2 CAS and Phase 2.4 grace handling, which
+// legitimately return 401 to the loser of a genuine multi-tab refresh race.
+// Those 401s do count against this limit, which is why the ceiling is high.
+export const sessionLimiter = rateLimit({
+
+  ...commonConfig,
+
+  windowMs: 15 * 60 * 1000,
+
+  max: process.env.NODE_ENV === "production"
+    ? 300
+    : 1000,
+
+  skipSuccessfulRequests: true,
+
+});
+
+// ================= UPLOAD =================
+
+// Admin-only image upload. Each request can carry up to 2MB into Supabase
+// Storage, so this is deliberately tighter than the other authenticated
+// limiters -- the cost per request is storage and bandwidth, not CPU.
+export const uploadLimiter = rateLimit({
+
+  ...commonConfig,
+
+  windowMs: 15 * 60 * 1000,
+
+  max: process.env.NODE_ENV === "production"
+    ? 30
+    : 300,
+
+});
+
 // ================= MENU =================
 
 export const menuLimiter = rateLimit({

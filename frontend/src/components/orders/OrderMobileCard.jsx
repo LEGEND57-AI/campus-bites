@@ -213,7 +213,15 @@ overflow-hidden
 "
                                     >
 
-                                        {order.status?.toLowerCase() === "pending" && (
+                                        {/* Mirrors what PATCH /orders/:id/cancel
+                                            actually accepts: a pending CASH order
+                                            whose payment is still outstanding.
+                                            Deliberately no payment_due_at check --
+                                            that is the payment deadline, not the
+                                            cancellation policy. */}
+                                        {order.status?.toLowerCase() === "pending" &&
+                                            order.payment_method === "CASH" &&
+                                            order.payment_status === "PENDING" && (
                                             <>
                                                 <button
                                                     onClick={() => {

@@ -367,7 +367,15 @@ const OrderDesktopCard = ({ order }) => {
         "
             >
 
-              {order.status?.toLowerCase() === "pending" && (
+              {/* Mirrors what PATCH /orders/:id/cancel actually accepts:
+                  a pending CASH order whose payment is still outstanding.
+                  Status alone used to be enough here, which showed a Cancel
+                  button on paid Razorpay orders that the backend always
+                  refused. Deliberately no payment_due_at check -- that is the
+                  payment deadline, not the cancellation policy. */}
+              {order.status?.toLowerCase() === "pending" &&
+                order.payment_method === "CASH" &&
+                order.payment_status === "PENDING" && (
                 <>
                   <button
                     onClick={() => {

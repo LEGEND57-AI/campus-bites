@@ -23,7 +23,7 @@ import {
   XCircle,
 } from "lucide-react";
 
-import { getSocket } from "../../socket/socket";
+import { useSocket } from "../../socket/SocketProvider";
 import { SocketEvents } from "../../socket/constants";
 
 // ---------------- Constants ----------------
@@ -115,6 +115,10 @@ const getISTDate = (date) => {
 };
 
 const AdminOrders = () => {
+  // Reactive socket: getSocket() returned null on a fresh load because child
+  // effects run before SocketProvider's, leaving the listener unattached.
+  const socket = useSocket();
+
   const location = useLocation();
   const navigate = useNavigate();
   const selectedOrderId = location.state?.orderId || null;
@@ -198,23 +202,31 @@ const AdminOrders = () => {
 
     fetchOrders();
 
-    const socket = getSocket();
+  }, [fetchOrders]);
 
-    if (socket) {
+  // Split from the fetch above so it can depend on `socket` without
+  // re-fetching when the socket connects.
+  //
+  // The handler is now a stored reference and the cleanup passes it to off().
+  // Previously this registered an anonymous handler and cleaned up with
+  // socket.off(ORDER_UPDATED), which removes EVERY listener for that event on
+  // the shared socket -- unmounting this page also silently killed the
+  // ORDER_UPDATED listeners owned by AdminDashboard, TrackOrder and Orders.
+  useEffect(() => {
 
-      socket.on(SocketEvents.ORDER_UPDATED, (order) => {
+    if (!socket) return;
 
-        fetchOrders();
-
-      });
-
-    }
-
-    return () => {
-      socket?.off(SocketEvents.ORDER_UPDATED);
+    const handleOrderUpdate = () => {
+      fetchOrders();
     };
 
-  }, [fetchOrders]);
+    socket.on(SocketEvents.ORDER_UPDATED, handleOrderUpdate);
+
+    return () => {
+      socket.off(SocketEvents.ORDER_UPDATED, handleOrderUpdate);
+    };
+
+  }, [socket, fetchOrders]);
 
   useEffect(() => {
     let timeoutId;

@@ -10,7 +10,7 @@ import {
 import { useNavigate, useLocation } from "react-router-dom";
 import toast from "react-hot-toast";
 
-import { getSocket } from "../../socket/socket";
+import { useSocket } from "../../socket/SocketProvider";
 import { SocketEvents } from "../../socket/constants";
 
 import { useAuth } from "../../context/AuthContext";
@@ -24,6 +24,10 @@ const DashboardHeader = ({
 }) => {
   const navigate = useNavigate();
   const location = useLocation();
+
+  // Reactive socket: getSocket() returned null on a fresh load because child
+  // effects run before SocketProvider's, leaving the listener unattached.
+  const socket = useSocket();
 
   const {
     user,
@@ -48,26 +52,40 @@ const DashboardHeader = ({
 
     loadUnreadCount();
 
-    const socket = getSocket();
+  }, [authLoading, user]);
 
-    if (socket) {
-      socket.on(
-        SocketEvents.NOTIFICATION_NEW,
-        () => {
-          setUnreadCount(
-            (prev) => prev + 1
-          );
-        }
-      );
-    }
+  // Split from the count load above so it can depend on `socket`.
+  //
+  // This component renders on nearly every page, so it mounts and unmounts
+  // constantly. The previous socket.off(NOTIFICATION_NEW) removed every
+  // listener for that event on the shared socket, so navigating away from --
+  // or even re-rendering on -- the Notifications page silently killed that
+  // page's own live-notification listener.
+  useEffect(() => {
 
-    return () => {
-      socket?.off(
-        SocketEvents.NOTIFICATION_NEW
+    if (!socket) return;
+    if (authLoading) return;
+    if (!user) return;
+
+    const handleNewNotification = () => {
+      setUnreadCount(
+        (prev) => prev + 1
       );
     };
 
-  }, [authLoading, user]);
+    socket.on(
+      SocketEvents.NOTIFICATION_NEW,
+      handleNewNotification
+    );
+
+    return () => {
+      socket.off(
+        SocketEvents.NOTIFICATION_NEW,
+        handleNewNotification
+      );
+    };
+
+  }, [socket, authLoading, user]);
 
 
   const handleNotification = () => {

@@ -15,9 +15,27 @@ import {
 } from "../services/sessionService.js";
 
 import { authenticate } from "../middleware/auth.js";
+import { requireTrustedOrigin } from "../middleware/requireTrustedOrigin.js";
+import { sessionLimiter } from "../middleware/rateLimiter.js";
 import { supabase } from "../db.js";
 
 const router = express.Router();
+
+router.use(sessionLimiter);
+
+// How long after a successful rotation a presentation of that session's
+// immediately previous refresh token is treated as a benign concurrent
+// refresh rather than as token theft.
+//
+// Access tokens expire on a fixed schedule, so a user with several tabs open
+// will routinely have two of them refresh the same cookie at almost the same
+// moment. The loser of that race presents a token that is no longer current
+// but IS the session's previous one -- indistinguishable, by value alone,
+// from a stolen token being replayed. Only timing separates the two cases.
+//
+// Kept deliberately short. It suppresses nothing except the all-sessions
+// revocation, and never causes a token to be issued.
+const REFRESH_REUSE_GRACE_MS = 10_000;
 
 // Cookie policy for the refresh-token cookie.
 //
@@ -39,7 +57,7 @@ export function getRefreshCookieOptions() {
   };
 }
 
-router.post("/refresh", async (req, res) => {
+router.post("/refresh", requireTrustedOrigin, async (req, res) => {
 
     try {
 
@@ -71,6 +89,42 @@ router.post("/refresh", async (req, res) => {
                 );
 
             if (reusedSession) {
+
+                // `last_used` is written in exactly one place -- the rotation
+                // update in sessionService.updateSessionRefreshToken -- so it
+                // is precisely "when this session last rotated". If that was
+                // moments ago, another tab almost certainly just rotated this
+                // same cookie, and revoking every session the user owns would
+                // be a false positive.
+                //
+                // Date.parse yields NaN for a missing, null or malformed
+                // value, and a rotation timestamp in the future indicates
+                // something is wrong with the stored value. All of those fall
+                // through to the genuine-reuse handling below, so the
+                // uncertain case always fails safe rather than granting
+                // leniency.
+                const rotatedAtMs = Date.parse(reusedSession.last_used);
+                const elapsedMs = Date.now() - rotatedAtMs;
+
+                const withinGracePeriod =
+                    Number.isFinite(rotatedAtMs) &&
+                    elapsedMs >= 0 &&
+                    elapsedMs <= REFRESH_REUSE_GRACE_MS;
+
+                if (withinGracePeriod) {
+                    // Benign concurrent refresh. This request still fails and
+                    // is issued no token -- the grace period exists only to
+                    // avoid a false-positive global revocation, never to
+                    // recover a superseded token. The client's next attempt
+                    // carries the already-rotated cookie and succeeds.
+                    //
+                    // Reported with the same generic failure used elsewhere in
+                    // this handler so the response reveals nothing about which
+                    // condition occurred.
+                    return res.status(401).json({
+                        error: "Invalid or expired refresh token",
+                    });
+                }
 
                 await revokeAllSessions(
                     reusedSession.user_id
@@ -125,16 +179,26 @@ router.post("/refresh", async (req, res) => {
             sessionId: session.id,
         });
 
-        // Save new refresh token hash
+        // Save new refresh token hash.
+        //
+        // This is a conditional (compare-and-swap) update keyed on the OLD
+        // token still being the session's current one, so two concurrent
+        // refreshes presenting the same old token cannot both rotate it.
         const updatedSession =
             await updateSessionRefreshToken(
                 session.id,
+                refreshToken,
                 newRefreshToken
             );
 
         if (!updatedSession) {
+            // Either a concurrent request already rotated this exact token,
+            // or the session was revoked/deleted between lookup and update.
+            // Both are reported with the same generic failure used elsewhere
+            // in this handler, so the response never reveals which occurred
+            // or whether any particular session exists.
             return res.status(401).json({
-                error: "Session revoked",
+                error: "Invalid or expired refresh token",
             });
         }
 
@@ -163,7 +227,7 @@ router.post("/refresh", async (req, res) => {
 
 });
 
-router.post("/logout", async (req, res) => {
+router.post("/logout", requireTrustedOrigin, async (req, res) => {
 
     try {
 

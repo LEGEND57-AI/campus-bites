@@ -15,12 +15,32 @@ router.use(orderLimiter);
 
 router.use(authenticate);
 
+// Upper bound on a client-supplied idempotency key. A UUID is 36 characters;
+// this leaves room for other reasonable formats while refusing arbitrarily
+// large input that would only bloat the index.
+const MAX_IDEMPOTENCY_KEY_LENGTH = 128;
+
+// Canonical representation of the logical cart, used to decide whether a
+// replayed idempotency key describes the same order or a different one.
+//
+// Only food item ids and quantities participate: sorting by id removes any
+// dependence on the order items happen to arrive in, and prices are
+// deliberately excluded because a menu price change between two attempts does
+// not make it a different order.
+function cartFingerprint(pairs) {
+  return JSON.stringify(
+    pairs
+      .map(([foodItemId, quantity]) => [Number(foodItemId), Number(quantity)])
+      .sort((a, b) => a[0] - b[0])
+  );
+}
+
 router.post('/', async (req, res) => {
   try {
 
     const requestStart = performance.now();
 
-    const { items, paymentMethod } = req.body;
+    const { items, paymentMethod, idempotencyKey: rawIdempotencyKey } = req.body;
 
     const validationStart = performance.now();
 
@@ -44,6 +64,22 @@ router.post('/', async (req, res) => {
         error: "Online payment is coming soon"
       });
     }
+
+    // Idempotency key. Checked before any pricing or token work so a
+    // malformed request is rejected cheaply. The key is only ever paired with
+    // req.user.id below — a client-supplied user id is never trusted, so one
+    // user's key can never collide with or claim another's.
+    if (
+      typeof rawIdempotencyKey !== "string" ||
+      rawIdempotencyKey.trim().length === 0 ||
+      rawIdempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH
+    ) {
+      return res.status(400).json({
+        error: "A valid idempotency key is required."
+      });
+    }
+
+    const idempotencyKey = rawIdempotencyKey.trim();
 
     // Validate each item
     for (const item of items) {
@@ -174,7 +210,11 @@ router.post('/', async (req, res) => {
         p_payment_due_at: new Date(
           Date.now() + 15 * 60 * 1000
         ).toISOString(),
-        p_items: orderItemsWithPrices
+        p_items: orderItemsWithPrices,
+        // Uniqueness is enforced by orders_user_idempotency_key_unique
+        // inside the RPC's transaction, so a replay is resolved by the
+        // database rather than by a read-then-write check here.
+        p_idempotency_key: idempotencyKey
       }
     );
 
@@ -194,6 +234,54 @@ router.post('/', async (req, res) => {
       }
 
       throw orderError;
+    }
+
+    // The RPC returns either the row it just inserted, or — when this user
+    // has already used this key — the order created by the first attempt.
+    // generate_daily_token() reserves a unique (token_date, token_number)
+    // pair for every call, so a returned row carrying a different pair can
+    // only be a pre-existing order. Comparing the pair rather than the number
+    // alone matters because the daily counter restarts each day.
+    const isIdempotentReplay =
+      order.token_number !== token_number ||
+      String(order.token_date) !== String(token_date);
+
+    if (isIdempotentReplay) {
+
+      const { data: existingItems, error: existingItemsError } =
+        await supabase
+          .from("order_items")
+          .select("food_item_id, quantity")
+          .eq("order_id", order.id);
+
+      if (existingItemsError) throw existingItemsError;
+
+      const submittedCart = cartFingerprint(
+        items.map(item => [item.foodItemId, item.quantity])
+      );
+
+      const storedCart = cartFingerprint(
+        (existingItems || []).map(row => [row.food_item_id, row.quantity])
+      );
+
+      if (submittedCart !== storedCart) {
+        // Same key, materially different cart. Neither order is mutated and
+        // nothing new is created; the caller must start a fresh attempt.
+        return res.status(409).json({
+          error:
+            "This request was already used to place a different order. Please start a new order.",
+        });
+      }
+
+      // Same key, same cart: a retry of an attempt that already succeeded.
+      // Return the original order and deliberately fall short of the
+      // notification and socket emits below — those already fired for the
+      // first attempt and must not be repeated.
+      return res.status(200).json({
+        success: true,
+        message: "Order already placed",
+        order
+      });
     }
 
     const notificationStart = performance.now();

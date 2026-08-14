@@ -175,37 +175,45 @@ export async function revokeAllSessions(userId) {
  */
 export async function updateSessionRefreshToken(
     sessionId,
-    refreshToken
+    oldRefreshToken,
+    newRefreshToken
 ) {
 
-    const refreshTokenHash = hashRefreshToken(refreshToken);
+    const oldRefreshTokenHash = hashRefreshToken(oldRefreshToken);
+    const newRefreshTokenHash = hashRefreshToken(newRefreshToken);
 
-    const { data: currentSession } = await supabase
-        .from("user_sessions")
-        .select("refresh_token_hash")
-        .eq("id", sessionId)
-        .single();
-
-    if (!currentSession) {
-        return null;
-    }
-
+    // Compare-and-swap rotation.
+    //
+    // The row is rotated only if its stored hash is STILL the token this
+    // request presented. Two concurrent refreshes carrying the same old token
+    // both reach this statement, but Postgres serialises them on the row
+    // lock: the second re-evaluates its WHERE clause against the row version
+    // the first already committed, no longer matches
+    // `refresh_token_hash = <old>`, and updates zero rows. Exactly one
+    // rotation can ever succeed for a given old token.
+    //
+    // The old hash is derived from the caller's own token rather than from a
+    // preceding SELECT, which is what removes the read-then-write window: an
+    // earlier read could go stale between the read and the update, but a
+    // value carried in the WHERE clause is evaluated atomically with the
+    // write itself.
     const { data, error } = await supabase
         .from("user_sessions")
         .update({
             previous_token_hash:
-                currentSession.refresh_token_hash,
+                oldRefreshTokenHash,
 
             refresh_token_hash:
-                refreshTokenHash,
+                newRefreshTokenHash,
 
             last_used:
                 new Date().toISOString(),
         })
         .eq("id", sessionId)
+        .eq("refresh_token_hash", oldRefreshTokenHash)
         .eq("revoked", false)
         .select()
-        .single();
+        .maybeSingle();
 
     if (error) {
         throw new Error(
@@ -213,6 +221,11 @@ export async function updateSessionRefreshToken(
         );
     }
 
+    // null means this request did not rotate the token: either a concurrent
+    // request already consumed the same old token, or the session was revoked
+    // or deleted in the meantime. maybeSingle() (not single()) is required
+    // here so that "no row matched" is a normal null result rather than a
+    // thrown error. The caller must treat null as a failed refresh.
     return data;
 
 }

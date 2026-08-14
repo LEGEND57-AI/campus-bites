@@ -1,3 +1,13 @@
+// MUST stay the first import. db.js, utils/razorpay.js and
+// utils/pushNotification.js all construct their clients at module-evaluation
+// time and throw there if their credentials are absent, so by the time the
+// body of this file runs those failures have already happened -- with
+// messages that name no environment variable. Importing the validator first
+// means the whole environment is checked, and reported by name, before any
+// of that evaluates. It loads dotenv itself for the same reason: the
+// dotenv.config() call below runs far too late to help it.
+import "./utils/validateEnv.js";
+
 import http from "http";
 import express from 'express';
 import cors from 'cors';
@@ -5,6 +15,7 @@ import dotenv from 'dotenv';
 import helmet from "helmet";
 import {
   menuLimiter,
+  adminLimiter,
 } from "./middleware/rateLimiter.js";
 
 import authRoutes from './routes/auth.js';
@@ -26,10 +37,21 @@ import { initializeSocket } from "./socket/index.js";
 import sessionRoutes from "./routes/session.js";
 import cookieParser from "cookie-parser";
 import logger from "./utils/logger.js";
+import { getAllowedOrigins } from "./utils/allowedOrigins.js";
 import pinoHttp from "pino-http";
 
 
 dotenv.config();
+
+// Surfaced once at startup, before either the Socket.IO or HTTP CORS layer
+// is configured below. An empty allowlist is not fatal -- both layers fail
+// closed -- but it rejects every cross-origin browser request, which is
+// otherwise indistinguishable from a CORS bug when debugging.
+if (getAllowedOrigins().length === 0) {
+  logger.warn(
+    "CORS_ORIGINS is not set or is empty — all cross-origin browser requests will be rejected."
+  );
+}
 
 const app = express();
 const server = http.createServer(app);
@@ -40,8 +62,7 @@ const PORT = process.env.PORT || 5000;
 
 
 // ✅ IMPROVED CORS (faster + no delay)
-const allowedOrigins =
-  process.env.CORS_ORIGINS?.split(",") || [];
+const allowedOrigins = getAllowedOrigins();
 
 
 const corsOptions = {
@@ -55,7 +76,18 @@ const corsOptions = {
       return callback(null, true);
     }
 
-    return callback(new Error("Not allowed by CORS"));
+    // A disallowed Origin is a client-side condition, not a server fault.
+    // The cors middleware signals rejection by handing this error to
+    // next(), which would otherwise fall through to the global handler and
+    // be reported as a generic 500. Tagging the error lets that handler
+    // recognise this one specific case and answer 403 instead. The flag is
+    // matched on rather than the message, so the check stays exact and no
+    // other error can accidentally take that path.
+    const corsError = new Error("Not allowed by CORS");
+    corsError.isCorsOriginError = true;
+    corsError.origin = origin;
+
+    return callback(corsError);
   },
 
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
@@ -120,14 +152,27 @@ app.use("/api/food", menuLimiter, foodRoutes);
 app.use('/api/orders', orderRoutes);
 app.use("/api/admin/history", historyRoutes);
 app.use("/api/favorites", favoriteRoutes);
-app.use('/api/user', userRoutes);
+// These four groups authenticate inside their routers but were the only ones
+// mounted with no rate limit at all. The limiter goes ahead of the router so
+// the existing order (limit -> authenticate -> isAdmin -> handler) is kept,
+// matching how /api/food is already mounted.
+//
+// menuLimiter rather than the tighter favoriteLimiter: limiting is keyed by
+// IP and the campus shares one NAT egress (see the note on sessionLimiter),
+// while DashboardHeader refetches the unread count on every mount. A 200/15min
+// ceiling could therefore lock out the whole campus during normal navigation,
+// which is a worse outcome than the request flooding this guards against.
+app.use('/api/user', menuLimiter, userRoutes);
 app.use('/api/admin', adminRoutes);
-app.use("/api/analytics", analyticsRoutes);
+// adminLimiter: this group is already admin-only, and its handlers are the
+// most expensive in the app (several full-table GROUP BY aggregations per
+// request), so it shares the admin budget rather than the looser menu one.
+app.use("/api/analytics", adminLimiter, analyticsRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use("/api/payment", paymentRoutes);
-app.use("/api/notifications", notificationRoutes);
-app.use("/api/push", pushRoutes);
+app.use("/api/notifications", menuLimiter, notificationRoutes);
+app.use("/api/push", menuLimiter, pushRoutes);
 app.use("/api/session", sessionRoutes);
 
 // Auto cancel expired cash orders every 1 minute
@@ -146,6 +191,19 @@ setInterval(async () => {
 app.use((err, req, res, next) => {
   if (res.headersSent) {
     return next(err);
+  }
+
+  // Only the error tagged by the CORS origin callback above takes this
+  // branch. It is a rejected client origin, not a server fault, so it is
+  // logged at warn and answered 403 rather than 500. Every other error --
+  // including any unexpected exception -- falls through to the 500 below.
+  if (err && err.isCorsOriginError) {
+    (req.log || logger).warn(
+      { origin: err.origin, path: req.originalUrl },
+      "Blocked request from disallowed origin"
+    );
+
+    return res.status(403).json({ error: "Origin not allowed" });
   }
 
   (req.log || logger).error({ err }, "Unhandled error");

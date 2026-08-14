@@ -95,10 +95,40 @@ const refreshClient = axios.create({
 // httpOnly refresh cookie -- which the browser sends automatically --
 // to fetch a fresh one. If there's no valid session, this simply
 // fails and the caller treats it as "not logged in".
-export async function bootstrapSession() {
-  const { data } = await refreshClient.post("/session/refresh");
-  setAccessToken(data.accessToken);
-  return data.accessToken;
+//
+// React 18 StrictMode (and any other accidental double-mount) can invoke
+// the caller of this function twice in the same tick. Without guarding
+// against that, both calls would POST the SAME refresh-token cookie to the
+// backend; the backend's compare-and-swap rotation (by design) lets only
+// one of them succeed and 401s the other, which looked from here like a
+// spurious logout even though a valid session existed the whole time.
+//
+// bootstrapInFlight holds the one outstanding request so concurrent callers
+// share it instead of issuing a second one. It is intentionally a plain
+// module-level variable, not React state -- this file has no React
+// dependency, and the guard must be visible to every caller regardless of
+// which component tree they're in.
+let bootstrapInFlight = null;
+
+export function bootstrapSession() {
+  if (bootstrapInFlight) {
+    return bootstrapInFlight;
+  }
+
+  bootstrapInFlight = (async () => {
+    try {
+      const { data } = await refreshClient.post("/session/refresh");
+      setAccessToken(data.accessToken);
+      return data.accessToken;
+    } finally {
+      // Cleared on both success and failure so a later, genuinely
+      // independent bootstrap attempt (e.g. after logging back in) is
+      // never permanently stuck reusing a stale settled promise.
+      bootstrapInFlight = null;
+    }
+  })();
+
+  return bootstrapInFlight;
 }
 
 

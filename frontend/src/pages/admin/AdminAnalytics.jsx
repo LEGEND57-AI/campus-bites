@@ -23,7 +23,7 @@ import {
   X,
   RefreshCw,
 } from 'lucide-react';
-import { getSocket } from "../../socket/socket";
+import { useSocket } from "../../socket/SocketProvider";
 import { SocketEvents } from "../../socket/constants";
 
 // 🔥 Fill missing dates (timezone-safe: does all math on local Y/M/D parts,
@@ -159,6 +159,10 @@ const formatXAxisLabel = (value, range) => {
 };
 
 const AdminAnalytics = () => {
+  // Reactive socket: getSocket() returned null on a fresh load because child
+  // effects run before SocketProvider's, leaving the listener unattached.
+  const socket = useSocket();
+
   const [stats, setStats] = useState({});
   const [loading, setLoading] = useState(true);       // true only for the very first load
   const [refreshing, setRefreshing] = useState(false); // true for background/range-switch fetches
@@ -278,23 +282,34 @@ const AdminAnalytics = () => {
 
     fetchAnalytics(false);
 
-    const socket = getSocket();
+  }, [range, specificDate, fetchAnalytics]);
 
-    if (socket) {
+  // Split from the fetch above so it can depend on `socket`. The handler is a
+  // stored reference and cleanup passes it to off(); the previous
+  // socket.off(ANALYTICS_UPDATED) removed every listener for that event on the
+  // shared socket, including AdminDashboard's.
+  //
+  // The same "specific range with no date chosen" guard is kept, so no live
+  // refresh fires for a selection that cannot be fetched yet.
+  useEffect(() => {
 
-      socket.on(SocketEvents.ANALYTICS_UPDATED, () => {
+    if (!socket) return;
 
-        fetchAnalytics(true);
-
-      });
-
+    if (range === "specific" && !specificDate) {
+      return;
     }
 
-    return () => {
-      socket?.off(SocketEvents.ANALYTICS_UPDATED);
+    const handleAnalyticsUpdate = () => {
+      fetchAnalytics(true);
     };
 
-  }, [range, specificDate, fetchAnalytics]);
+    socket.on(SocketEvents.ANALYTICS_UPDATED, handleAnalyticsUpdate);
+
+    return () => {
+      socket.off(SocketEvents.ANALYTICS_UPDATED, handleAnalyticsUpdate);
+    };
+
+  }, [socket, range, specificDate, fetchAnalytics]);
 
   const selectRange = (key) => {
     setRange(key);

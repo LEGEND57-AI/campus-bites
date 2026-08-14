@@ -73,7 +73,7 @@ phone
     console.error("PROFILE ERROR:", error);
 
     res.status(500).json({
-      error: "Failed to fetch profile",
+      error: "Failed to update profile",
     });
 
   }

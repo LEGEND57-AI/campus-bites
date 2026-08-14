@@ -19,7 +19,7 @@ import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import toast from "react-hot-toast";
 
-import { getSocket } from "../socket/socket";
+import { useSocket } from "../socket/SocketProvider";
 import { SocketEvents } from "../socket/constants";
 
 import { orderAPI } from "../services/api";
@@ -31,6 +31,13 @@ import OrderDesktopCard from "../components/orders/OrderDesktopCard";
 import OrderMobileCard from "../components/orders/OrderMobileCard";
 
 const Orders = () => {
+
+    // Reactive socket rather than the getSocket() module singleton: React runs
+    // child effects before parent ones, so on a fresh load this effect ran
+    // before SocketProvider had connected and getSocket() returned null -- the
+    // listener was then never attached, because nothing re-ran the effect once
+    // the socket appeared.
+    const socket = useSocket();
 
     const navigate = useNavigate();
 
@@ -48,35 +55,51 @@ const Orders = () => {
 
         fetchOrders(1);
 
-        const socket = getSocket();
+    }, []);
 
-        if (socket) {
+    // Split from the fetch above so it can depend on `socket` without
+    // re-fetching the order list when the socket connects.
+    //
+    // The handler is now a stored reference and the cleanup passes it to
+    // off(). Previously this registered an anonymous handler and cleaned up
+    // with socket.off(ORDER_UPDATED), which removes EVERY listener for that
+    // event on the shared socket -- so leaving this page also silently killed
+    // the ORDER_UPDATED listeners owned by TrackOrder, AdminOrders,
+    // AdminOrderHistory and AdminDashboard.
+    useEffect(() => {
 
-            socket.on(
-                SocketEvents.ORDER_UPDATED,
-                (updatedOrder) => {
+        if (!socket) return;
 
-                    setOrders((prev) =>
-                        prev.map((order) =>
-                            order.id === updatedOrder.id
-                                ? {
-                                    ...order,
-                                    ...updatedOrder,
-                                }
-                                : order
-                        )
-                    );
+        const handleOrderUpdate = (updatedOrder) => {
 
-                }
+            setOrders((prev) =>
+                prev.map((order) =>
+                    order.id === updatedOrder.id
+                        ? {
+                            ...order,
+                            ...updatedOrder,
+                        }
+                        : order
+                )
             );
 
-        }
-
-        return () => {
-            socket?.off(SocketEvents.ORDER_UPDATED);
         };
 
-    }, []);
+        socket.on(
+            SocketEvents.ORDER_UPDATED,
+            handleOrderUpdate
+        );
+
+        return () => {
+
+            socket.off(
+                SocketEvents.ORDER_UPDATED,
+                handleOrderUpdate
+            );
+
+        };
+
+    }, [socket]);
 
     const fetchOrders = async (
         pageNumber = 1,

@@ -18,7 +18,7 @@ import MobileBottomNav from "../components/dashboard/MobileBottomNav";
 import NotificationCard from "../components/notifications/NotificationCard";
 import NotificationSkeleton from "../components/notifications/NotificationSkeleton";
 
-import { getSocket } from "../socket/socket";
+import { useSocket } from "../socket/SocketProvider";
 import { SocketEvents } from "../socket/constants";
 
 import { notificationAPI } from "../services/api";
@@ -54,6 +54,10 @@ const getDateGroup = (dateStr) => {
 const GROUP_ORDER = ["Today", "Yesterday", "This Week", "Earlier"];
 
 const Notifications = () => {
+    // Reactive socket: getSocket() returned null on a fresh load because child
+    // effects run before SocketProvider's, leaving the listener unattached.
+    const socket = useSocket();
+
     const [notifications, setNotifications] = useState([]);
     const [loading, setLoading] = useState(true);
     const [page, setPage] = useState(1);
@@ -134,53 +138,163 @@ const Notifications = () => {
 
         loadNotifications(1, false);
 
-        const socket = getSocket();
+    }, [loadNotifications]);
 
-        if (socket) {
+    // Split from the load above so it can depend on `socket`. The handler is a
+    // stored reference and cleanup passes it to off(); the previous
+    // socket.off(NOTIFICATION_NEW) removed every listener for that event on the
+    // shared socket -- which included DashboardHeader's unread-count listener,
+    // rendered on this very page.
+    useEffect(() => {
 
-            socket.on(SocketEvents.NOTIFICATION_NEW, (notification) => {
+        if (!socket) return;
 
-                setNotifications((prev) => {
+        const handleNewNotification = (notification) => {
 
-                    if (prev.some((n) => n.id === notification.id)) {
-                        return prev;
-                    }
+            setNotifications((prev) => {
 
-                    return [
-                        notification,
-                        ...prev,
-                    ];
+                if (prev.some((n) => n.id === notification.id)) {
+                    return prev;
+                }
 
-                });
-
-                setHasMore(true);
-
+                return [
+                    notification,
+                    ...prev,
+                ];
 
             });
 
-        }
+            setHasMore(true);
 
-        return () => {
-            socket?.off(SocketEvents.NOTIFICATION_NEW);
         };
 
-    }, [loadNotifications]);
+        socket.on(SocketEvents.NOTIFICATION_NEW, handleNewNotification);
 
+        return () => {
+            socket.off(SocketEvents.NOTIFICATION_NEW, handleNewNotification);
+        };
+
+    }, [socket]);
+
+
+    // The three handlers below update local state optimistically and then call
+    // the API. Previously the await was unguarded, so a rejected request left
+    // the UI showing a change the server never accepted -- and, because these
+    // are fired from onClick and their promise is never awaited, produced an
+    // unhandled rejection with no message to the user.
+    //
+    // Each now rolls back only the rows it actually touched, using functional
+    // updates. Restoring a snapshot of the whole list would be simpler but
+    // would erase any notification that arrived over the socket while the
+    // request was in flight.
+    //
+    // The "previous" values are read synchronously from this render's
+    // `notifications` rather than captured inside an updater: an updater runs
+    // during React's render phase, which is not guaranteed to have happened by
+    // the time the awaited call rejects. Reading the closure is safe here
+    // because the socket handler only ever prepends new notifications, never
+    // mutates existing ones.
 
     const handleMarkRead = async (id) => {
+
+        const previous = notifications.find((n) => n.id === id);
+        const wasRead = previous ? previous.is_read : undefined;
+
         setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: true } : n)));
-        await notificationAPI.markAsRead(id);
+
+        try {
+
+            await notificationAPI.markAsRead(id);
+
+        } catch (err) {
+
+            console.error(err);
+
+            // Only undo what this call changed. If it was already read there
+            // is nothing to restore.
+            if (wasRead === false) {
+                setNotifications((prev) =>
+                    prev.map((n) => (n.id === id ? { ...n, is_read: false } : n))
+                );
+            }
+
+            toast.error("Failed to mark notification as read");
+
+        }
+
     };
 
     const handleMarkAllRead = async () => {
+
+        // Only the ids that were actually unread, so a rollback cannot mark
+        // something unread that the user had already read.
+        const previouslyUnreadIds = new Set(
+            notifications.filter((n) => !n.is_read).map((n) => n.id)
+        );
+
         setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
-        await notificationAPI.markAllAsRead();
-        toast.success("All notifications marked as read");
+
+        try {
+
+            await notificationAPI.markAllAsRead();
+
+            toast.success("All notifications marked as read");
+
+        } catch (err) {
+
+            console.error(err);
+
+            setNotifications((prev) =>
+                prev.map((n) =>
+                    previouslyUnreadIds.has(n.id) ? { ...n, is_read: false } : n
+                )
+            );
+
+            toast.error("Failed to mark all notifications as read");
+
+        }
+
     };
 
     const handleDelete = async (id) => {
+
+        const index = notifications.findIndex((n) => n.id === id);
+        const removed = index === -1 ? null : notifications[index];
+
         setNotifications((prev) => prev.filter((n) => n.id !== id));
-        await notificationAPI.deleteNotification(id);
+
+        try {
+
+            await notificationAPI.deleteNotification(id);
+
+        } catch (err) {
+
+            console.error(err);
+
+            if (removed) {
+                setNotifications((prev) => {
+
+                    // Already present (e.g. re-delivered over the socket):
+                    // leave the list alone rather than duplicating the row.
+                    if (prev.some((n) => n.id === removed.id)) {
+                        return prev;
+                    }
+
+                    const next = [...prev];
+
+                    // Clamped because the list can have grown while the
+                    // request was in flight.
+                    next.splice(Math.min(index, next.length), 0, removed);
+
+                    return next;
+
+                });
+            }
+
+            toast.error("Failed to delete notification");
+
+        }
+
     };
 
     const filteredNotifications = useMemo(() => {

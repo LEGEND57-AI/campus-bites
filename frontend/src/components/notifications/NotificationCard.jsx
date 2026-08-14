@@ -66,12 +66,57 @@ const formatRelativeTime = (dateStr) => {
   return date.toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
 };
 
-const buildNavigationPath = (notification) => {
+// Where an unusable action_url lands. Notifications are always reachable, so
+// this is a safe, predictable destination.
+const FALLBACK_PATH = "/notifications";
+
+// A navigable in-app path: exactly one leading slash, and no backslash
+// anywhere.
+//
+//   "//evil.com"  -> protocol-relative, resolves off-origin
+//   "/\\evil.com" -> browsers normalise the backslash to "/", so this becomes
+//                    "//evil.com" as well
+//   "https://..." / "javascript:" -> absolute, off-origin
+//
+// The negative lookahead rejects a second leading "/" or "\", and [^\\]*
+// rejects a backslash anywhere later (e.g. "/orders\\..\\..").
+const SAFE_INTERNAL_PATH = /^\/(?![/\\])[^\\]*$/;
+
+// Returns the value only if it is a safe in-app path, otherwise null.
+//
+// action_url is server-generated (always "/track-order/<id>" today), so this
+// should never reject in practice. It exists because the value is stored data
+// flowing straight into useNavigate: react-router 6.x carries two open-redirect
+// advisories for exactly this sink (GHSA-jjmj-jmhj-qwj2, GHSA-wrjc-x8rr-h8h6),
+// and validating here closes it independently of which router version is
+// installed or of what the database will accept in that column.
+export const toSafeInternalPath = (value) => {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  // Browsers strip tab, newline and carriage return while parsing a URL, so
+  // "/\t/evil.com" would resolve as "//evil.com". A legitimate path never
+  // contains a control character, so reject rather than try to normalise.
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+
+    if (code < 32 || code === 127) {
+      return null;
+    }
+  }
+
+  return SAFE_INTERNAL_PATH.test(value) ? value : null;
+};
+
+export const buildNavigationPath = (notification) => {
 
   // Highest priority -> use backend action_url
   if (notification.action_url) {
+    const safePath = toSafeInternalPath(notification.action_url);
+
     return {
-      path: notification.action_url,
+      path: safePath ?? FALLBACK_PATH,
     };
   }
 

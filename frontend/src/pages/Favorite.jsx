@@ -8,10 +8,17 @@ import { useCart } from "../context/CartContext";
 import { useState, useEffect } from "react";
 import { useFavorite } from "../context/FavoriteContext";
 
-import { getSocket } from "../socket/socket";
+import { useSocket } from "../socket/SocketProvider";
 import { SocketEvents } from "../socket/constants";
 
 const Favorite = () => {
+
+    // Reactive socket rather than the getSocket() module singleton: React runs
+    // child effects before parent ones, so on a fresh load this component's
+    // effect ran before SocketProvider had connected and getSocket() returned
+    // null -- the listener was then never attached, because nothing re-ran the
+    // effect once the socket appeared.
+    const socket = useSocket();
 
     const [activeCategory, setActiveCategory] =
         useState("All");
@@ -91,8 +98,6 @@ const Favorite = () => {
 
     useEffect(() => {
 
-        const socket = getSocket();
-
         if (!socket) return;
 
         const handleMenuUpdate = () => {
@@ -115,7 +120,7 @@ const Favorite = () => {
 
         };
 
-    }, [loadFavorites]);
+    }, [socket, loadFavorites]);
 
 
     return (

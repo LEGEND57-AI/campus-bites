@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { ArrowLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useCart } from "../context/CartContext";
@@ -14,6 +14,73 @@ import MobileBottomNav from "../components/dashboard/MobileBottomNav";
 import CartItem from "../components/cart/CartItem";
 import OrderSummary from "../components/cart/OrderSummary";
 import EmptyCart from "../components/cart/EmptyCart";
+
+
+const IDEMPOTENCY_STORAGE_KEY = "campuscraves.cashOrderIdempotency";
+
+// Canonical representation of the cart, mirroring cartFingerprint() in
+// backend/routes/orders.js: only food item ids and quantities participate,
+// sorted by id so the order items happen to sit in never changes the result,
+// and prices are deliberately excluded because a menu price change between two
+// attempts does not make it a different order.
+//
+// Used here to decide whether a stored idempotency key still describes the
+// cart being submitted. The backend keeps its own copy of this check as the
+// authority; this one only avoids reusing a key for a cart it never belonged
+// to, which would otherwise be answered with the backend's 409.
+const cartFingerprint = (cartItems) =>
+  JSON.stringify(
+    cartItems
+      .map((item) => [Number(item.id), Number(item.quantity)])
+      .sort((a, b) => a[0] - b[0])
+  );
+
+// sessionStorage can throw outright (Safari private mode, storage disabled by
+// policy). Falling back to a module-scoped value keeps behaviour identical to
+// the previous ref-based approach — durable within the tab's lifetime, lost on
+// reload — rather than breaking checkout entirely.
+let inMemoryIdempotency = null;
+
+const readStoredIdempotency = () => {
+  try {
+    const raw = sessionStorage.getItem(IDEMPOTENCY_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return inMemoryIdempotency;
+  }
+};
+
+const writeStoredIdempotency = (value) => {
+  inMemoryIdempotency = value;
+
+  try {
+    if (value === null) {
+      sessionStorage.removeItem(IDEMPOTENCY_STORAGE_KEY);
+    } else {
+      sessionStorage.setItem(IDEMPOTENCY_STORAGE_KEY, JSON.stringify(value));
+    }
+  } catch {
+    // The in-memory fallback above is already updated.
+  }
+};
+
+// The key to use for this attempt: the stored one when the cart is unchanged,
+// so a retry after a reload resolves to the order the first attempt may
+// already have created instead of placing a second one. A changed cart is a
+// genuinely different order and gets a fresh key.
+const getIdempotencyKeyForCart = (fingerprint) => {
+  const stored = readStoredIdempotency();
+
+  if (stored && stored.key && stored.fingerprint === fingerprint) {
+    return stored.key;
+  }
+
+  const key = crypto.randomUUID();
+
+  writeStoredIdempotency({ fingerprint, key });
+
+  return key;
+};
 
 
 const NewCart = () => {
@@ -33,6 +100,20 @@ const NewCart = () => {
   const [showConfirm, setShowConfirm] = useState(false);
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
   const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
+  const [isStartingPayment, setIsStartingPayment] = useState(false);
+
+  // Re-entrancy guard for the online-payment path, held in a ref rather than
+  // relying on isStartingPayment: a setState is asynchronous, so two clicks
+  // dispatched in the same tick would both observe the old value and both
+  // create a Razorpay order. A ref is assigned synchronously and closes that
+  // window. Each of those orders would carry a distinct payment id, so
+  // orders.payment_id being unique would not stop the user paying twice.
+  const onlinePaymentInFlightRef = useRef(false);
+
+  const releaseOnlinePayment = () => {
+    onlinePaymentInFlightRef.current = false;
+    setIsStartingPayment(false);
+  };
 
   const packaging = items.length > 0 ? 10 : 0;
   const delivery = 0;
@@ -55,10 +136,21 @@ const NewCart = () => {
 
   const handleOnlinePayment = async () => {
 
+    // Already creating an order, or a checkout modal is already open. Without
+    // this a double-click opened two Razorpay checkouts for two separate
+    // orders, and paying both produced two real charges.
+    if (onlinePaymentInFlightRef.current) {
+      return;
+    }
+
+    onlinePaymentInFlightRef.current = true;
+    setIsStartingPayment(true);
+
     try {
 
       if (items.length === 0) {
         toast.error("Your cart is empty");
+        releaseOnlinePayment();
         return;
       }
 
@@ -135,6 +227,10 @@ const NewCart = () => {
 
             setIsVerifyingPayment(false);
 
+            // Verification failed and the user is back on the cart, so a
+            // fresh attempt must be possible.
+            releaseOnlinePayment();
+
             console.error(error);
 
             toast.error(
@@ -148,6 +244,10 @@ const NewCart = () => {
 
         modal: {
           ondismiss: function () {
+            // Checkout closed without paying: release the guard so the user
+            // can start a genuinely new attempt.
+            releaseOnlinePayment();
+
             toast("Payment Cancelled", {
               icon: "❌",
             });
@@ -166,6 +266,10 @@ const NewCart = () => {
     } catch (error) {
 
       setIsVerifyingPayment(false);
+
+      // Order creation or checkout launch failed; nothing is open, so allow a
+      // retry.
+      releaseOnlinePayment();
 
       console.error(error);
 
@@ -186,6 +290,12 @@ const NewCart = () => {
 
       setIsPlacingOrder(true);
 
+      // Held in sessionStorage rather than a ref so it survives a reload.
+      // Previously a timeout mid-submit followed by a refresh minted a new key
+      // and placed a second order, because the cart itself is restored from
+      // localStorage and was still there to resubmit.
+      const idempotencyKey = getIdempotencyKeyForCart(cartFingerprint(items));
+
       const payload = {
 
         items: items.map((item) => ({
@@ -198,10 +308,17 @@ const NewCart = () => {
             ? "CASH"
             : "RAZORPAY",
 
+        idempotencyKey,
+
       };
 
       const { data } =
         await orderAPI.placeOrder(payload);
+
+      // The attempt concluded, so the next checkout starts a new one. Cleared
+      // before clearCart() below, since clearing the cart changes the
+      // fingerprint and a stale entry would only ever be a dead record.
+      writeStoredIdempotency(null);
 
       toast.success("Order placed successfully 🎉");
 
@@ -230,6 +347,18 @@ const NewCart = () => {
     catch (error) {
 
       console.error(error);
+
+      // Retire the key only when the server gave a definitive client-side
+      // answer (bad request, or this key already belongs to a different
+      // order) — in those cases no order was created for this payload and the
+      // next attempt is genuinely new. After a server error or a network
+      // failure the order may in fact have been created, so the key is kept
+      // and a retry resolves to that same order instead of duplicating it.
+      const status = error.response?.status;
+
+      if (typeof status === "number" && status >= 400 && status < 500) {
+        writeStoredIdempotency(null);
+      }
 
       toast.error(
         error.response?.data?.error ||
@@ -486,6 +615,7 @@ const NewCart = () => {
                     paymentMethod={paymentMethod}
                     setPaymentMethod={setPaymentMethod}
                     onPlaceOrder={handleCheckout}
+                    disabled={isStartingPayment}
                   />
 
                   {/* Security Info */}

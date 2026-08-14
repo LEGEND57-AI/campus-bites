@@ -14,6 +14,9 @@ const OrderSummary = ({
     paymentMethod = "cash",
     setPaymentMethod = () => { },
     onPlaceOrder = () => { },
+    // Set while an online payment is being created / its checkout is open, so
+    // a second click cannot start a second Razorpay order.
+    disabled = false,
 }) => {
     return (
         <div
@@ -201,6 +204,7 @@ const OrderSummary = ({
 
             <button
                 onClick={onPlaceOrder}
+                disabled={disabled}
                 className="
     mt-8
     w-full
@@ -217,6 +221,9 @@ const OrderSummary = ({
     gap-3
     hover:scale-[1.02]
     transition
+    disabled:opacity-60
+    disabled:cursor-not-allowed
+    disabled:hover:scale-100
   "
             >
                 {paymentMethod === "cash"

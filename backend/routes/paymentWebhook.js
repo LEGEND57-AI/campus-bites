@@ -104,7 +104,15 @@ async function handlePaymentCaptured(event, log) {
   const payment = event.payload?.payment?.entity;
 
   if (!payment?.id || !payment?.order_id) {
-    log.error({ event }, "payment.captured webhook missing payment id/order id");
+    // Only the event's own identifiers are logged, never the event object.
+    // A Razorpay payment entity carries the customer's email, contact number,
+    // card last4/network/issuer and vpa (UPI id) -- none of which is needed to
+    // reconcile a malformed delivery, and all of which would otherwise be
+    // retained in the log stream indefinitely.
+    log.error(
+      { eventId: event?.id, eventType: event?.event },
+      "payment.captured webhook missing payment id/order id"
+    );
     return;
   }
 

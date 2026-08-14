@@ -18,6 +18,13 @@ import { getRefreshCookieOptions } from "./session.js";
 
 const router = express.Router();
 
+// A completed reset-OTP verification is only good for a short window. The
+// flag it sets is a standing permission to change the password without any
+// further proof, so leaving it valid indefinitely turns an abandoned reset
+// flow into a permanent account-takeover primitive for anyone who knows the
+// email address.
+const PASSWORD_RESET_VERIFICATION_TTL_MS = 15 * 60 * 1000;
+
 
 // ================= BREVO API =================
 
@@ -48,7 +55,24 @@ const sendEmail = async (to, subject, html) => {
     });
 
   } catch (error) {
-    console.error("❌ Brevo API Error:", error);
+    // Only the status and message are logged -- never the error object.
+    //
+    // The Brevo SDK transports over superagent, which rejects with its own
+    // error object and attaches the underlying http.ClientRequest to it as
+    // error.response.req. That request's `_header` is a plain STRING holding
+    // the raw outgoing header block, and the SDK sends the credential as a
+    // header (`api-key: <BREVO_API_KEY>`). console.error renders nested
+    // strings at that depth, so logging the error object itself wrote the
+    // live API key to stdout on every Brevo failure -- an expired key, a
+    // quota rejection, a bad recipient, any transient 5xx.
+    //
+    // error.message carries superagent's status text (e.g. "Unauthorized"),
+    // which is what actually makes the failure diagnosable.
+    console.error(
+      "Brevo API Error:",
+      error?.status,
+      error?.message
+    );
     throw new Error("Failed to send email");
   }
 };
@@ -131,7 +155,12 @@ router.post("/register", otpLimiter, async (req, res) => {
       .maybeSingle();
 
     if (existingError) {
-      console.error(existingError);
+      // Code and message only -- never the PostgrestError object. PostgREST
+      // maps PostgreSQL's DETAIL into `details`, and for a NOT NULL or CHECK
+      // violation that DETAIL is "Failing row contains (...)": every column
+      // value of the attempted row, which on this table includes
+      // password_hash and the plaintext otp.
+      console.error("Register lookup error:", existingError?.code, existingError?.message);
 
       return res.status(500).json({
         error: "Database error",
@@ -139,8 +168,14 @@ router.post("/register", otpLimiter, async (req, res) => {
     }
 
     if (existingUser) {
-      return res.status(400).json({
-        error: "User already exists",
+      // Same response as a successful registration -- do not reveal that
+      // this email is already registered. Deliberately a silent no-op: no
+      // account is touched and no OTP is (re)sent from here. /resend-otp
+      // already exists as the safe, correct remediation path for a user
+      // who needs a new code.
+      return res.status(200).json({
+        message: "OTP sent",
+        email,
       });
     }
 
@@ -168,7 +203,10 @@ router.post("/register", otpLimiter, async (req, res) => {
     ]);
 
     if (insertError) {
-      console.error(insertError);
+      // Code and message only -- this insert carries password_hash and the
+      // plaintext otp, both of which a constraint-violation DETAIL would
+      // reproduce in full. See the note on the lookup error above.
+      console.error("Register insert error:", insertError?.code, insertError?.message);
 
       return res.status(500).json({
         error: "Failed to create account",
@@ -401,14 +439,28 @@ router.post("/reset-password", otpLimiter, async (req, res) => {
 
     const { data: user, error } = await supabase
       .from("users")
-      .select("reset_verified")
+      .select("reset_verified, reset_verified_at")
       .eq("email", email)
       .single();
 
-    if (error || !user || !user.reset_verified) {
-      // Same response whether the account doesn't exist or just hasn't
-      // completed OTP verification yet -- avoids leaking which emails
-      // are registered via this endpoint.
+    // `reset_verified_at` is written together with `reset_verified` in
+    // /verify-otp, so it is precisely "when this reset was authorised".
+    // Date.parse yields NaN for a missing, null or malformed value, and a
+    // timestamp in the future indicates something is wrong with the stored
+    // value -- all of those fall through to the rejection below, so the
+    // uncertain case always fails closed rather than granting access.
+    const verifiedAtMs = Date.parse(user?.reset_verified_at);
+    const elapsedMs = Date.now() - verifiedAtMs;
+
+    const withinVerificationWindow =
+      Number.isFinite(verifiedAtMs) &&
+      elapsedMs >= 0 &&
+      elapsedMs <= PASSWORD_RESET_VERIFICATION_TTL_MS;
+
+    if (error || !user || !user.reset_verified || !withinVerificationWindow) {
+      // One response for "no such account", "OTP not verified yet" and
+      // "verification expired" alike -- avoids leaking which emails are
+      // registered, or which have a reset in progress, via this endpoint.
       return res.status(403).json({
         error: "Please verify OTP first",
       });
@@ -520,7 +572,10 @@ router.post("/google", loginLimiter, async (req, res) => {
 
     if (userError) {
 
-      console.error(userError);
+      // Code and message only -- see the note in /register. This is a read,
+      // so a row-bearing DETAIL is unlikely, but the same allowlist applies
+      // so the safe form is consistent across every users-table error.
+      console.error("Google lookup error:", userError?.code, userError?.message);
 
 
       return res.status(500).json({
@@ -566,7 +621,8 @@ router.post("/google", loginLimiter, async (req, res) => {
 
       if (insertError) {
 
-        console.error(insertError);
+        // Code and message only -- see the note in /register.
+        console.error("Google insert error:", insertError?.code, insertError?.message);
 
 
         return res.status(500).json({
@@ -693,8 +749,12 @@ router.post("/login", loginLimiter, async (req, res) => {
     }
 
     if (!user.password_hash) {
+      // Same generic response as a non-existent account or a wrong
+      // password below -- a Google-only account is real, existing account
+      // state, and revealing it here would let someone enumerate which
+      // registered emails use Google Sign-In.
       return res.status(401).json({
-        error: "This account uses Google Sign-In. Please continue with Google."
+        error: "Invalid credentials",
       });
     }
 

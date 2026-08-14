@@ -6,6 +6,7 @@ import { adminLimiter } from "../middleware/rateLimiter.js";
 import { autoCancelExpiredCashOrders } from "../utils/autoCancelOrders.js";
 import { createNotification } from "../utils/notificationService.js";
 import { razorpay } from "../utils/razorpay.js";
+import { isAllowedImageUrl } from "../utils/imageUrl.js";
 import {
   emitOrderUpdate,
   emitAdminOrderUpdate,
@@ -72,7 +73,17 @@ router.patch('/orders/:id/payment', async (req, res) => {
       .eq("id", id)
       .single();
 
-    if (fetchError) throw fetchError;
+    // PGRST116 is PostgREST's "no rows returned" for .single(). Here that can
+    // only mean no order carries this id, which is a missing resource, not a
+    // server fault -- it was previously rethrown and answered 500. Every other
+    // error code still propagates to the 500 below.
+    if (fetchError) {
+      if (fetchError.code === "PGRST116") {
+        return res.status(404).json({ error: "Order not found" });
+      }
+
+      throw fetchError;
+    }
 
     if (existingOrder.payment_method !== "CASH") {
       return res.status(400).json({
@@ -187,7 +198,15 @@ router.patch('/orders/:id/status', async (req, res) => {
       .eq("id", id)
       .single();
 
-    if (fetchError) throw fetchError;
+    // See the note in /orders/:id/payment: PGRST116 means no order has this
+    // id, so it is a 404 rather than a 500.
+    if (fetchError) {
+      if (fetchError.code === "PGRST116") {
+        return res.status(404).json({ error: "Order not found" });
+      }
+
+      throw fetchError;
+    }
 
     if (existingOrder.refund_status !== null) {
       return res.status(400).json({
@@ -605,7 +624,16 @@ router.patch('/menu/:id/availability', async (req, res) => {
       .select()
       .single();
 
-    if (error) throw error;
+    // An update matching no row returns zero rows, which .single() reports as
+    // PGRST116. That means no menu item carries this id -- a 404, not the 500
+    // this previously produced.
+    if (error) {
+      if (error.code === "PGRST116") {
+        return res.status(404).json({ error: "Menu item not found" });
+      }
+
+      throw error;
+    }
 
     emitMenuUpdate();
 
@@ -643,6 +671,12 @@ router.post('/menu', async (req, res) => {
   if (typeof price !== "number" || price <= 0) {
     return res.status(400).json({
       error: "Invalid price"
+    });
+  }
+
+  if (!isAllowedImageUrl(image_url)) {
+    return res.status(400).json({
+      error: "Image URL must be uploaded via /api/upload"
     });
   }
 
@@ -693,6 +727,12 @@ router.put('/menu/:id', async (req, res) => {
     }
   }
 
+  if (image_url !== undefined && !isAllowedImageUrl(image_url)) {
+    return res.status(400).json({
+      error: "Image URL must be uploaded via /api/upload"
+    });
+  }
+
   const updates = {};
 
   if (name !== undefined) updates.name = name;
@@ -710,7 +750,15 @@ router.put('/menu/:id', async (req, res) => {
       .select()
       .single();
 
-    if (error) throw error;
+    // See the note in /menu/:id/availability: PGRST116 here means no menu item
+    // has this id.
+    if (error) {
+      if (error.code === "PGRST116") {
+        return res.status(404).json({ error: "Menu item not found" });
+      }
+
+      throw error;
+    }
 
     emitMenuUpdate();
 

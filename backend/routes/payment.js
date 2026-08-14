@@ -148,9 +148,16 @@ router.post("/create-order", async (req, res) => {
 
         if (intentError) {
             // Do not expose database details to the client.
+            //
+            // Code and message only -- never the PostgrestError object.
+            // payment_intents carries a CHECK constraint on `status`, so a
+            // violation's DETAIL would be "Failing row contains (...)":
+            // the user_id, razorpay_order_id, total_amount and the full
+            // pinned `items` cart with per-item prices.
             console.error(
                 "Payment intent creation error:",
-                intentError
+                intentError?.code,
+                intentError?.message
             );
 
             return res.status(500).json({

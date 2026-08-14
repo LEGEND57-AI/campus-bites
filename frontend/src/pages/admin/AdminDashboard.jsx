@@ -11,11 +11,16 @@ import {
 } from "lucide-react";
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
-import { getSocket } from "../../socket/socket";
+import { useSocket } from "../../socket/SocketProvider";
 import { SocketEvents } from "../../socket/constants";
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
+
+  // Reactive socket: getSocket() returned null on a fresh load because child
+  // effects run before SocketProvider's, and nothing re-ran this effect once
+  // the socket connected.
+  const socket = useSocket();
 
   const [stats, setStats] = useState({
     ordersToday: 0,
@@ -34,8 +39,12 @@ const AdminDashboard = () => {
   useEffect(() => {
     fetchStats();
     fetchRecentOrders();
+  }, []);
 
-    const socket = getSocket();
+  // Split out from the initial fetch above so it can depend on `socket`
+  // without re-firing that fetch when the socket connects.
+  useEffect(() => {
+    if (!socket) return;
 
     const handleAnalyticsUpdate = () => {
       fetchStats();
@@ -45,30 +54,28 @@ const AdminDashboard = () => {
       fetchRecentOrders();
     };
 
-    if (socket) {
-      socket.on(
-        SocketEvents.ANALYTICS_UPDATED,
-        handleAnalyticsUpdate
-      );
+    socket.on(
+      SocketEvents.ANALYTICS_UPDATED,
+      handleAnalyticsUpdate
+    );
 
-      socket.on(
-        SocketEvents.ORDER_UPDATED,
-        handleOrderUpdate
-      );
-    }
+    socket.on(
+      SocketEvents.ORDER_UPDATED,
+      handleOrderUpdate
+    );
 
     return () => {
-      socket?.off(
+      socket.off(
         SocketEvents.ANALYTICS_UPDATED,
         handleAnalyticsUpdate
       );
 
-      socket?.off(
+      socket.off(
         SocketEvents.ORDER_UPDATED,
         handleOrderUpdate
       );
     };
-  }, []);
+  }, [socket]);
 
   const fetchStats = async () => {
     try {

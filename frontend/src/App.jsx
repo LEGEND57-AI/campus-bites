@@ -1,4 +1,4 @@
-import React from "react";
+import React, { lazy, Suspense } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 
@@ -7,36 +7,71 @@ import { FavoriteProvider } from "./context/FavoriteContext";
 
 import ProtectedRoute from "./components/ProtectedRoute";
 import AdminRoute from "./components/AdminRoute";
+import ChunkErrorBoundary from "./components/ChunkErrorBoundary";
+
+// Kept eagerly imported. Login is where the catch-all route sends anyone who
+// is not signed in, and Dashboard is "/" -- the page a signed-in user lands on
+// immediately. Loading either on demand would only add a spinner to the very
+// first paint. The route guards are eager for the same reason: routing must
+// never have to wait on a chunk to decide where a user belongs.
+import Login from "./pages/Login";
+import Dashboard from "./pages/Dashboard";
+
+// Everything below is reached only after a navigation, so it is split out of
+// the initial bundle. The admin pages in particular carry recharts,
+// react-datepicker/date-fns and sweetalert2, none of which a student ever
+// needs -- lazily importing the pages moves those libraries into the route
+// chunks automatically, with no manual chunk configuration.
 
 // 🔓 PUBLIC PAGES
-import Login from "./pages/Login";
-import Signup from "./pages/Signup";
-import VerifyOTP from "./pages/VerifyOTP";
-import ResetPassword from "./pages/ResetPassword";
+const Signup = lazy(() => import("./pages/Signup"));
+const VerifyOTP = lazy(() => import("./pages/VerifyOTP"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 
 // 🔐 STUDENT PAGES
-import Dashboard from "./pages/Dashboard";
-import Menu from "./pages/Menu";
-import Orders from "./pages/Orders";
-import Favorite from "./pages/Favorite";
+const Menu = lazy(() => import("./pages/Menu"));
+const Orders = lazy(() => import("./pages/Orders"));
+const Favorite = lazy(() => import("./pages/Favorite"));
 
-import NewCart from "./pages/NewCart";
-import Profile from "./pages/Profile";
-import PersonalInformation from "./pages/PersonalInformation";
-import OrderSuccess from "./pages/OrderSuccess";
-import TrackOrder from "./pages/TrackOrder";
-import Notifications from "./pages/Notifications";
+const NewCart = lazy(() => import("./pages/NewCart"));
+const Profile = lazy(() => import("./pages/Profile"));
+const PersonalInformation = lazy(() => import("./pages/PersonalInformation"));
+const OrderSuccess = lazy(() => import("./pages/OrderSuccess"));
+const TrackOrder = lazy(() => import("./pages/TrackOrder"));
+const Notifications = lazy(() => import("./pages/Notifications"));
 
 
 // 🔐 ADMIN PAGES
-import AdminLayout from "./pages/admin/Layout";
-import AdminDashboard from "./pages/admin/AdminDashboard";
-import AdminOrders from "./pages/admin/AdminOrders";
-import AdminMenu from "./pages/admin/AdminMenu";
-import AdminOrderHistory from "./pages/admin/history/AdminOrderHistory";
-import AdminAnalytics from "./pages/admin/AdminAnalytics";
-import AdminCategories from "./pages/admin/AdminCategories";
-import AdminProfile from "./pages/admin/AdminProfile";
+const AdminLayout = lazy(() => import("./pages/admin/Layout"));
+const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
+const AdminOrders = lazy(() => import("./pages/admin/AdminOrders"));
+const AdminMenu = lazy(() => import("./pages/admin/AdminMenu"));
+const AdminOrderHistory = lazy(() =>
+  import("./pages/admin/history/AdminOrderHistory")
+);
+const AdminAnalytics = lazy(() => import("./pages/admin/AdminAnalytics"));
+const AdminCategories = lazy(() => import("./pages/admin/AdminCategories"));
+const AdminProfile = lazy(() => import("./pages/admin/AdminProfile"));
+
+// Shown only while a route chunk is in flight. Deliberately the same spinner
+// the app already uses elsewhere rather than a new pattern.
+function RouteFallback() {
+  return (
+    <div className="min-h-screen bg-[#F3F6FB] flex items-center justify-center">
+      <div
+        className="
+          w-12
+          h-12
+          rounded-full
+          border-4
+          border-blue-200
+          border-t-blue-600
+          animate-spin
+        "
+      />
+    </div>
+  );
+}
 
 function App() {
   return (
@@ -72,6 +107,11 @@ function App() {
           }}
         />
 
+        {/* The boundary sits outside Suspense so it receives the rejection
+            when a route chunk fails to load, and the Toaster stays outside
+            both so toasts still render in that case. */}
+        <ChunkErrorBoundary>
+        <Suspense fallback={<RouteFallback />}>
         <Routes>
 
           {/* ================= PUBLIC ================= */}
@@ -195,6 +235,8 @@ function App() {
           <Route path="*" element={<Navigate to="/login" />} />
 
         </Routes>
+        </Suspense>
+        </ChunkErrorBoundary>
 
       </FavoriteProvider>
     </CartProvider>

@@ -20,6 +20,10 @@ const router = express.Router();
 router.use(adminLimiter);
 router.use(authenticate, isAdmin);
 
+// Same pagination bounds as routes/history.js, orders.js and notifications.js.
+const DEFAULT_PAGE_SIZE = 20;
+const MAX_PAGE_SIZE = 100;
+
 
 // ---------- Orders ----------
 router.get('/orders', async (req, res) => {
@@ -31,6 +35,29 @@ router.get('/orders', async (req, res) => {
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
+    const { all, page: rawPage, limit: rawLimit } = req.query;
+
+    // `?all=true` dropped the day filter and returned every order ever placed
+    // in a single unbounded response. It has no caller, so it is now only
+    // honoured as a paginated request -- the wide window survives, the
+    // unbounded read does not.
+    const wantsAll = all === 'true';
+
+    // Pagination stays opt-in. With no page/limit (and no all=true) the
+    // response is the same bare array of today's orders it has always been,
+    // which is what AdminOrders.jsx and AdminDashboard.jsx expect: both
+    // compute their filters, search, stat counts and top-5 across the whole
+    // day client-side, so silently truncating that set would break them.
+    const wantsPagination =
+      wantsAll || rawPage !== undefined || rawLimit !== undefined;
+
+    const page = Math.max(parseInt(rawPage, 10) || 1, 1);
+
+    const limit = Math.min(
+      Math.max(parseInt(rawLimit, 10) || DEFAULT_PAGE_SIZE, 1),
+      MAX_PAGE_SIZE
+    );
+
     let query = supabase
       .from('orders')
       .select(`
@@ -41,20 +68,46 @@ router.get('/orders', async (req, res) => {
           price_at_time,
           food_items (id, name, image_url, category_id)
         )
-      `);
+      `, wantsPagination ? { count: 'exact' } : {});
 
-    if (req.query.all !== 'true') {
+    if (!wantsAll) {
       query = query
         .gte('created_at', today.toISOString())
         .lt('created_at', tomorrow.toISOString());
     }
 
-    const { data, error } = await query
-      .order('created_at', { ascending: false });
+    // created_at DESC is the existing order. The id DESC tiebreaker only
+    // decides ties, which Postgres previously resolved arbitrarily -- without
+    // it two orders sharing a timestamp could swap between pages.
+    query = query
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false });
+
+    if (wantsPagination) {
+      const offset = (page - 1) * limit;
+
+      query = query.range(offset, offset + limit - 1);
+    }
+
+    const { data, error, count } = await query;
 
     if (error) throw error;
 
-    res.json(data);
+    if (!wantsPagination) {
+      return res.json(data);
+    }
+
+    const total = count || 0;
+    const rows = data || [];
+
+    res.json({
+      orders: rows,
+      page,
+      limit,
+      total,
+      totalPages: Math.max(Math.ceil(total / limit), 1),
+      hasMore: (page - 1) * limit + rows.length < total,
+    });
   } catch (err) {
     console.error('Orders fetch error:', err);
     res.status(500).json({ error: 'Failed to fetch orders' });

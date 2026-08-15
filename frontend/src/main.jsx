@@ -6,7 +6,6 @@ import App from './App';
 import './index.css';
 
 import { AuthProvider } from './context/AuthContext';
-import { FavoriteProvider } from './context/FavoriteContext';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { SocketProvider } from "./socket/SocketProvider";
 
@@ -19,9 +18,12 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <BrowserRouter>
         <AuthProvider>
           <SocketProvider>
-            <FavoriteProvider>
-              <App />
-            </FavoriteProvider>
+            {/* FavoriteProvider is mounted inside App, alongside CartProvider.
+                It used to be mounted here as well, which built a second,
+                independent FavoriteContext: every consumer resolves to the
+                inner provider, so this outer one held state nobody read while
+                still running its own initial GET /favorites. */}
+            <App />
           </SocketProvider>
         </AuthProvider>
       </BrowserRouter>

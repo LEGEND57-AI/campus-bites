@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { adminAPI, analyticsAPI } from "../../services/api";
 import { motion } from 'framer-motion';
 import {
@@ -35,6 +35,14 @@ const AdminDashboard = () => {
   const [recentOrders, setRecentOrders] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // Mirrors the latest recentOrders so the socket handler can test membership
+  // synchronously without a stale closure.
+  const recentOrdersRef = useRef(recentOrders);
+
+  useEffect(() => {
+    recentOrdersRef.current = recentOrders;
+  }, [recentOrders]);
+
   // 🔥 AUTO REFRESH
   useEffect(() => {
     fetchStats();
@@ -46,12 +54,41 @@ const AdminDashboard = () => {
   useEffect(() => {
     if (!socket) return;
 
+    // Kept as a refetch on purpose. These are server-computed aggregates
+    // (ordersToday, totalRevenue, activeOrders, per-status counts) derived from
+    // every order; a single updated order is not enough to recompute them
+    // correctly, so merging would risk showing wrong numbers.
     const handleAnalyticsUpdate = () => {
       fetchStats();
     };
 
-    const handleOrderUpdate = () => {
-      fetchRecentOrders();
+    // The recent-orders list, by contrast, can be merged in place when the
+    // updated order is already shown. A refetch still runs when it is not,
+    // since this event also announces brand-new orders that belong at the top
+    // of the list.
+    const handleOrderUpdate = (updatedOrder) => {
+
+      if (!updatedOrder?.id) {
+        fetchRecentOrders();
+        return;
+      }
+
+      const alreadyListed = recentOrdersRef.current.some(
+        (order) => order.id === updatedOrder.id
+      );
+
+      if (!alreadyListed) {
+        fetchRecentOrders();
+        return;
+      }
+
+      setRecentOrders((prev) =>
+        prev.map((order) =>
+          order.id === updatedOrder.id
+            ? { ...order, ...updatedOrder }
+            : order
+        )
+      );
     };
 
     socket.on(

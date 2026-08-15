@@ -11,6 +11,11 @@ import {
 
 const router = express.Router();
 
+// Same pagination bounds as routes/history.js and routes/orders.js, with the
+// smaller default this endpoint has always used.
+const DEFAULT_PAGE_SIZE = 10;
+const MAX_PAGE_SIZE = 100;
+
 // All notification routes require authentication
 router.use(authenticate);
 
@@ -20,8 +25,17 @@ router.use(authenticate);
  */
 router.get("/", async (req, res) => {
     try {
-        const page = Number(req.query.page) || 1;
-        const limit = Number(req.query.limit) || 10;
+        // Clamped rather than trusted. `limit` was unbounded; `page` is
+        // clamped for the same reason as in routes/orders.js -- getNotifications
+        // computes (page - 1) * limit, so a negative page produced a negative
+        // .range() offset. Integer parsing also rejects the floats Number()
+        // used to accept, which would have made the offset fractional.
+        const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+
+        const limit = Math.min(
+            Math.max(parseInt(req.query.limit, 10) || DEFAULT_PAGE_SIZE, 1),
+            MAX_PAGE_SIZE
+        );
 
         const result = await getNotifications(
             req.user.id,

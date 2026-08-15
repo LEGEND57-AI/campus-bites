@@ -1,4 +1,11 @@
-import React, { createContext, useState, useContext, useEffect } from "react";
+import React, {
+  createContext,
+  useState,
+  useContext,
+  useEffect,
+  useCallback,
+  useMemo,
+} from "react";
 import toast from "react-hot-toast";
 import { foodAPI } from "../services/api";
 
@@ -41,7 +48,9 @@ export const CartProvider = ({ children }) => {
   // ADD TO CART
   // ==========================
 
-  const addToCart = (foodItem) => {
+  // Reads `items` to decide which toast to show, so it must be rebuilt when
+  // items change -- capturing a stale list here would show the wrong message.
+  const addToCart = useCallback((foodItem) => {
 
     const existingItem = items.find(
       (item) => item.id === foodItem.id
@@ -81,13 +90,14 @@ export const CartProvider = ({ children }) => {
       }
     );
 
-  };
+  }, [items]);
 
   // ==========================
   // UPDATE QUANTITY
   // ==========================
 
-  const updateQuantity = (id, delta) => {
+  // Also reads `items`, to resolve the current quantity before applying delta.
+  const updateQuantity = useCallback((id, delta) => {
 
     const item = items.find((i) => i.id === id);
 
@@ -118,13 +128,16 @@ export const CartProvider = ({ children }) => {
       });
     }
 
-  };
+  }, [items]);
 
   // ==========================
   // REMOVE ITEM
   // ==========================
 
-  const removeItem = (id) => {
+  // Empty deps are genuine here, not a shortcut: this reads no state from the
+  // closure. setItems is a functional update and both setItems and toast are
+  // stable, so the identity can safely live for the provider's whole lifetime.
+  const removeItem = useCallback((id) => {
 
     setItems((prevItems) =>
       prevItems.filter((i) => i.id !== id)
@@ -134,13 +147,13 @@ export const CartProvider = ({ children }) => {
       id: `remove-${id}`,
     });
 
-  };
+  }, []);
 
   // ==========================
   // CLEAR CART
   // ==========================
 
-  const clearCart = () => {
+  const clearCart = useCallback(() => {
 
     setItems([]);
 
@@ -148,13 +161,16 @@ export const CartProvider = ({ children }) => {
       id: "clear-cart",
     });
 
-  };
+  }, []);
 
   // ==========================
   // REORDER
   // ==========================
 
-  const reorderItems = async (orderItems) => {
+  // Reads nothing from the closure either: the menu comes from foodAPI and the
+  // merge happens against prevItems inside the updater, so no cart state is
+  // captured.
+  const reorderItems = useCallback(async (orderItems) => {
 
     try {
 
@@ -272,32 +288,48 @@ export const CartProvider = ({ children }) => {
 
     return true;
 
-  };
+  }, []);
 
   // ==========================
   // TOTAL COUNT
   // ==========================
 
-  const getItemCount = () => {
+  const getItemCount = useCallback(() => {
     return items.reduce(
       (sum, item) => sum + item.quantity,
       0
     );
-  };
+  }, [items]);
+
+  // A fresh object literal here re-rendered every cart consumer on any parent
+  // render -- including every route change, since CartProvider sits inside
+  // App. Memoising it means the value changes only when something in it
+  // actually changed. The exported shape is unchanged.
+  const value = useMemo(
+    () => ({
+      items,
+      total,
+      addToCart,
+      updateQuantity,
+      removeItem,
+      clearCart,
+      reorderItems,
+      getItemCount,
+    }),
+    [
+      items,
+      total,
+      addToCart,
+      updateQuantity,
+      removeItem,
+      clearCart,
+      reorderItems,
+      getItemCount,
+    ]
+  );
 
   return (
-    <CartContext.Provider
-      value={{
-        items,
-        total,
-        addToCart,
-        updateQuantity,
-        removeItem,
-        clearCart,
-        reorderItems,
-        getItemCount,
-      }}
-    >
+    <CartContext.Provider value={value}>
       {children}
     </CartContext.Provider>
   );

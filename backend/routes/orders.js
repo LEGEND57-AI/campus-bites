@@ -20,6 +20,12 @@ router.use(authenticate);
 // large input that would only bloat the index.
 const MAX_IDEMPOTENCY_KEY_LENGTH = 128;
 
+// Same pagination bounds as routes/history.js. The default matches what
+// services/api.js already sends; the ceiling exists so a client cannot ask
+// for its entire order history in one response.
+const DEFAULT_PAGE_SIZE = 20;
+const MAX_PAGE_SIZE = 100;
+
 // Canonical representation of the logical cart, used to decide whether a
 // replayed idempotency key describes the same order or a different one.
 //
@@ -38,11 +44,7 @@ function cartFingerprint(pairs) {
 router.post('/', async (req, res) => {
   try {
 
-    const requestStart = performance.now();
-
     const { items, paymentMethod, idempotencyKey: rawIdempotencyKey } = req.body;
-
-    const validationStart = performance.now();
 
     // Validate items
     if (!items || items.length === 0) {
@@ -112,16 +114,8 @@ router.post('/', async (req, res) => {
       uniqueItems.add(item.foodItemId);
     }
 
-    console.log(
-      "Validation:",
-      (performance.now() - validationStart).toFixed(2),
-      "ms"
-    );
-
     // Get latest food prices
     const itemIds = items.map(item => item.foodItemId);
-
-    const foodQueryStart = performance.now();
 
     const { data: foodItems, error: fetchError } =
       await supabase
@@ -131,12 +125,6 @@ router.post('/', async (req, res) => {
 
 
     if (fetchError) throw fetchError;
-
-    console.log(
-      "Food Query:",
-      (performance.now() - foodQueryStart).toFixed(2),
-      "ms"
-    );
 
     const foodMap = new Map(
       foodItems.map(food => [
@@ -180,21 +168,11 @@ router.post('/', async (req, res) => {
       });
     }
 
-    const tokenStart = performance.now();
-
     // Generate daily token
     const {
       token_number,
       token_date
     } = await generateDailyToken();
-
-    console.log(
-      "Token:",
-      (performance.now() - tokenStart).toFixed(2),
-      "ms"
-    );
-
-    const orderInsertStart = performance.now();
 
     // Create the CASH order and its order_items atomically in one
     // transaction via the create_cash_order_with_items RPC — either
@@ -216,12 +194,6 @@ router.post('/', async (req, res) => {
         // database rather than by a read-then-write check here.
         p_idempotency_key: idempotencyKey
       }
-    );
-
-    console.log(
-      "Order Insert:",
-      (performance.now() - orderInsertStart).toFixed(2),
-      "ms"
     );
 
     if (orderError) {
@@ -284,8 +256,6 @@ router.post('/', async (req, res) => {
       });
     }
 
-    const notificationStart = performance.now();
-
     const notification = await createNotification({
       userId: req.user.id,
       title: "Order Placed",
@@ -297,21 +267,8 @@ router.post('/', async (req, res) => {
       actionUrl: `/track-order/${order.id}`,
     });
 
-    console.log(
-      "Notification:",
-      (performance.now() - notificationStart).toFixed(2),
-      "ms"
-    );
-
-    
     emitOrderUpdate(req.user.id, order);
     emitAdminOrderUpdate(order);
-    
-    console.log(
-      "TOTAL:",
-      (performance.now() - requestStart).toFixed(2),
-      "ms"
-    );
 
     res.status(201).json({
       success: true,
@@ -465,8 +422,15 @@ router.get("/:id", async (req, res) => {
 router.get("/", async (req, res) => {
   try {
 
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
+    // Clamped rather than trusted: an unbounded `limit` returned the caller's
+    // entire order history in one response, and a negative `page` produced a
+    // negative .range() offset.
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+
+    const limit = Math.min(
+      Math.max(parseInt(req.query.limit, 10) || DEFAULT_PAGE_SIZE, 1),
+      MAX_PAGE_SIZE
+    );
 
     const from = (page - 1) * limit;
     const to = from + limit - 1;

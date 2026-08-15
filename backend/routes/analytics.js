@@ -129,6 +129,113 @@ function formatMoney(value = 0) {
 
 }
 
+/* ============================================================
+   IST DATE HELPERS
+   ------------------------------------------------------------
+   Used only by the two RPC-backed endpoints below. The helpers
+   above (startOfDay/endOfDay/getDateRange) resolve boundaries in
+   the Node process's own timezone, which is unset in this project
+   -- IST in development, UTC on a default Linux container. These
+   helpers pin the calendar to Asia/Kolkata regardless of where the
+   process runs, and hand PostgreSQL explicit instants so the
+   database's timezone cannot influence the result either.
+============================================================ */
+
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+// The IST calendar date an instant falls on.
+function istCalendarParts(instant = new Date()) {
+
+    const shifted = new Date(instant.getTime() + IST_OFFSET_MS);
+
+    return {
+        year: shifted.getUTCFullYear(),
+        month: shifted.getUTCMonth(),
+        day: shifted.getUTCDate(),
+    };
+}
+
+// Date.UTC normalises out-of-range month/day, so { month: month - 3 } and
+// { day: day - 6 } roll back across year and month boundaries correctly.
+function istStartOfDay({ year, month, day }) {
+    return new Date(
+        Date.UTC(year, month, day, 0, 0, 0, 0) - IST_OFFSET_MS
+    );
+}
+
+function istEndOfDay({ year, month, day }) {
+    return new Date(
+        Date.UTC(year, month, day, 23, 59, 59, 999) - IST_OFFSET_MS
+    );
+}
+
+// Mirrors getDateRange()'s range semantics exactly, resolved in IST.
+function getISTDateRange(range = "7days") {
+
+    const today = istCalendarParts();
+
+    const endOfToday = istEndOfDay(today);
+
+    switch (range) {
+
+        case "today":
+            return { start: istStartOfDay(today), end: endOfToday };
+
+        case "yesterday": {
+            const yesterday = { ...today, day: today.day - 1 };
+            return {
+                start: istStartOfDay(yesterday),
+                end: istEndOfDay(yesterday),
+            };
+        }
+
+        case "7days":
+            return {
+                start: istStartOfDay({ ...today, day: today.day - 6 }),
+                end: endOfToday,
+            };
+
+        case "3months":
+            return {
+                start: istStartOfDay({ ...today, month: today.month - 3 }),
+                end: endOfToday,
+            };
+
+        case "thismonth":
+            return {
+                start: istStartOfDay({ ...today, day: 1 }),
+                end: endOfToday,
+            };
+
+        case "thisyear":
+            return {
+                start: istStartOfDay({ year: today.year, month: 0, day: 1 }),
+                end: endOfToday,
+            };
+
+        default:
+            return {
+                start: istStartOfDay({ ...today, day: today.day - 6 }),
+                end: endOfToday,
+            };
+    }
+}
+
+// A YYYY-MM-DD string is an IST calendar date, not an instant, so it is
+// parsed by component rather than by Date() -- which would read it as UTC.
+function istDayFromISODate(value) {
+
+    const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value || ""));
+
+    if (!match) return null;
+
+    return {
+        year: Number(match[1]),
+        month: Number(match[2]) - 1,
+        day: Number(match[3]),
+    };
+}
+
 function sumRevenue(orders) {
 
     return orders.reduce(
@@ -147,9 +254,20 @@ function sumRevenue(orders) {
    DATABASE HELPERS
 ============================================================ */
 
-async function fetchOrders() {
+// Optionally scoped to a [start, end] window, which is pushed into the SQL
+// query instead of being applied to every order in JavaScript afterwards.
+//
+// The window itself is still computed by the JS date helpers above and passed
+// in as instants. That is deliberate: startOfDay()/endOfDay() use setHours(),
+// so the day boundaries follow the Node process's own timezone, which SQL
+// cannot observe. Recomputing them in SQL would silently redefine "today".
+// Filtering on instants keeps the existing semantics exactly.
+//
+// Callers that pass no window get the previous behaviour -- every order -- so
+// the endpoints still relying on that are unaffected.
+async function fetchOrders(start, end) {
 
-    const { data, error } = await supabase
+    let query = supabase
 
         .from("orders")
 
@@ -159,7 +277,17 @@ async function fetchOrders() {
     total_amount,
     status,
     created_at
-`)
+`);
+
+    if (start && end) {
+
+        query = query
+            .gte("created_at", new Date(start).toISOString())
+            .lte("created_at", new Date(end).toISOString());
+
+    }
+
+    const { data, error } = await query
 
         .order("created_at", {
 
@@ -268,191 +396,105 @@ router.get("/dashboard", async (req, res) => {
             to,
         } = req.query;
 
+        // Boundaries are resolved on the IST calendar and passed to the RPC as
+        // explicit instants. They previously came from setHours(), i.e. the
+        // Node process timezone, so the same range meant a different day in
+        // development (IST) and on a UTC container.
         let start, end;
 
-        if (from && to) {
-            start = startOfDay(new Date(from));
-            end = endOfDay(new Date(to));
+        const fromDay = from ? istDayFromISODate(from) : null;
+        const toDay = to ? istDayFromISODate(to) : null;
+
+        if (fromDay && toDay) {
+            start = istStartOfDay(fromDay);
+            end = istEndOfDay(toDay);
         } else {
-            ({ start, end } = getDateRange(range));
+            ({ start, end } = getISTDateRange(range));
         }
 
-        const [
+        const todayParts = istCalendarParts();
+        const todayStart = istStartOfDay(todayParts);
+        const todayEnd = istEndOfDay(todayParts);
 
-            orders,
-            users,
-            foodItems,
-            categories,
-            orderItems,
-
-        ] = await Promise.all([
-
-            fetchOrders(),
-            fetchUsers(),
-            fetchFoodItems(),
-            fetchCategories(),
-            fetchOrderItems(),
-
-        ]);
-
-        /* =====================================================
-           FILTER ORDERS
-        ===================================================== */
-        const filteredOrders =
-            orders.filter(order => {
-
-                const created =
-                    new Date(order.created_at);
-
-                return (
-
-                    created >= start &&
-                    created <= end
-
-                );
-
-            });
-
-        const todayStart =
-            startOfDay();
-        const todayEnd = endOfDay();
-
-        const todayOrders =
-            orders.filter(order => {
-
-                const created = new Date(order.created_at);
-
-                return (
-                    created >= todayStart &&
-                    created <= todayEnd
-                );
-
-            });
-
-
-
-        /* =====================================================
-           ORDER STATUS
-        ===================================================== */
-
-
-        let activeOrders = 0;
-        let completedOrders = 0;
-        let cancelledOrders = 0;
-        let totalRevenue = 0;
-
-        for (const order of filteredOrders) {
-
-            const status = String(
-                order.status || ""
-            ).toLowerCase();
-
-            if (ACTIVE_STATUSES.includes(status)) {
-                activeOrders++;
-            }
-
-            if (REVENUE_STATUSES.includes(status)) {
-                completedOrders++;
-                totalRevenue += Number(
-                    order.total_amount || 0
-                );
-            }
-
-            if (CANCELLED_STATUSES.includes(status)) {
-                cancelledOrders++;
-            }
-
-        }
-
-        /* =====================================================
-   REVENUE TREND
-===================================================== */
-
-        const revenueMap = {};
+        // Same bucketing rule the JS aggregation applied.
         const groupByHour =
             range === "today" ||
             range === "yesterday" ||
-            (from && to);
+            Boolean(fromDay && toDay);
 
-        filteredOrders.forEach(order => {
+        const bucket = groupByHour
+            ? "hour"
+            : range === "3months"
+                ? "month"
+                : "day";
 
-            const created = new Date(order.created_at);
-
-            let key;
-
-            if (groupByHour) {
-
-                key = `${String(created.getHours()).padStart(2, "0")}:00`;
-
-            } else if (range === "3months") {
-
-                key = `${created.getFullYear()}-${String(created.getMonth() + 1).padStart(2, "0")}-01`;
-
-            } else {
-
-                key = `${created.getFullYear()}-${String(created.getMonth() + 1).padStart(2, "0")}-${String(created.getDate()).padStart(2, "0")}`;
-
-            }
-
-            if (!revenueMap[key]) {
-
-                revenueMap[key] = {
-                    date: key,
-                    revenue: 0,
-                    orders: 0,
-                };
-
-            }
-
-            revenueMap[key].orders++;
-
-            if (
-                REVENUE_STATUSES.includes(
-                    String(order.status || "").toLowerCase()
-                )
-            ) {
-
-                revenueMap[key].revenue += Number(order.total_amount || 0);
-
-            }
-
+        // Every count, sum, grouping and top-N is now done in SQL.
+        //
+        // The previous implementation fetched all orders in the window plus
+        // the ENTIRE order_items table (with joined food_items) and aggregated
+        // in JavaScript. PostgREST silently caps those reads at 1000 rows, so
+        // any range holding more than 1000 orders -- and the top/low item
+        // figures for every range, because order_items has 2014 rows -- was
+        // computed from partial data.
+        const { data, error } = await supabase.rpc("analytics_dashboard", {
+            p_start: start.toISOString(),
+            p_end: end.toISOString(),
+            p_today_start: todayStart.toISOString(),
+            p_today_end: todayEnd.toISOString(),
+            p_bucket: bucket,
         });
+
+        if (error) throw error;
+
+        if (!data) {
+            throw new Error("analytics_dashboard returned no data");
+        }
+
+        /* =====================================================
+           ZERO-FILL
+
+           Presentation only, and deliberately still in Node: the
+           RPC returns the buckets that actually have orders, and
+           the back-fill below is unchanged from the previous
+           implementation.
+        ===================================================== */
+
+        let revenueByDay = (data.revenueByDay || []).map(entry => ({
+            date: entry.date,
+            revenue: Number(entry.revenue || 0),
+            orders: Number(entry.orders || 0),
+        }));
 
         // Last 3 months me empty months bhi show honge
         if (range === "3months") {
 
+            const seen = new Set(
+                revenueByDay.map(entry => entry.date)
+            );
+
             for (let i = 2; i >= 0; i--) {
 
-                const d = new Date();
+                const month = new Date(
+                    Date.UTC(todayParts.year, todayParts.month - i, 1, 12)
+                );
 
-                d.setMonth(d.getMonth() - i);
+                const key = `${month.getUTCFullYear()}-${String(month.getUTCMonth() + 1).padStart(2, "0")}-01`;
 
-                const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+                if (!seen.has(key)) {
 
-                if (!revenueMap[key]) {
-
-                    revenueMap[key] = {
+                    revenueByDay.push({
                         date: key,
                         revenue: 0,
                         orders: 0,
-                    };
+                    });
+
+                    seen.add(key);
 
                 }
 
             }
 
         }
-
-        const revenueByDay = Object.values(revenueMap).sort((a, b) => {
-
-            if (groupByHour) {
-                return Number(a.date.split(":")[0]) - Number(b.date.split(":")[0]);
-            }
-
-            return new Date(a.date) - new Date(b.date);
-
-        });
-
 
         if (groupByHour) {
 
@@ -462,206 +504,25 @@ router.get("/dashboard", async (req, res) => {
 
                 const key = `${String(hour).padStart(2, "0")}:00`;
 
-                const existing = revenueByDay.find(r => r.date === key);
-
                 filled.push(
-                    existing || {
+                    revenueByDay.find(entry => entry.date === key) || {
                         date: key,
                         revenue: 0,
                         orders: 0,
                     }
                 );
+
             }
 
-            revenueByDay.length = 0;
-            revenueByDay.push(...filled);
+            revenueByDay = filled;
+
+        } else {
+
+            revenueByDay.sort(
+                (a, b) => new Date(a.date) - new Date(b.date)
+            );
+
         }
-
-
-        /* =====================================================
-           STATUS BREAKDOWN
-        ===================================================== */
-
-        const statusBreakdown = {
-
-            pending: 0,
-            accepted: 0,
-            preparing: 0,
-            ready: 0,
-            completed: 0,
-            cancelled: 0,
-            refunded: 0,
-
-        };
-
-        filteredOrders.forEach(order => {
-
-            let status = String(order.status || "").toLowerCase();
-
-            // Rejected ko Cancelled me count karo
-            if (status === "rejected") {
-                status = "cancelled";
-            }
-
-            if (statusBreakdown[status] !== undefined) {
-                statusBreakdown[status]++;
-            }
-
-        });
-
-        /* =====================================================
-   TOP SELLING ITEMS
-===================================================== */
-        const completedOrderIds = new Set(
-            filteredOrders
-                .filter(order =>
-                    REVENUE_STATUSES.includes(
-                        String(order.status || "").toLowerCase()
-                    )
-                )
-                .map(order => order.id)
-        );
-
-        const filteredOrderItems = orderItems.filter(item =>
-            completedOrderIds.has(item.order_id)
-        );
-
-        const itemMap = {};
-
-        filteredOrderItems.forEach(item => {
-
-            if (!item.food_items) return;
-
-            const id =
-                item.food_item_id;
-
-            if (!itemMap[id]) {
-
-                itemMap[id] = {
-
-                    id,
-
-                    name:
-                        item.food_items.name,
-
-                    category_id:
-                        item.food_items.category_id,
-
-                    quantitySold: 0,
-
-                    revenue: 0,
-
-                };
-
-            }
-
-            const quantity =
-                Number(item.quantity || 0);
-
-            const price =
-                Number(item.price_at_time || 0);
-
-            itemMap[id].quantitySold += quantity;
-
-            itemMap[id].revenue +=
-                quantity * price;
-
-        });
-
-        const popularItems =
-            Object.values(itemMap)
-
-                .sort(
-                    (a, b) =>
-                        b.quantitySold -
-                        a.quantitySold
-                )
-
-                .slice(0, 10);
-
-        popularItems.forEach(item => {
-            item.qty = item.quantitySold;
-        });
-
-        /* =====================================================
-           TOP CATEGORIES
-        ===================================================== */
-
-        const categoryLookup = new Map(
-            categories.map(category => [
-                category.id,
-                category,
-            ])
-        );
-
-        const categoryMap = {};
-
-        popularItems.forEach(item => {
-
-            const category =
-                categoryLookup.get(
-                    item.category_id
-                );
-
-            const name =
-                category?.name ||
-                "Others";
-
-            if (!categoryMap[name]) {
-
-                categoryMap[name] = {
-
-                    name,
-
-                    quantity: 0,
-
-                };
-
-            }
-
-            categoryMap[name].quantity +=
-                item.quantitySold;
-
-        });
-
-        const topCategories =
-            Object.values(categoryMap)
-
-                .sort(
-                    (a, b) =>
-                        b.quantity -
-                        a.quantity
-                )
-
-                .slice(0, 10);
-
-        topCategories.forEach(category => {
-            category.qty = category.quantity;
-        });
-
-        /* =====================================================
-           LOW PERFORMING ITEMS
-        ===================================================== */
-
-        const lowItems =
-            Object.values(itemMap)
-
-                .filter(
-                    item =>
-                        item.quantitySold <= 2
-                )
-
-                .sort(
-                    (a, b) =>
-                        a.quantitySold -
-                        b.quantitySold
-                )
-
-                .slice(0, 10);
-
-        lowItems.forEach(item => {
-            item.qty = item.quantitySold;
-        });
 
         /* =====================================================
            RESPONSE
@@ -671,55 +532,47 @@ router.get("/dashboard", async (req, res) => {
 
             success: true,
 
+            // For the "today" range the selected window IS today, so the
+            // range count is used -- exactly as before.
             ordersToday:
                 range === "today"
-                    ? filteredOrders.length
-                    : todayOrders.length,
+                    ? Number(data.totalOrders || 0)
+                    : Number(data.ordersToday || 0),
 
             totalOrders:
-                filteredOrders.length,
+                Number(data.totalOrders || 0),
 
-            totalRevenue: formatMoney(totalRevenue),
+            totalRevenue: formatMoney(data.totalRevenue),
 
-            activeOrders: activeOrders,
+            activeOrders: Number(data.activeOrders || 0),
 
             completedOrders:
-                completedOrders,
+                Number(data.completedOrders || 0),
 
             cancelledOrders:
-                cancelledOrders,
+                Number(data.cancelledOrders || 0),
 
             totalCustomers:
-                users.filter(
-                    user =>
-                        user.role ===
-                        "student"
-                ).length,
+                Number(data.totalCustomers || 0),
 
             totalFoodItems:
-                foodItems.length,
+                Number(data.totalFoodItems || 0),
 
             availableItems:
-                foodItems.filter(
-                    item =>
-                        item.available !== false
-                ).length,
+                Number(data.availableItems || 0),
 
             unavailableItems:
-                foodItems.filter(
-                    item =>
-                        item.available === false
-                ).length,
+                Number(data.unavailableItems || 0),
 
             revenueByDay,
 
-            statusBreakdown,
+            statusBreakdown: data.statusBreakdown,
 
-            popularItems,
+            popularItems: data.popularItems || [],
 
-            topCategories,
+            topCategories: data.topCategories || [],
 
-            lowItems,
+            lowItems: data.lowItems || [],
 
         });
 
@@ -1021,61 +874,49 @@ router.get("/dashboard-summary", async (req, res) => {
 
     try {
 
-        const orders = await fetchOrders();
+        // "Today" is the current Asia/Kolkata calendar day, resolved to
+        // explicit instants and passed to the RPC -- the same contract
+        // /dashboard now uses, so both admin screens always agree on which
+        // day they are showing. The previous startOfDay()/endOfDay() used the
+        // Node process timezone, which is unset in this project and so meant
+        // IST in development but UTC on a default container.
+        const todayParts = istCalendarParts();
+        const todayStart = istStartOfDay(todayParts);
+        const todayEnd = istEndOfDay(todayParts);
 
-        const todayStart = startOfDay();
-        const todayEnd = endOfDay();
-
-        const todayOrders = orders.filter(order => {
-
-            const created = new Date(order.created_at);
-
-            return created >= todayStart && created <= todayEnd;
-
-        });
-
-
-        const activeOrders = todayOrders.filter(order =>
-            ACTIVE_STATUSES.includes(
-                String(order.status || "").toLowerCase()
-            )
+        // Counting, filtering and the revenue sum all happen in SQL now.
+        // Nothing is fetched into Node to be counted.
+        const { data, error } = await supabase.rpc(
+            "analytics_dashboard_summary",
+            {
+                p_today_start: todayStart.toISOString(),
+                p_today_end: todayEnd.toISOString(),
+            }
         );
 
-        const completedOrders = todayOrders.filter(order =>
-            REVENUE_STATUSES.includes(
-                String(order.status || "").toLowerCase()
-            )
-        );
+        if (error) throw error;
 
-        const pendingOrders = todayOrders.filter(order =>
-            String(order.status || "").toLowerCase() === ORDER_STATUS.PENDING
-        );
-
-        const preparingOrders = todayOrders.filter(order =>
-            String(order.status || "").toLowerCase() === ORDER_STATUS.PREPARING
-        );
-
-        const readyOrders = todayOrders.filter(order =>
-            String(order.status || "").toLowerCase() === ORDER_STATUS.READY
-        );
+        if (!data) {
+            throw new Error(
+                "analytics_dashboard_summary returned no data"
+            );
+        }
 
         res.json({
 
             success: true,
 
-            ordersToday: todayOrders.length,
+            ordersToday: Number(data.ordersToday || 0),
 
-            totalRevenue: formatMoney(
-                sumRevenue(completedOrders)
-            ),
+            totalRevenue: formatMoney(data.totalRevenue),
 
-            activeOrders: activeOrders.length,
+            activeOrders: Number(data.activeOrders || 0),
 
-            pendingOrders: pendingOrders.length,
+            pendingOrders: Number(data.pendingOrders || 0),
 
-            preparingOrders: preparingOrders.length,
+            preparingOrders: Number(data.preparingOrders || 0),
 
-            readyOrders: readyOrders.length,
+            readyOrders: Number(data.readyOrders || 0),
 
         });
 

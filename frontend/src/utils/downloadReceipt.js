@@ -1,4 +1,3 @@
-import jsPDF from "jspdf";
 import logo from "../assets/CampusCraves-Logo.png";
 
 const PRIMARY = [37, 99, 235];
@@ -25,7 +24,16 @@ const money = (value) => {
     return `Rs. ${Number(value || 0).toFixed(2)}`;
 };
 
-export const downloadReceipt = (order) => {
+export const downloadReceipt = async (order) => {
+
+    // jsPDF (and the html2canvas / dompurify chunks it pulls in itself) is
+    // only needed once someone actually asks for a receipt, so it is imported
+    // on demand rather than shipped in the initial bundle. Everything below is
+    // unchanged.
+    //
+    // The three call sites invoke this without using its return value, so
+    // becoming async requires no change to them.
+    const { default: jsPDF } = await import("jspdf");
 
     const pdf = new jsPDF({
         unit: "mm",

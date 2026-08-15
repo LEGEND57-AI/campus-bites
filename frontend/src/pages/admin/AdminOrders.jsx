@@ -212,12 +212,53 @@ const AdminOrders = () => {
   // socket.off(ORDER_UPDATED), which removes EVERY listener for that event on
   // the shared socket -- unmounting this page also silently killed the
   // ORDER_UPDATED listeners owned by AdminDashboard, TrackOrder and Orders.
+  // Mirrors the latest orders so the socket handler can test membership
+  // synchronously. Reading `orders` from the handler's closure would go stale,
+  // and reading it inside a state updater is not safe either -- an updater runs
+  // during React's render phase, which has not necessarily happened yet.
+  const ordersRef = useRef(orders);
+
+  useEffect(() => {
+    ordersRef.current = orders;
+  }, [orders]);
+
   useEffect(() => {
 
     if (!socket) return;
 
-    const handleOrderUpdate = () => {
-      fetchOrders();
+    // ORDER_UPDATED carries the updated order row itself, so an order already
+    // on screen can be merged in place instead of refetching the whole list.
+    // The payload is a flat orders row with no nested user/order_items, so a
+    // spread is used rather than a replace -- it keeps the joined data the
+    // cards render.
+    //
+    // A refetch still happens when the order is not currently held, because
+    // this same event is what announces a brand-new order (orders.js) and an
+    // auto-cancellation (autoCancelOrders.js). Inserting those blindly would
+    // bypass the server-side date scope of the current fetch.
+    const handleOrderUpdate = (updatedOrder) => {
+
+      if (!updatedOrder?.id) {
+        fetchOrders();
+        return;
+      }
+
+      const alreadyListed = ordersRef.current.some(
+        (order) => order.id === updatedOrder.id
+      );
+
+      if (!alreadyListed) {
+        fetchOrders();
+        return;
+      }
+
+      setOrders((prev) =>
+        prev.map((order) =>
+          order.id === updatedOrder.id
+            ? { ...order, ...updatedOrder }
+            : order
+        )
+      );
     };
 
     socket.on(SocketEvents.ORDER_UPDATED, handleOrderUpdate);

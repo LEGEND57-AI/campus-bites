@@ -4,7 +4,7 @@ import {
   Heart,
   AlertCircle
 } from "lucide-react";
-import { useState } from "react";
+import { useState, memo } from "react";
 import { useFavorite } from "../context/FavoriteContext";
 import { favoriteAPI } from "../services/api";
 import Logo from "../assets/CampusCraves-Logo.png";
@@ -566,4 +566,13 @@ const FoodCard = ({
   );
 };
 
-export default FoodCard;
+// Menu and Dashboard render a grid of these and re-render for reasons that
+// have nothing to do with any individual card -- a category change, a search
+// param, a loading flag. Default shallow comparison is enough: `item` comes
+// straight out of a .map() over state, so its reference only changes when that
+// state is actually replaced.
+//
+// This does NOT (and should not) stop a card re-rendering when the cart or
+// favourites context changes -- memo does not intercept context, and these
+// cards must follow that state.
+export default memo(FoodCard);

@@ -35,9 +35,6 @@ const todayStr = () => getISTDate(new Date());
 const formatDisplay = (iso) =>
     new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 
-const formatToken = (order) =>
-    order.token_number ? `#${String(order.token_number).padStart(2, "0")}` : `#${order.id}`;
-
 const toDate = (value) => (value ? new Date(value) : null);
 
 const toISO = (date) => {
@@ -48,20 +45,138 @@ const toISO = (date) => {
     });
 };
 
+// The statuses this page fetches. Mirrors the terminal-status list in
+// backend/routes/history.js -- an order outside this set can never appear here.
+const HISTORY_STATUSES = [
+    "Completed",
+    "Rejected",
+    "Cancelled",
+    "Refunded",
+];
+
+const PAGE_SIZE = 20;
+
+// The summary cards' status labels map onto real order statuses. "cancelled"
+// deliberately covers BOTH Rejected and Cancelled, which is how this page has
+// always presented them (see ORDER_STATUS_META in HistoryCard.jsx, where
+// Rejected is labelled "Cancelled").
+const STATUS_PARAM = {
+    completed: "Completed",
+    cancelled: "Rejected,Cancelled",
+    refunded: "Refunded",
+};
+
+const PAYMENT_PARAM = {
+    cash: "CASH",
+    online: "RAZORPAY",
+};
+
+// Day arithmetic on an IST calendar date. The date is anchored at UTC noon
+// before shifting so that adding/subtracting days can never cross a boundary
+// in the wrong direction because of the host's own offset.
+const shiftISODate = (iso, { days = 0, months = 0 }) => {
+    const [year, month, day] = iso.split("-").map(Number);
+    const anchored = new Date(Date.UTC(year, month - 1, day, 12));
+
+    if (days) anchored.setUTCDate(anchored.getUTCDate() + days);
+    if (months) anchored.setUTCMonth(anchored.getUTCMonth() + months);
+
+    return anchored.toISOString().slice(0, 10);
+};
+
+// Turns each preset into the explicit from/to pair the API takes. Previously
+// these presets were applied in the browser against the full downloaded
+// history, using the host's local timezone -- which quietly produced different
+// results for an admin outside IST. Resolving them to IST calendar dates here,
+// and to IST instants in the RPC, makes the window timezone-independent.
+const dateWindowFor = (dateFilter, selectedDate, dateRange) => {
+    const today = todayStr();
+
+    switch (dateFilter) {
+        case "today":
+            return { from: today, to: today };
+
+        case "yesterday": {
+            const yesterday = shiftISODate(today, { days: -1 });
+            return { from: yesterday, to: yesterday };
+        }
+
+        // Last 7 days inclusive of today, matching the previous `today - 6`.
+        case "7days":
+            return { from: shiftISODate(today, { days: -6 }), to: today };
+
+        case "3months":
+            return { from: shiftISODate(today, { months: -3 }), to: today };
+
+        case "thisMonth":
+            return { from: `${today.slice(0, 8)}01`, to: today };
+
+        case "specific":
+            return selectedDate
+                ? { from: selectedDate, to: selectedDate }
+                : {};
+
+        case "range":
+            return dateRange.from && dateRange.to
+                ? { from: dateRange.from, to: dateRange.to }
+                : {};
+
+        // "all" -- no window.
+        default:
+            return {};
+    }
+};
+
+const EMPTY_SUMMARY = {
+    total: 0,
+    completed: 0,
+    cancelled: 0,
+    refunded: 0,
+    revenue: 0,
+};
+
 const AdminOrderHistory = () => {
     // Reactive socket: getSocket() returned null on a fresh load because child
     // effects run before SocketProvider's, leaving the listener unattached.
     const socket = useSocket();
 
     const [orders, setOrders] = useState([]);
+    const [summary, setSummary] = useState(EMPTY_SUMMARY);
     const [loading, setLoading] = useState(true);
 
+    // Kept separate from `loading` so an in-flight next page never blanks the
+    // rows already on screen.
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [hasMore, setHasMore] = useState(false);
+    const [loadMoreFailed, setLoadMoreFailed] = useState(false);
+    const [initialLoadFailed, setInitialLoadFailed] = useState(false);
+
+    // Set when a socket update reports an order that has just become terminal
+    // and so belongs in this list, but is not in it. Deliberately a prompt
+    // rather than an automatic refetch: re-fetching would throw away every
+    // page already scrolled, and the socket payload is a flat orders row with
+    // no joined user/items, so it cannot be rendered as a card on its own.
+    const [staleList, setStaleList] = useState(false);
+
     const [search, setSearch] = useState("");
+    const [debouncedSearch, setDebouncedSearch] = useState("");
     const [summaryFilter, setSummaryFilter] = useState("all");
     const [paymentFilter, setPaymentFilter] = useState("all");
     const [showPaymentFilter, setShowPaymentFilter] = useState(false);
-    const [page, setPage] = useState(1);
     const [selectedOrder, setSelectedOrder] = useState(null);
+
+    // Ref, not state: the observer callback needs the current page without
+    // being re-created every time it changes.
+    const pageRef = useRef(1);
+
+    // Bumped on every filter change. A response carrying an older token
+    // belongs to a filter set the user has already moved on from and is
+    // dropped, so stale rows can never be appended to a newer list.
+    const requestTokenRef = useRef(0);
+    const inFlightRef = useRef(false);
+    const loadedPagesRef = useRef(new Set());
+
+    const [observerTarget, setObserverTarget] = useState(null);
 
     const [dateFilter, setDateFilter] = useState("today");
     const [selectedDate, setSelectedDate] = useState("");
@@ -123,62 +238,293 @@ const AdminOrderHistory = () => {
         };
     }, [showDateFilter, showPaymentFilter, showSpecificPopup, showRangePopup]);
 
-    const fetchOrders = useCallback(async () => {
-        try {
-
-            const params = {};
-
-            if (dateFilter === "specific" && selectedDate) {
-
-                params.from = selectedDate;
-                params.to = selectedDate;
-
-            }
-
-            if (
-                dateFilter === "range" &&
-                dateRange.from &&
-                dateRange.to
-            ) {
-
-                params.from = dateRange.from;
-                params.to = dateRange.to;
-
-            }
-
-            const { data } = await adminAPI.getHistory(params);
-
-            if (!Array.isArray(data)) {
-                setOrders([]);
-                toast.error(data?.error || "Invalid orders data");
-                return;
-            }
-            setOrders(data);
-        } catch (err) {
-            console.error("Failed to fetch order history:", err);
-            toast.error("Failed to fetch order history");
-            setOrders([]);
-        } finally {
-            setLoading(false);
-        }
-    }, [dateFilter, selectedDate, dateRange]);
-
+    // One request per pause in typing rather than one per keystroke. Search is
+    // now a server round trip, so this matters; 350ms is short enough that it
+    // still feels immediate.
     useEffect(() => {
 
-        fetchOrders();
+        const timer = setTimeout(() => {
+            setDebouncedSearch(search);
+        }, 350);
 
-    }, [fetchOrders]);
+        return () => clearTimeout(timer);
+
+    }, [search]);
+
+    // Every filter the page offers, resolved to the API's parameters. Search,
+    // status, payment and the date window are ALL applied server-side now --
+    // none of them may be re-applied to the loaded array, because the loaded
+    // array is only ever a prefix of the matching set.
+    const queryParams = useMemo(() => {
+
+        const params = {};
+
+        const window = dateWindowFor(dateFilter, selectedDate, dateRange);
+
+        if (window.from) params.from = window.from;
+        if (window.to) params.to = window.to;
+
+        // "all", "" and "revenue" all mean "every terminal status", which is
+        // the API default, so no status parameter is sent for them.
+        const status = STATUS_PARAM[summaryFilter];
+        if (status) params.status = status;
+
+        const payment = PAYMENT_PARAM[paymentFilter];
+        if (payment) params.payment_method = payment;
+
+        const query = debouncedSearch.trim();
+        if (query) params.search = query;
+
+        return params;
+
+    }, [
+        dateFilter,
+        selectedDate,
+        dateRange,
+        summaryFilter,
+        paymentFilter,
+        debouncedSearch,
+    ]);
+
+    const loadPage = useCallback(async (pageNumber, { append }) => {
+
+        // Two observer callbacks firing during a fast scroll, or a retry
+        // racing the observer, both land here. The in-flight guard makes the
+        // second a no-op, and the loaded-pages set stops a page that already
+        // arrived from being requested a second time.
+        if (inFlightRef.current) return;
+        if (loadedPagesRef.current.has(pageNumber)) return;
+
+        inFlightRef.current = true;
+
+        const token = requestTokenRef.current;
+
+        if (append) {
+            setLoadingMore(true);
+            setLoadMoreFailed(false);
+        } else {
+            setLoading(true);
+            setInitialLoadFailed(false);
+        }
+
+        try {
+
+            const { data } = await adminAPI.getHistory({
+                ...queryParams,
+                page: pageNumber,
+                limit: PAGE_SIZE,
+            });
+
+            // The filters changed while this was in flight; these rows belong
+            // to the previous filter set.
+            if (token !== requestTokenRef.current) return;
+
+            if (!data || !Array.isArray(data.orders)) {
+                throw new Error("Invalid orders data");
+            }
+
+            loadedPagesRef.current.add(pageNumber);
+            pageRef.current = pageNumber;
+
+            setOrders((prev) => {
+
+                if (!append) return data.orders;
+
+                // Offset pagination can hand back a row already held if the
+                // underlying set shifted between requests, so append by id.
+                const seen = new Set(prev.map((order) => order.id));
+
+                return [
+                    ...prev,
+                    ...data.orders.filter((order) => !seen.has(order.id)),
+                ];
+            });
+
+            setSummary(data.summary || EMPTY_SUMMARY);
+            setHasMore(Boolean(data.pagination?.hasMore));
+
+        } catch (err) {
+
+            if (token !== requestTokenRef.current) return;
+
+            console.error("Failed to fetch order history:", err?.message);
+
+            if (append) {
+                // Existing rows stay on screen; only this page failed.
+                setLoadMoreFailed(true);
+            } else {
+                setOrders([]);
+                setSummary(EMPTY_SUMMARY);
+                setHasMore(false);
+                setInitialLoadFailed(true);
+                toast.error("Failed to fetch order history");
+            }
+
+        } finally {
+
+            inFlightRef.current = false;
+
+            if (token === requestTokenRef.current) {
+                if (append) setLoadingMore(false);
+                else setLoading(false);
+            }
+        }
+
+    }, [queryParams]);
+
+    // Filter change: invalidate everything in flight, drop the old rows, and
+    // start again at page 1. `loadPage` changes identity exactly when
+    // `queryParams` does, so this runs once per filter change and not on
+    // unrelated re-renders.
+    useEffect(() => {
+
+        requestTokenRef.current += 1;
+        loadedPagesRef.current = new Set();
+        inFlightRef.current = false;
+        pageRef.current = 1;
+
+        setOrders([]);
+        setHasMore(false);
+        setLoadMoreFailed(false);
+        setStaleList(false);
+
+        loadPage(1, { append: false });
+
+    }, [loadPage]);
+
+    const loadNextPage = useCallback(() => {
+        loadPage(pageRef.current + 1, { append: true });
+    }, [loadPage]);
+
+    // A single observer, re-created only when the sentinel or the conditions
+    // for loading change, and disconnected on every cleanup so no second
+    // observer can ever be watching the same node.
+    useEffect(() => {
+
+        if (!observerTarget) return;
+        if (!hasMore || loading || loadingMore || loadMoreFailed) return;
+
+        const observer = new IntersectionObserver(
+            (entries) => {
+                if (entries[0].isIntersecting) {
+                    loadNextPage();
+                }
+            },
+            {
+                threshold: 0.2,
+                rootMargin: "200px",
+            }
+        );
+
+        observer.observe(observerTarget);
+
+        return () => observer.disconnect();
+
+    }, [
+        observerTarget,
+        hasMore,
+        loading,
+        loadingMore,
+        loadMoreFailed,
+        loadNextPage,
+    ]);
+
+    const refreshFromStart = useCallback(() => {
+
+        requestTokenRef.current += 1;
+        loadedPagesRef.current = new Set();
+        inFlightRef.current = false;
+        pageRef.current = 1;
+
+        setOrders([]);
+        setHasMore(false);
+        setLoadMoreFailed(false);
+        setStaleList(false);
+
+        loadPage(1, { append: false });
+
+    }, [loadPage]);
 
     // Split from the fetch above so it can depend on `socket`. The handler is
     // a stored reference and cleanup passes it to off(); the previous
     // socket.off(ORDER_UPDATED) removed every listener for that event on the
     // shared socket, including other components'.
+    // Mirrors the latest orders so the socket handler can test membership
+    // synchronously without a stale closure.
+    const ordersRef = useRef(orders);
+
+    useEffect(() => {
+        ordersRef.current = orders;
+    }, [orders]);
+
+    // The statuses currently on screen, so an order that no longer matches can
+    // be dropped rather than left showing a status the filter excludes.
+    const activeStatuses = useMemo(() => {
+        const status = STATUS_PARAM[summaryFilter];
+
+        return status ? status.split(",") : HISTORY_STATUSES;
+    }, [summaryFilter]);
+
+    const activeStatusesRef = useRef(activeStatuses);
+
+    useEffect(() => {
+        activeStatusesRef.current = activeStatuses;
+    }, [activeStatuses]);
+
     useEffect(() => {
 
         if (!socket) return;
 
-        const handleOrderUpdate = () => {
-            fetchOrders();
+        // This page only ever holds terminal orders. Every Pending -> Accepted
+        // -> Preparing -> Ready transition previously triggered a full refetch
+        // of the whole history for an order that cannot belong here yet, which
+        // was the single most wasteful refetch in the admin UI.
+        //
+        // Now that the list is paginated there is a second reason not to
+        // refetch: doing so would discard every page already scrolled and
+        // reset the infinite scroll to the top. So this handler only ever
+        // edits rows it already holds, and flags -- rather than fetches -- the
+        // one case it cannot render on its own.
+        const handleOrderUpdate = (updatedOrder) => {
+
+            if (!updatedOrder?.id) return;
+
+            if (!HISTORY_STATUSES.includes(updatedOrder.status)) {
+                return;
+            }
+
+            const alreadyListed = ordersRef.current.some(
+                (order) => order.id === updatedOrder.id
+            );
+
+            if (!alreadyListed) {
+                // Just became terminal, so it belongs in this list -- but the
+                // payload is a flat orders row with no joined user or items,
+                // and inserting it would also shift every offset-paginated
+                // page boundary. Surface it instead and let the admin reload.
+                setStaleList(true);
+                return;
+            }
+
+            // No longer matches the status filter the user is looking at.
+            if (!activeStatusesRef.current.includes(updatedOrder.status)) {
+                setOrders((prev) =>
+                    prev.filter((order) => order.id !== updatedOrder.id)
+                );
+
+                setStaleList(true);
+                return;
+            }
+
+            // Flat orders row: spread rather than replace so the joined
+            // user/order_items data the cards render is preserved.
+            setOrders((prev) =>
+                prev.map((order) =>
+                    order.id === updatedOrder.id
+                        ? { ...order, ...updatedOrder }
+                        : order
+                )
+            );
         };
 
         socket.on(SocketEvents.ORDER_UPDATED, handleOrderUpdate);
@@ -187,164 +533,19 @@ const AdminOrderHistory = () => {
             socket.off(SocketEvents.ORDER_UPDATED, handleOrderUpdate);
         };
 
-    }, [socket, fetchOrders]);
+    }, [socket]);
 
-    const dateFilteredOrders = useMemo(() => {
-        return orders.filter((order) => {
-            const orderDate = new Date(order.created_at);
-            const today = new Date();
-
-            today.setHours(0, 0, 0, 0);
-
-            if (dateFilter === "today") {
-                const d = new Date(orderDate);
-                d.setHours(0, 0, 0, 0);
-
-                if (d.getTime() !== today.getTime()) return false;
-            }
-
-            if (dateFilter === "yesterday") {
-                const yesterday = new Date(today);
-                yesterday.setDate(yesterday.getDate() - 1);
-
-                const d = new Date(orderDate);
-                d.setHours(0, 0, 0, 0);
-
-                if (d.getTime() !== yesterday.getTime()) return false;
-            }
-
-            if (dateFilter === "7days") {
-                const last7 = new Date(today);
-                last7.setDate(last7.getDate() - 6);
-
-                if (orderDate < last7) return false;
-            }
-
-            if (dateFilter === "3months") {
-                const last3 = new Date(today);
-                last3.setMonth(last3.getMonth() - 3);
-
-                if (orderDate < last3) return false;
-            }
-
-            if (dateFilter === "thisMonth") {
-                if (
-                    orderDate.getMonth() !== today.getMonth() ||
-                    orderDate.getFullYear() !== today.getFullYear()
-                ) {
-                    return false;
-                }
-            }
-
-            return true;
-        });
-    }, [orders, dateFilter]);
-
-    const filteredOrders = useMemo(() => {
-        return dateFilteredOrders.filter((order) => {
-
-            // Payment Filter
-            if (
-                paymentFilter === "cash" &&
-                order.payment_method !== "CASH"
-            ) {
-                return false;
-            }
-
-            if (
-                paymentFilter === "online" &&
-                order.payment_method !== "RAZORPAY"
-            ) {
-                return false;
-            }
-
-            if (summaryFilter === "completed" && order.status !== "Completed") {
-                return false;
-            }
-
-            if (
-                summaryFilter === "cancelled" &&
-                !["Rejected", "Cancelled"].includes(order.status)
-            ) {
-                return false;
-            }
-
-            if (summaryFilter === "refunded" && order.status !== "Refunded") {
-                return false;
-            }
-
-            if (search.trim()) {
-                const q = search.trim().toLowerCase();
-
-                const matchesId = String(order.id).toLowerCase().includes(q);
-                const matchesToken = formatToken(order).toLowerCase().includes(q);
-                const matchesName = order.user?.name?.toLowerCase().includes(q);
-                const matchesPhone = order.user?.phone?.toLowerCase().includes(q);
-
-                if (!matchesId && !matchesToken && !matchesName && !matchesPhone) {
-                    return false;
-                }
-            }
-
-            return true;
-        });
-    }, [dateFilteredOrders, search, summaryFilter, paymentFilter]);
-
-    useEffect(() => {
-        setPage(1);
-    }, [search, dateFilter, summaryFilter]);
-
-
-    const paginatedOrders = filteredOrders;
-
-    // ---------- Summary (over filtered set, not just current page) ----------
-    const summary = useMemo(() => {
-
-        const paymentFilteredOrders = dateFilteredOrders.filter((order) => {
-            if (
-                paymentFilter === "cash" &&
-                order.payment_method !== "CASH"
-            ) {
-                return false;
-            }
-
-            if (
-                paymentFilter === "online" &&
-                order.payment_method !== "RAZORPAY"
-            ) {
-                return false;
-            }
-
-            return true;
-        });
-
-        const completed = paymentFilteredOrders.filter(
-            (o) => o.status === "Completed"
-        );
-
-        const cancelled = paymentFilteredOrders.filter(
-            (o) => ["Rejected", "Cancelled"].includes(o.status)
-        );
-
-        const refunded = paymentFilteredOrders.filter(
-            (o) => o.status === "Refunded"
-        );
-
-        const revenue = completed.reduce(
-            (sum, o) => sum + Number(o.total_amount || 0),
-            0
-        );
-
-
-        return {
-            total: paymentFilteredOrders.length,
-            completed: completed.length,
-            cancelled: cancelled.length,
-            refunded: refunded.length,
-            revenue,
-        };
-    }, [dateFilteredOrders, paymentFilter]);
-
+    // No client-side date/payment/status/search filtering and no client-side
+    // aggregation remain. `orders` is a prefix of the server's already-filtered
+    // result set, so re-filtering it here would only ever hide matching rows
+    // that live on pages not yet loaded, and `summary` comes from the server
+    // computed over the whole filtered set rather than the loaded prefix.
+    //
+    // Summary scope note: the cards span the date + payment window but are
+    // deliberately NOT narrowed by the status cards or the search box. That is
+    // the behaviour this page has always had -- the cards are the breakdown
+    // you click to apply a status filter, so they have to keep showing the
+    // totals you are choosing between.
 
     if (loading) {
         return (
@@ -816,7 +1017,6 @@ const AdminOrderHistory = () => {
                                         setSummaryFilter("all");
                                         setSearch("");
                                         setShowPaymentFilter(false);
-                                        setPage(1);
                                     }}
                                     className="w-full text-left px-4 py-3 text-red-600 hover:bg-red-50"
                                 >
@@ -911,16 +1111,92 @@ const AdminOrderHistory = () => {
 
             </div>
 
+            {/* NEW-HISTORY PROMPT */}
+            {staleList && (
+                <div className="flex items-center justify-between gap-3 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3">
+                    <p className="text-sm font-medium text-blue-700">
+                        An order has moved into history since this list loaded.
+                    </p>
+
+                    <button
+                        onClick={refreshFromStart}
+                        className="shrink-0 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
+                    >
+                        Refresh
+                    </button>
+                </div>
+            )}
+
             {/* HISTORY LIST */}
-            {filteredOrders.length === 0 ? (
+            {orders.length === 0 ? (
                 <div className="text-center py-16 text-gray-400 text-sm">
-                    No history matches your filters.
+                    {initialLoadFailed
+                        ? "Could not load order history."
+                        : "No history matches your filters."}
+
+                    {initialLoadFailed && (
+                        <div className="mt-4">
+                            <button
+                                onClick={refreshFromStart}
+                                className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700"
+                            >
+                                Try again
+                            </button>
+                        </div>
+                    )}
                 </div>
             ) : (
                 <div className="space-y-4">
-                    {paginatedOrders.map((order) => (
+                    {orders.map((order) => (
                         <HistoryCard key={order.id} order={order} onViewDetails={setSelectedOrder} />
                     ))}
+                </div>
+            )}
+
+            {/* INFINITE SCROLL FOOT */}
+            {orders.length > 0 && (
+                <div className="pt-2">
+
+                    {loadingMore && (
+                        <div
+                            className="space-y-4"
+                            role="status"
+                            aria-live="polite"
+                            aria-label="Loading more orders"
+                        >
+                            {[1, 2].map((i) => (
+                                <div
+                                    key={i}
+                                    className="h-32 rounded-2xl bg-slate-200 animate-pulse"
+                                />
+                            ))}
+                        </div>
+                    )}
+
+                    {loadMoreFailed && (
+                        <div className="flex flex-col items-center gap-3 py-6">
+                            <p className="text-sm text-slate-500">
+                                Could not load more orders.
+                            </p>
+
+                            <button
+                                onClick={loadNextPage}
+                                className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700"
+                            >
+                                Retry
+                            </button>
+                        </div>
+                    )}
+
+                    {!hasMore && !loadingMore && !loadMoreFailed && (
+                        <p className="py-6 text-center text-sm text-gray-400">
+                            No more orders
+                        </p>
+                    )}
+
+                    {/* Sentinel. Sits after the rows so it only enters the
+                        viewport once the admin has actually reached the end. */}
+                    <div ref={setObserverTarget} aria-hidden="true" className="h-px" />
                 </div>
             )}
 

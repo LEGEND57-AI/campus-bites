@@ -5,6 +5,10 @@ import { generateDailyToken } from "../utils/tokenGenerator.js";
 import { orderLimiter } from "../middleware/rateLimiter.js";
 import { createNotification } from "../utils/notificationService.js";
 import {
+  MAX_ITEM_QUANTITY,
+  MAX_DISTINCT_ITEMS,
+} from "../utils/orderLimits.js";
+import {
   emitOrderUpdate,
   emitAdminOrderUpdate,
   emitNotification,
@@ -53,9 +57,9 @@ router.post('/', async (req, res) => {
       });
     }
 
-    if (items.length > 10) {
+    if (items.length > MAX_DISTINCT_ITEMS) {
       return res.status(400).json({
-        error: "Maximum 10 items allowed in one order."
+        error: `Maximum ${MAX_DISTINCT_ITEMS} items allowed in one order.`
       });
     }
 
@@ -88,10 +92,10 @@ router.post('/', async (req, res) => {
       if (
         !Number.isInteger(item.quantity) ||
         item.quantity < 1 ||
-        item.quantity > 10
+        item.quantity > MAX_ITEM_QUANTITY
       ) {
         return res.status(400).json({
-          error: "Invalid quantity. Quantity must be between 1 and 10."
+          error: `Invalid quantity. Quantity must be between 1 and ${MAX_ITEM_QUANTITY}.`
         });
       }
 

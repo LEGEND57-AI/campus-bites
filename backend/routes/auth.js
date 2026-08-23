@@ -1,6 +1,7 @@
 import express from "express";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
+import { isIP } from "node:net";
 import { v4 as uuidv4 } from "uuid";
 import SibApiV3Sdk from "sib-api-v3-sdk";
 import { supabase } from "../db.js";
@@ -123,6 +124,42 @@ const generateOtp = () => crypto.randomInt(100000, 1000000).toString();
 //
 // The caller keeps the plaintext for the email; only this digest is persisted.
 const hashOtp = (otp) => bcrypt.hash(otp, 10);
+
+// ================= CLIENT IP =================
+//
+// The address recorded against a session, for forensics.
+//
+// req.ip is the wrong value in this deployment. Production is
+// browser -> Cloudflare -> Render router -> Express, but `trust proxy` is 1,
+// so Express walks back one hop and lands on the last X-Forwarded-For entry,
+// which is Render's internal router. Every one of the 204 sessions recorded so
+// far holds ::1 or a 10.x address across just 7 distinct values -- none of them
+// identifies a client, which makes the column useless in an incident.
+//
+// CF-Connecting-IP is set by Cloudflare itself and a caller-supplied one is
+// rejected at the edge with 403, so it cannot be forged through Cloudflare.
+// X-Forwarded-For is not used: its length varies with the chain, so no fixed
+// index identifies the client and an injected entry sits inside it.
+//
+// Deliberately NOT routed through express-rate-limit's ipKeyGenerator, which
+// the limiter uses: that masks IPv6 to a /56 network prefix. Correct for
+// bucketing, wrong here -- it would store 2001:db8:abcd:ee00:: instead of the
+// actual address and lose precision on the very record meant to identify
+// someone. Full precision is kept.
+//
+// Anything missing, duplicated (an array), padded, malformed or not a real IP
+// falls back to req.ip -- exactly the value stored today -- so attribution can
+// only improve, never regress. The address is stored, never logged.
+const getClientIp = (req) => {
+  const header = req.headers["cf-connecting-ip"];
+
+  // A repeated header arrives as an array; only a single string is trusted.
+  const candidate = typeof header === "string" ? header.trim() : "";
+
+  // isIP returns 0 for anything that is not a valid IPv4 or IPv6 address,
+  // which also rejects a comma-separated list.
+  return isIP(candidate) !== 0 ? candidate : req.ip;
+};
 
 // ================= EMAIL TEMPLATE =================
 const generateEmailTemplate = (otp, type = "verify") => {
@@ -815,7 +852,7 @@ router.post("/google", loginLimiter, async (req, res) => {
 
       deviceName: req.headers["user-agent"] || null,
       browser: req.headers["user-agent"] || null,
-      ipAddress: req.ip,
+      ipAddress: getClientIp(req),
     });
 
     const safeUser = { ...user };
@@ -937,7 +974,7 @@ router.post("/login", loginLimiter, async (req, res) => {
 
       deviceName: req.headers["user-agent"] || null,
       browser: req.headers["user-agent"] || null,
-      ipAddress: req.ip,
+      ipAddress: getClientIp(req),
     });
 
     const safeUser = { ...user };

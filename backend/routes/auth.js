@@ -105,6 +105,25 @@ const sendEmail = async (to, subject, html) => {
 // (`user.otp !== otp`), so the result is stringified as before.
 const generateOtp = () => crypto.randomInt(100000, 1000000).toString();
 
+// Codes are stored one-way. users.otp previously held the live code in
+// cleartext, so anything that could read that column -- a backup, a dashboard
+// session, a leaked service-role key -- could read a victim's active
+// password-reset code and take the account without ever knowing the password.
+//
+// bcrypt rather than a plain digest, because the thing being protected is only
+// six digits. A SHA-256 of a 10^6 keyspace is exhaustible instantly, so it
+// would look like a fix while providing almost none. bcrypt's work factor puts
+// a full sweep at roughly 10^6 x ~100ms, far beyond the 15-minute window the
+// code is valid for -- by the time it fell out, it would already be worthless.
+//
+// Cost 10 matches the factor used for passwords in this file. Deliberately not
+// raised: M-1 caps a challenge at five guesses, so the ceiling is five
+// comparisons per OTP, and the expiry window -- not the work factor -- is what
+// actually bounds an offline attack here.
+//
+// The caller keeps the plaintext for the email; only this digest is persisted.
+const hashOtp = (otp) => bcrypt.hash(otp, 10);
+
 // ================= EMAIL TEMPLATE =================
 const generateEmailTemplate = (otp, type = "verify") => {
   const titleMap = {
@@ -222,7 +241,8 @@ router.post("/register", otpLimiter, async (req, res) => {
         email,
         phone,
         password_hash: hashedPassword,
-        otp,
+        // The digest is stored; `otp` above stays plaintext for the email.
+        otp: await hashOtp(otp),
         otp_expiry: expiry,
         otp_last_sent_at: now,
         // A fresh challenge always starts with a full guess budget.
@@ -303,7 +323,21 @@ router.post("/verify-otp", otpLimiter, async (req, res) => {
 
     const now = new Date().toISOString();
 
-    if (user.otp !== otp) {
+    // users.otp holds a bcrypt digest, so this compares digest-to-plaintext
+    // rather than string-to-string. bcrypt.compare is constant-time, which the
+    // previous `!==` was not.
+    //
+    // The stored value is null whenever no challenge is outstanding -- already
+    // verified, or cleared after a successful check. bcrypt.compare rejects a
+    // null hash, so that case is short-circuited to the same generic response
+    // the wrong-code branch returns; it must not surface as a 500.
+    const otpMatches =
+      typeof user.otp === "string" &&
+      user.otp.length > 0 &&
+      typeof otp === "string" &&
+      (await bcrypt.compare(otp, user.otp));
+
+    if (!otpMatches) {
       return res.status(400).json({
         error: "Invalid OTP",
       });
@@ -386,7 +420,8 @@ router.post("/resend-otp", otpLimiter, async (req, res) => {
     await supabase
       .from("users")
       .update({
-        otp,
+        // The digest is stored; `otp` stays plaintext for the email below.
+        otp: await hashOtp(otp),
         otp_expiry: expiry,
         otp_last_sent_at: now,
         // A newly issued code is a new challenge, so the guess budget is
@@ -445,7 +480,8 @@ router.post("/forgot-password", otpLimiter, async (req, res) => {
     await supabase
       .from("users")
       .update({
-        otp,
+        // The digest is stored; `otp` stays plaintext for the email below.
+        otp: await hashOtp(otp),
         otp_expiry: expiry,
         otp_last_sent_at: now,
         // A newly issued code is a new challenge, so the guess budget is

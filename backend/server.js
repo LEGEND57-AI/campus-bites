@@ -118,7 +118,12 @@ app.use(
   paymentWebhookRoutes
 );
 
-app.use(express.json());
+// 100kb is body-parser's own default, stated explicitly rather than inherited
+// so a future upgrade cannot change it silently. The largest body this API
+// legitimately receives is a few kB -- orders cap at 10 items, and image
+// uploads are multipart and handled by multer, never by this parser -- so the
+// ceiling is already generous.
+app.use(express.json({ limit: "100kb" }));
 
 app.use(cookieParser());
 
@@ -204,6 +209,22 @@ app.use((err, req, res, next) => {
     );
 
     return res.status(403).json({ error: "Origin not allowed" });
+  }
+
+  // A body over the parser's limit. body-parser tags these `entity.too.large`
+  // and sets status 413; both are matched so the check survives either being
+  // absent. Previously this fell through to the 500 below, which reported a
+  // client's oversized request as a server fault and logged it at error level
+  // -- routine noise that could mask a genuine incident. Answered 413 and
+  // logged at warn instead. The message is fixed text: no stack, no byte
+  // counts, nothing about internals.
+  if (err && (err.type === "entity.too.large" || err.status === 413)) {
+    (req.log || logger).warn(
+      { path: req.originalUrl, limit: err.limit, length: err.length },
+      "Rejected oversized request body"
+    );
+
+    return res.status(413).json({ error: "Request body too large" });
   }
 
   (req.log || logger).error({ err }, "Unhandled error");

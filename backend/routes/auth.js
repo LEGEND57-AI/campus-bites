@@ -1,5 +1,6 @@
 import express from "express";
 import bcrypt from "bcrypt";
+import crypto from "crypto";
 import { v4 as uuidv4 } from "uuid";
 import SibApiV3Sdk from "sib-api-v3-sdk";
 import { supabase } from "../db.js";
@@ -13,6 +14,7 @@ import {
 } from "../utils/jwt.js";
 import {
   createSession,
+  revokeAllSessions,
 } from "../services/sessionService.js";
 import { getRefreshCookieOptions } from "./session.js";
 
@@ -24,6 +26,15 @@ const router = express.Router();
 // flow into a permanent account-takeover primitive for anyone who knows the
 // email address.
 const PASSWORD_RESET_VERIFICATION_TTL_MS = 15 * 60 * 1000;
+
+// How many guesses a single OTP challenge is worth, per account.
+//
+// otpLimiter throttles by IP, which an attacker with a proxy pool simply
+// rotates around; this budget follows the account instead. Five keeps the
+// chance of guessing a six-digit code at 5/10^6 while still tolerating the
+// mistypes real users make. It is not a lockout: issuing a new OTP resets the
+// counter, so the budget guards one challenge rather than the account.
+const MAX_OTP_ATTEMPTS = 5;
 
 
 // ================= BREVO API =================
@@ -76,6 +87,23 @@ const sendEmail = async (to, subject, html) => {
     throw new Error("Failed to send email");
   }
 };
+
+// ================= OTP =================
+//
+// These codes authorise account verification and, via /forgot-password, a
+// password change -- so they are a credential, not a nonce. Math.random() was
+// used here previously: V8 implements it with xorshift128+, whose internal
+// state is recoverable from a run of observed outputs, which would let someone
+// who can harvest their own codes predict a victim's reset code.
+//
+// crypto.randomInt draws from the CSPRNG and rejection-samples internally, so
+// there is no modulo bias and no non-cryptographic fallback path.
+//
+// The bounds are deliberately identical to what they replaced: randomInt's
+// upper bound is exclusive, so [100000, 1000000) is 100000-999999 -- always
+// exactly six digits, and never a leading zero. Verification compares strings
+// (`user.otp !== otp`), so the result is stringified as before.
+const generateOtp = () => crypto.randomInt(100000, 1000000).toString();
 
 // ================= EMAIL TEMPLATE =================
 const generateEmailTemplate = (otp, type = "verify") => {
@@ -181,7 +209,7 @@ router.post("/register", otpLimiter, async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = generateOtp();
 
     const expiry = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
@@ -197,6 +225,8 @@ router.post("/register", otpLimiter, async (req, res) => {
         otp,
         otp_expiry: expiry,
         otp_last_sent_at: now,
+        // A fresh challenge always starts with a full guess budget.
+        otp_attempts: 0,
         is_verified: false,
         role: "student",
       },
@@ -240,17 +270,32 @@ router.post("/verify-otp", otpLimiter, async (req, res) => {
   email = email.trim().toLowerCase();
 
   try {
-    const { data: user, error } = await supabase
-      .from("users")
-      .select("*")
-      .eq("email", email)
-      .single();
+    // Charges one guess against this account's budget and returns the row in
+    // the same statement. The charge happens BEFORE the code is compared:
+    // deciding whether to charge based on whether the guess was right is what
+    // would let concurrent requests share a single attempt, so a correct guess
+    // is charged too and the counter is reset to zero on success below.
+    //
+    // otpLimiter above still throttles by IP; this is the account-level half,
+    // which an attacker rotating IP addresses cannot sidestep.
+    const { data: rows, error } = await supabase.rpc("consume_otp_attempt", {
+      p_email: email,
+      p_max: MAX_OTP_ATTEMPTS,
+    });
 
-    if (error || !user) {
-      // Deliberately the same response as an incorrect OTP below --
-      // this endpoint is directly callable with any email, so
-      // distinguishing "no such user" from "wrong code" would let
-      // someone enumerate registered emails without ever registering.
+    if (error) throw error;
+
+    const user = Array.isArray(rows) ? rows[0] : rows;
+
+    if (!user) {
+      // Three states answer identically here: no such account, and a budget
+      // that is already spent -- plus the incorrect-code branch below.
+      //
+      // This endpoint is directly callable with any email, so distinguishing
+      // "no such user" from "wrong code" would let someone enumerate
+      // registered emails without ever registering. Collapsing the exhausted
+      // budget into the same response keeps that property and additionally
+      // hides whether an account is currently being attacked.
       return res.status(400).json({
         error: "Invalid OTP",
       });
@@ -279,6 +324,9 @@ router.post("/verify-otp", otpLimiter, async (req, res) => {
           otp: null,
           otp_expiry: null,
           otp_last_sent_at: null,
+          // The challenge was answered correctly, so the guess charged for
+          // this request is returned along with the rest of the budget.
+          otp_attempts: 0,
         })
         .eq("email", email);
     } else {
@@ -289,6 +337,7 @@ router.post("/verify-otp", otpLimiter, async (req, res) => {
           otp: null,
           otp_expiry: null,
           otp_last_sent_at: null,
+          otp_attempts: 0,
         })
         .eq("email", email);
     }
@@ -328,7 +377,7 @@ router.post("/resend-otp", otpLimiter, async (req, res) => {
       return res.json(genericResponse);
     }
 
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = generateOtp();
 
     const expiry = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
@@ -340,6 +389,10 @@ router.post("/resend-otp", otpLimiter, async (req, res) => {
         otp,
         otp_expiry: expiry,
         otp_last_sent_at: now,
+        // A newly issued code is a new challenge, so the guess budget is
+        // restored. Without this, a spent budget would persist and lock a
+        // legitimate user out of their own fresh OTP.
+        otp_attempts: 0,
       })
       .eq("email", email);
 
@@ -383,7 +436,7 @@ router.post("/forgot-password", otpLimiter, async (req, res) => {
       return res.json(genericResponse);
     }
 
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = generateOtp();
 
     const expiry = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
@@ -395,6 +448,10 @@ router.post("/forgot-password", otpLimiter, async (req, res) => {
         otp,
         otp_expiry: expiry,
         otp_last_sent_at: now,
+        // A newly issued code is a new challenge, so the guess budget is
+        // restored. Without this, a spent budget would persist and lock a
+        // legitimate user out of their own fresh OTP.
+        otp_attempts: 0,
       })
       .eq("email", email);
 
@@ -439,7 +496,9 @@ router.post("/reset-password", otpLimiter, async (req, res) => {
 
     const { data: user, error } = await supabase
       .from("users")
-      .select("reset_verified, reset_verified_at")
+      // `id` is selected solely so the session revocation below can be scoped
+      // to this user. Everything else about this lookup is unchanged.
+      .select("id, reset_verified, reset_verified_at")
       .eq("email", email)
       .single();
 
@@ -468,7 +527,15 @@ router.post("/reset-password", otpLimiter, async (req, res) => {
 
     const hashed = await bcrypt.hash(newPassword, 10);
 
-    await supabase
+    // The result of this update was previously discarded, so a failed write
+    // still answered "Password updated" while the password was unchanged.
+    // It is checked now because the revocation below must only run once the
+    // credential change is known to have happened.
+    //
+    // .select().maybeSingle() rather than the error alone: PostgREST reports
+    // no error when an update matches zero rows, so the returned row is the
+    // only proof that a write actually occurred.
+    const { data: updatedUser, error: updateError } = await supabase
       .from("users")
       .update({
         password_hash: hashed,
@@ -478,7 +545,49 @@ router.post("/reset-password", otpLimiter, async (req, res) => {
         otp_expiry: null,
         otp_last_sent_at: null,
       })
-      .eq("email", email);
+      .eq("email", email)
+      .select("id")
+      .maybeSingle();
+
+    if (updateError || !updatedUser) {
+      // Code and message only. A PostgrestError's `details` reproduces the
+      // failing row, which on this table carries password_hash and the
+      // plaintext otp.
+      console.error(
+        "Reset password update error:",
+        updateError?.code,
+        updateError?.message
+      );
+
+      return res.status(500).json({
+        error: "Failed to update password",
+      });
+    }
+
+    // The password has changed, so every session issued under the old one is
+    // now untrusted -- a reset is the remedy a user reaches for precisely when
+    // they believe someone else has access. Refresh tokens live for 30 days,
+    // so without this an attacker keeps working access straight through the
+    // reset.
+    //
+    // Deliberately not fatal. The credential change has already committed and
+    // the reset OTP is spent, so answering 500 here would tell the user their
+    // reset failed when it did not, and leave them unable to retry. The
+    // failure is logged for monitoring and the successful response stands.
+    //
+    // Not atomic with the update above: the two touch different tables and
+    // PostgREST offers no transaction across them. Closing that window would
+    // need an RPC, which is deliberately out of scope here.
+    try {
+      await revokeAllSessions(updatedUser.id);
+    } catch (revokeError) {
+      // user id only -- never the email, password, OTP or any token.
+      console.error(
+        "Password reset succeeded but session revocation failed for user:",
+        updatedUser.id,
+        revokeError?.message
+      );
+    }
 
     res.json({
       message: "Password updated",

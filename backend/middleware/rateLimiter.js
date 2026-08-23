@@ -1,13 +1,54 @@
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
+import { isIP } from "node:net";
+
+// ================= CLIENT IDENTITY =================
+//
+// Which address every limiter below counts against.
+//
+// The default is req.ip, and in this deployment that is the wrong value.
+// Production runs browser -> Cloudflare -> Render router -> Express, but
+// `trust proxy` is 1, so Express walks back a single hop and lands on the
+// LAST X-Forwarded-For entry -- Render's internal router. Logs confirmed it:
+// req.ip resolved to ::1 or 10.x addresses, one of which was shared by 8 of
+// 10 users. Everyone behind a given internal hop shared a bucket, so one
+// person could exhaust the login or OTP budget for everyone else, while the
+// same client scattered across hops collected several budgets.
+//
+// CF-Connecting-IP is used instead because Cloudflare sets it itself on every
+// proxied request and refuses one supplied by the caller -- an outside request
+// carrying that header is rejected at the edge with 403, so it cannot be
+// forged through Cloudflare. X-Forwarded-For is deliberately NOT used: its
+// length varies with the chain (4 entries in one logged request, 3 in
+// another), so no fixed index identifies the client. remoteAddress is only
+// the local Render connection, and true-client-ip is an Enterprise alias that
+// carries no additional guarantee here.
+//
+// ipKeyGenerator is the library's own helper and is not optional: for IPv6 it
+// masks to a /56 so a client holding a prefix cannot rotate addresses for a
+// fresh bucket. express-rate-limit v8 enforces this -- a custom keyGenerator
+// touching req.ip without it throws ERR_ERL_KEY_GEN_IPV6 at startup.
+//
+// Anything missing, duplicated, malformed or not a real IP falls through to
+// req.ip, which is exactly the behaviour that existed before this change. The
+// address is used only as a bucket key: never logged, never returned.
+const clientIpKeyGenerator = (req) => {
+  const header = req.headers["cf-connecting-ip"];
+
+  // A repeated header arrives as an array; only a single string is trusted.
+  const candidate = typeof header === "string" ? header.trim() : "";
+
+  // isIP returns 0 for anything that is not a valid IPv4 or IPv6 address.
+  const clientIp = isIP(candidate) !== 0 ? candidate : req.ip;
+
+  return ipKeyGenerator(clientIp ?? "");
+};
 
 // ================= COMMON CONFIG =================
 
 const commonConfig = {
   standardHeaders: true,
   legacyHeaders: false,
-  validate: {
-    trustProxy: false,
-  },
+  keyGenerator: clientIpKeyGenerator,
 
   handler: (req, res) => {
 

@@ -324,6 +324,28 @@ router.post("/register", otpLimiter, async (req, res) => {
 router.post("/verify-otp", otpLimiter, async (req, res) => {
   let { email, otp, type } = req.body;
 
+  // Type-checked before the normalisation below, which is the first use and
+  // sits outside the try. body-parser always leaves req.body an object, so the
+  // destructure above cannot throw -- but a caller that omits the field, or
+  // sends a number, null, array or object, leaves `email` non-string and
+  // `email.trim()` throws. Express 4 does not catch a rejection from an async
+  // handler and this app installs no unhandledRejection hook, so that throw
+  // terminated the whole process: a single unauthenticated request with the
+  // body `{}` took the server down for every user. A typeof test rather than a
+  // truthiness test, so every wrong type is rejected the same way.
+  //
+  // otp is checked here too. It is already guarded where it is compared, so it
+  // could not crash, but answering the same 400 for a malformed body is more
+  // honest than charging an attempt against the account and reporting a wrong
+  // code. No lookup has happened at this point, so this reveals nothing about
+  // whether the account exists -- the generic "Invalid OTP" path below still
+  // covers every case that depends on account state.
+  if (typeof email !== "string" || typeof otp !== "string") {
+    return res.status(400).json({
+      error: "Email and OTP are required",
+    });
+  }
+
   email = email.trim().toLowerCase();
 
   try {
@@ -429,6 +451,16 @@ router.post("/verify-otp", otpLimiter, async (req, res) => {
 router.post("/resend-otp", otpLimiter, async (req, res) => {
   let { email } = req.body;
 
+  // Same process-killing throw as /verify-otp above; see the note there. This
+  // 400 is not an enumeration signal -- it depends only on the shape of the
+  // request, never on account state, so every syntactically valid address
+  // still receives the generic response below whether or not it is registered.
+  if (typeof email !== "string") {
+    return res.status(400).json({
+      error: "Email is required",
+    });
+  }
+
   email = email.trim().toLowerCase();
 
   const genericResponse = {
@@ -487,6 +519,16 @@ router.post("/resend-otp", otpLimiter, async (req, res) => {
 // ================= FORGOT PASSWORD =================
 router.post("/forgot-password", otpLimiter, async (req, res) => {
   let { email } = req.body;
+
+  // Same process-killing throw as /verify-otp above; see the note there. As
+  // with /resend-otp this 400 turns only on request shape, never on account
+  // state, so the generic response below still hides whether the address is
+  // registered.
+  if (typeof email !== "string") {
+    return res.status(400).json({
+      error: "Email is required",
+    });
+  }
 
   email = email.trim().toLowerCase();
 
@@ -549,6 +591,18 @@ router.post("/reset-password", otpLimiter, async (req, res) => {
   try {
     let { email, newPassword } = req.body;
 
+    // This handler destructures inside the try, so a non-string newPassword
+    // was caught rather than fatal -- but it surfaced as a 500 reporting a
+    // failed update, which is both the wrong status for a malformed request
+    // and a misleading message. Checked explicitly so it answers 400 like the
+    // two length/strength rules below it, which it precedes because those call
+    // .length and .test() on the same value.
+    if (typeof newPassword !== "string") {
+      return res.status(400).json({
+        error: "New password is required"
+      });
+    }
+
     if (newPassword.length < 8) {
       return res.status(400).json({
         error: "Password must be at least 8 characters long."
@@ -562,6 +616,17 @@ router.post("/reset-password", otpLimiter, async (req, res) => {
       return res.status(400).json({
         error:
           "Password must contain at least one uppercase letter, one lowercase letter and one number."
+      });
+    }
+
+    // Same wrong-type 500 the newPassword check above fixes: email is used by
+    // .trim() on the next line, inside this try, so a number or null was
+    // caught and reported as a failed update rather than a bad request. Placed
+    // here rather than beside that check so the two rules above keep answering
+    // first, exactly as they did before -- this only replaces the 500.
+    if (typeof email !== "string") {
+      return res.status(400).json({
+        error: "Email is required"
       });
     }
 
@@ -897,6 +962,15 @@ router.post("/google", loginLimiter, async (req, res) => {
 // ================= LOGIN =================
 router.post("/login", loginLimiter, async (req, res) => {
   let { email, password } = req.body;
+
+  // Same process-killing throw as /verify-otp above; see the note there. Both
+  // fields are checked: email is normalised on the next line and password is
+  // handed to bcrypt.compare further down, and neither use is inside a try.
+  if (typeof email !== "string" || typeof password !== "string") {
+    return res.status(400).json({
+      error: "Email and password are required",
+    });
+  }
 
   email = email.trim().toLowerCase();
 

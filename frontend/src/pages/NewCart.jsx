@@ -6,6 +6,7 @@ import toast from "react-hot-toast";
 import { orderAPI } from "../services/api";
 import ConfirmOrderModal from "../components/cart/ConfirmOrderModal";
 import { paymentAPI } from "../services/api";
+import { loadRazorpay } from "../utils/loadRazorpay";
 
 import Sidebar from "../components/dashboard/Sidebar";
 import DashboardHeader from "../components/dashboard/DashboardHeader";
@@ -259,6 +260,19 @@ const NewCart = () => {
         },
       };
 
+      // checkout.js is no longer in index.html, so it is fetched here -- the
+      // first point where it is actually needed. Idempotent and shared, so the
+      // double-click guard above and this call cannot produce two script tags.
+      // A rejection lands in the catch below, which already releases the guard.
+      await loadRazorpay();
+
+      if (!window.Razorpay) {
+        throw Object.assign(
+          new Error("Razorpay checkout script failed to load"),
+          { isRazorpayLoadError: true }
+        );
+      }
+
       const razorpay = new window.Razorpay(options);
 
       razorpay.open();
@@ -273,9 +287,15 @@ const NewCart = () => {
 
       console.error(error);
 
+      // The script-load case says so specifically -- "Failed to create payment
+      // order" would be wrong, since the order was created and only the
+      // checkout script was missing. Both branches are fixed text: nothing from
+      // the underlying load event reaches the user.
       toast.error(
-        error.response?.data?.error ||
-        "Failed to create payment order"
+        error?.isRazorpayLoadError
+          ? "Could not load the payment gateway. Please check your connection and try again."
+          : error.response?.data?.error ||
+          "Failed to create payment order"
       );
 
     }

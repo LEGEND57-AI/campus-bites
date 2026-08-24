@@ -146,6 +146,53 @@ api.interceptors.request.use(
 );
 
 
+// ================= AUTH ENDPOINTS =================
+//
+// Endpoints where a 401 means "these credentials are wrong", not "your access
+// token expired". The distinction matters because the interceptor below reacts
+// to 401 by refreshing the session and, if that fails, sending the browser to
+// /login with window.location.href.
+//
+// Without this list, a wrong password on the login form produced: 401 from
+// /auth/login -> refresh attempt -> refresh fails (there is no session to
+// refresh, the user is signing in) -> full page navigation. The typed email
+// was lost and the "Invalid email or password" toast was destroyed along with
+// the document, so it read as an unexplained page reload. The same applied to
+// a failed Google sign-in, a wrong OTP, and a failed password reset.
+//
+// Refreshing is pointless for all of these: none of them is authenticated by
+// an access token in the first place.
+const AUTH_ENDPOINTS = [
+  "/auth/login",
+  "/auth/register",
+  "/auth/google",
+  "/auth/verify-otp",
+  "/auth/forgot-password",
+  "/auth/reset-password",
+  "/auth/resend-otp",
+];
+
+// Matched on the path only. Every call in this app passes a relative url and
+// axios keeps baseURL separate, so `url` is normally already just "/auth/...",
+// but the query/hash is stripped and an origin tolerated so an absolute url
+// would still be recognised rather than silently falling through.
+//
+// Each entry carries its leading slash and is compared with === or endsWith,
+// which pins the match to a path-segment boundary: "/auth/login" cannot match
+// something like "/xauth/login". No protected route in this app contains
+// "/auth/" at all, so there is nothing for this to collide with.
+function isAuthEndpoint(url) {
+  if (typeof url !== "string") {
+    return false;
+  }
+
+  const path = url.split(/[?#]/)[0].replace(/^https?:\/\/[^/]+/, "");
+
+  return AUTH_ENDPOINTS.some(
+    (endpoint) => path === endpoint || path.endsWith(endpoint)
+  );
+}
+
 // ================= RESPONSE INTERCEPTOR =================
 
 api.interceptors.response.use(
@@ -160,7 +207,9 @@ api.interceptors.response.use(
 
       error.response?.status !== 401 ||
 
-      originalRequest._retry
+      originalRequest._retry ||
+
+      isAuthEndpoint(originalRequest.url)
 
     ) {
 

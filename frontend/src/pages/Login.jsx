@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 
 import logo from "../assets/CampusCraves-Logo.png";
+import FieldError from "../components/auth/FieldError";
 
 
 const Login = () => {
@@ -31,6 +32,39 @@ const Login = () => {
   const [isResetting, setIsResetting] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
 
+  // Inline validation messages, keyed by field. `form` holds the one
+  // credentials error, which belongs to the pair rather than to either input.
+  const [errors, setErrors] = useState({});
+
+  // Deliberately permissive: this only catches obviously malformed input so
+  // the user is told before a round trip. The backend remains the authority.
+  const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  // Any edit clears that field's message and the shared credentials error --
+  // the moment either value changes, "invalid email or password" is no longer
+  // known to be true.
+  const clearError = (field) =>
+    setErrors((prev) =>
+      prev[field] || prev.form ? { ...prev, [field]: undefined, form: undefined } : prev
+    );
+
+  const validate = () => {
+    const next = {};
+    const trimmedEmail = email.trim();
+
+    if (!trimmedEmail) {
+      next.email = "Email is required.";
+    } else if (!EMAIL_PATTERN.test(trimmedEmail)) {
+      next.email = "Please enter a valid email address.";
+    }
+
+    if (!password) {
+      next.password = "Password is required.";
+    }
+
+    return next;
+  };
+
   // ================= CONTEXT =================
 
   const { login, requestPasswordReset, googleLogin } = useAuth();
@@ -40,6 +74,16 @@ const Login = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // A new attempt starts from a clean slate, so a stale credentials error
+    // never sits under the form while a fresh request is in flight.
+    const nextErrors = validate();
+    setErrors(nextErrors);
+
+    if (Object.keys(nextErrors).length > 0) {
+      return;
+    }
+
     setIsLoading(true);
 
     const result = await login(email, password);
@@ -47,7 +91,12 @@ const Login = () => {
     setIsLoading(false);
 
     if (!result?.success) {
-      toast.error("Invalid email or password");
+      // Always this fixed wording, never result.error -- the backend answers
+      // "Invalid credentials" and deliberately gives the same response whether
+      // the account exists, is unverified, or the password is simply wrong.
+      // Passing its text through would both leak backend phrasing and risk
+      // narrowing that down for someone probing which emails are registered.
+      setErrors({ form: "Invalid email or password." });
       return;
     }
 
@@ -88,8 +137,11 @@ const Login = () => {
   // ================= FORGOT PASSWORD =================
 
   const handleForgotPassword = async () => {
-    if (!email) {
-      toast.error("Enter your email first");
+    if (!email.trim()) {
+      // Inline for the same reason as the submit path: this is a missing-field
+      // message about the email input, so it belongs under that input rather
+      // than in a toast at the edge of the screen.
+      setErrors({ email: "Email is required." });
       return;
     }
 
@@ -283,7 +335,10 @@ const Login = () => {
 
             {/* ================= FORM ================= */}
 
-            <form onSubmit={handleSubmit} className="mt-6 sm:mt-8 space-y-4 sm:space-y-5">
+            {/* noValidate hands validation to the checks above. The inputs keep
+                their `required` attribute for assistive tech, but the browser's
+                own bubble would otherwise pre-empt the inline messages. */}
+            <form noValidate onSubmit={handleSubmit} className="mt-6 sm:mt-8 space-y-4 sm:space-y-5">
 
               {/* EMAIL */}
               <div>
@@ -300,17 +355,21 @@ const Login = () => {
                   <input
                     type="email"
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      clearError("email");
+                    }}
                     placeholder="Enter your email address"
                     required
-                    className="
+                    aria-invalid={errors.email ? "true" : undefined}
+                    aria-describedby={errors.email ? "login-email-error" : undefined}
+                    className={`
                       w-full
                       h-11
                       sm:h-12
                       rounded-xl
                       sm:rounded-2xl
                       border
-                      border-slate-200
                       pl-11
                       sm:pl-12
                       pr-4
@@ -318,13 +377,16 @@ const Login = () => {
                       sm:text-base
                       text-slate-600
                       outline-none
-                      focus:border-blue-500
                       focus:ring-4
-                      focus:ring-blue-100
                       transition
-                    "
+                      ${errors.email
+                        ? "border-red-300 focus:border-red-500 focus:ring-red-100"
+                        : "border-slate-200 focus:border-blue-500 focus:ring-blue-100"}
+                    `}
                   />
                 </div>
+
+                <FieldError id="login-email-error" message={errors.email} />
               </div>
 
               {/* PASSWORD */}
@@ -342,17 +404,27 @@ const Login = () => {
                   <input
                     type={showPassword ? "text" : "password"}
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      clearError("password");
+                    }}
                     placeholder="Enter your password"
                     required
-                    className="
+                    aria-invalid={errors.password || errors.form ? "true" : undefined}
+                    aria-describedby={
+                      errors.password
+                        ? "login-password-error"
+                        : errors.form
+                          ? "login-form-error"
+                          : undefined
+                    }
+                    className={`
                       w-full
                       h-11
                       sm:h-12
                       rounded-xl
                       sm:rounded-2xl
                       border
-                      border-slate-200
                       pl-11
                       sm:pl-12
                       pr-11
@@ -361,11 +433,12 @@ const Login = () => {
                       sm:text-base
                       text-slate-600
                       outline-none
-                      focus:border-blue-500
                       focus:ring-4
-                      focus:ring-blue-100
                       transition
-                    "
+                      ${errors.password || errors.form
+                        ? "border-red-300 focus:border-red-500 focus:ring-red-100"
+                        : "border-slate-200 focus:border-blue-500 focus:ring-blue-100"}
+                    `}
                   />
 
                   <button
@@ -384,6 +457,13 @@ const Login = () => {
                     {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
                 </div>
+
+                <FieldError id="login-password-error" message={errors.password} />
+
+                {/* Credentials failure. Sits under the password field because
+                    that is where the spec places it, but it describes the pair
+                    -- which of the two was wrong is deliberately not revealed. */}
+                <FieldError id="login-form-error" message={errors.form} />
               </div>
 
               {/* REMEMBER + FORGOT */}

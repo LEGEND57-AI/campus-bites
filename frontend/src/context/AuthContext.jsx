@@ -80,8 +80,10 @@ export const AuthProvider = ({ children }) => {
       const { data } = await authAPI.login({ email, password });
 
       if (!data?.user) {
-        toast.error('Invalid response from server');
-        return { success: false };
+        return {
+          success: false,
+          error: 'Invalid response from server',
+        };
       }
 
       setAccessToken(data.accessToken);
@@ -106,8 +108,16 @@ export const AuthProvider = ({ children }) => {
       };
 
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Login failed');
-      return { success: false };
+      // Returned rather than toasted so Login.jsx can place it inline under
+      // the field it concerns. This previously fired a toast carrying the raw
+      // backend string -- "Invalid credentials" -- on top of the page's own
+      // "Invalid email or password" toast, so a failed sign-in produced two
+      // notifications, one of them in backend wording. The {success:false}
+      // contract is unchanged; only where the message is shown has moved.
+      return {
+        success: false,
+        error: error.response?.data?.error || 'Login failed',
+      };
     }
   };
 
@@ -129,8 +139,12 @@ export const AuthProvider = ({ children }) => {
       };
 
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Registration failed');
-      return { success: false };
+      // Same reasoning as login above: Signup.jsx maps this onto the field it
+      // belongs to instead of showing a toast beside its own one.
+      return {
+        success: false,
+        error: error.response?.data?.error || 'Registration failed',
+      };
     }
   };
 

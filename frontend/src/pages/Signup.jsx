@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 
 import logo from "../assets/CampusCraves-Logo.png";
+import FieldError from "../components/auth/FieldError";
 import toast from "react-hot-toast";
 
 const Signup = () => {
@@ -33,8 +34,81 @@ const Signup = () => {
   const navigate = useNavigate();
 
   // 🔥 NORMAL SIGNUP
+  // Inline validation messages, keyed by field. `form` is the fallback for a
+  // server error that does not belong to any single input.
+  const [errors, setErrors] = useState({});
+
+  const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  const clearError = (field) =>
+    setErrors((prev) =>
+      prev[field] || prev.form ? { ...prev, [field]: undefined, form: undefined } : prev
+    );
+
+  // Mirrors the rules the register endpoint already enforces -- nothing new is
+  // introduced here, this only reports them before a round trip. The backend
+  // stays authoritative and its own response is still mapped below.
+  const validate = () => {
+    const next = {};
+    const trimmedEmail = email.trim();
+
+    if (!name.trim()) {
+      next.name = "Full name is required.";
+    }
+
+    if (!trimmedEmail) {
+      next.email = "Email is required.";
+    } else if (!EMAIL_PATTERN.test(trimmedEmail)) {
+      next.email = "Please enter a valid email address.";
+    }
+
+    if (!phone.trim()) {
+      next.phone = "Phone number is required.";
+    }
+
+    if (!password) {
+      next.password = "Password is required.";
+    } else if (password.length < 8) {
+      next.password = "Password must be at least 8 characters long.";
+    }
+
+    return next;
+  };
+
+  // The register endpoint returns readable sentences for the cases a user can
+  // act on, so those are shown as-is under the field they concern rather than
+  // being re-worded. Anything unrecognised -- notably the generic "Database
+  // error" -- is replaced with a neutral message so no internal detail is
+  // surfaced.
+  const mapServerError = (message) => {
+    if (typeof message !== "string" || !message) {
+      return { form: "Something went wrong. Please try again." };
+    }
+
+    if (/password/i.test(message)) {
+      return { password: message };
+    }
+
+    if (/already|exists|registered/i.test(message)) {
+      return { email: message };
+    }
+
+    if (/missing required fields/i.test(message)) {
+      return { form: "Please fill in all the required fields." };
+    }
+
+    return { form: "Something went wrong. Please try again." };
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    const nextErrors = validate();
+    setErrors(nextErrors);
+
+    if (Object.keys(nextErrors).length > 0) {
+      return;
+    }
 
     setIsLoading(true);
 
@@ -43,7 +117,7 @@ const Signup = () => {
     setIsLoading(false);
 
     if (!result?.success) {
-      toast.error("Registration failed");
+      setErrors(mapServerError(result?.error));
       return;
     }
 
@@ -267,7 +341,7 @@ const Signup = () => {
             </p>
 
             {/* FORM */}
-            <form onSubmit={handleSubmit} className="mt-6 sm:mt-7 space-y-4 sm:space-y-5">
+            <form noValidate onSubmit={handleSubmit} className="mt-6 sm:mt-7 space-y-4 sm:space-y-5">
 
               {/* NAME */}
               <div>
@@ -284,17 +358,21 @@ const Signup = () => {
                   <input
                     type="text"
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    onChange={(e) => {
+                      setName(e.target.value);
+                      clearError("name");
+                    }}
                     placeholder="Enter your full name"
                     required
-                    className="
+                    aria-invalid={errors.name ? "true" : undefined}
+                    aria-describedby={errors.name ? "signup-name-error" : undefined}
+                    className={`
                       w-full
                       h-11
                       sm:h-12
                       rounded-xl
                       sm:rounded-2xl
                       border
-                      border-slate-200
                       pl-11
                       sm:pl-12
                       pr-4
@@ -302,12 +380,15 @@ const Signup = () => {
                       sm:text-base
                       outline-none
                       focus:ring-4
-                      focus:ring-blue-100
-                      focus:border-blue-500
                       transition
-                    "
+                      ${errors.name
+                        ? "border-red-300 focus:border-red-500 focus:ring-red-100"
+                        : "border-slate-200 focus:border-blue-500 focus:ring-blue-100"}
+                    `}
                   />
                 </div>
+
+                <FieldError id="signup-name-error" message={errors.name} />
               </div>
 
               {/* EMAIL */}
@@ -325,17 +406,21 @@ const Signup = () => {
                   <input
                     type="email"
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      clearError("email");
+                    }}
                     placeholder="Enter your email address"
                     required
-                    className="
+                    aria-invalid={errors.email ? "true" : undefined}
+                    aria-describedby={errors.email ? "signup-email-error" : undefined}
+                    className={`
                       w-full
                       h-11
                       sm:h-12
                       rounded-xl
                       sm:rounded-2xl
                       border
-                      border-slate-200
                       pl-11
                       sm:pl-12
                       pr-4
@@ -343,12 +428,15 @@ const Signup = () => {
                       sm:text-base
                       outline-none
                       focus:ring-4
-                      focus:ring-blue-100
-                      focus:border-blue-500
                       transition
-                    "
+                      ${errors.email
+                        ? "border-red-300 focus:border-red-500 focus:ring-red-100"
+                        : "border-slate-200 focus:border-blue-500 focus:ring-blue-100"}
+                    `}
                   />
                 </div>
+
+                <FieldError id="signup-email-error" message={errors.email} />
               </div>
 
               {/* PHONE */}
@@ -371,18 +459,20 @@ const Signup = () => {
                       if (value.length <= 10) {
                         setPhone(value);
                       }
+                      clearError("phone");
                     }}
                     placeholder="Enter your phone number"
                     maxLength={10}
                     required
-                    className="
+                    aria-invalid={errors.phone ? "true" : undefined}
+                    aria-describedby={errors.phone ? "signup-phone-error" : undefined}
+                    className={`
                       w-full
                       h-11
                       sm:h-12
                       rounded-xl
                       sm:rounded-2xl
                       border
-                      border-slate-200
                       pl-11
                       sm:pl-12
                       pr-4
@@ -390,12 +480,15 @@ const Signup = () => {
                       sm:text-base
                       outline-none
                       focus:ring-4
-                      focus:ring-blue-100
-                      focus:border-blue-500
                       transition
-                    "
+                      ${errors.phone
+                        ? "border-red-300 focus:border-red-500 focus:ring-red-100"
+                        : "border-slate-200 focus:border-blue-500 focus:ring-blue-100"}
+                    `}
                   />
                 </div>
+
+                <FieldError id="signup-phone-error" message={errors.phone} />
               </div>
 
               {/* PASSWORD */}
@@ -413,17 +506,21 @@ const Signup = () => {
                   <input
                     type={showPassword ? "text" : "password"}
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      clearError("password");
+                    }}
                     placeholder="Enter your password"
                     required
-                    className="
+                    aria-invalid={errors.password ? "true" : undefined}
+                    aria-describedby={errors.password ? "signup-password-error" : undefined}
+                    className={`
                       w-full
                       h-11
                       sm:h-12
                       rounded-xl
                       sm:rounded-2xl
                       border
-                      border-slate-200
                       pl-11
                       sm:pl-12
                       pr-11
@@ -432,10 +529,11 @@ const Signup = () => {
                       sm:text-base
                       outline-none
                       focus:ring-4
-                      focus:ring-blue-100
-                      focus:border-blue-500
                       transition
-                    "
+                      ${errors.password
+                        ? "border-red-300 focus:border-red-500 focus:ring-red-100"
+                        : "border-slate-200 focus:border-blue-500 focus:ring-blue-100"}
+                    `}
                   />
 
                   <button
@@ -454,6 +552,11 @@ const Signup = () => {
                     {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
                 </div>
+
+                <FieldError id="signup-password-error" message={errors.password} />
+
+                {/* Server errors that belong to no single field. */}
+                <FieldError id="signup-form-error" message={errors.form} />
               </div>
 
               {/* CREATE ACCOUNT */}

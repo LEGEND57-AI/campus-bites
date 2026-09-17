@@ -29,6 +29,7 @@ import Sidebar from "../components/dashboard/Sidebar";
 import DashboardHeader from "../components/dashboard/DashboardHeader";
 import MobileBottomNav from "../components/dashboard/MobileBottomNav";
 import { downloadReceipt } from "../utils/downloadReceipt";
+import { getOrderStatusLabel } from "../utils/orderStatusLabel";
 
 const TrackOrder = () => {
 
@@ -101,6 +102,10 @@ const TrackOrder = () => {
             handleOrderUpdate
         );
 
+        // ORDER_UPDATED events emitted while the socket was disconnected are
+        // never replayed, so re-read the order whenever it (re)connects.
+        socket.on(SocketEvents.CONNECT, fetchOrder);
+
         return () => {
 
             socket.off(
@@ -108,17 +113,21 @@ const TrackOrder = () => {
                 handleOrderUpdate
             );
 
+            socket.off(SocketEvents.CONNECT, fetchOrder);
+
         };
 
-    }, [socket, id]);
+    }, [socket, id, fetchOrder]);
 
 
+    // Accepted (cash payment received, kitchen not started) is shown as the
+    // same "Order Placed" stage as Pending.
     const statusIndex = {
         Pending: 0,
-        Accepted: 1,
-        Preparing: 2,
-        Ready: 3,
-        Completed: 4,
+        Accepted: 0,
+        Preparing: 1,
+        Ready: 2,
+        Completed: 3,
         Cancelled: -1,
     };
 
@@ -131,14 +140,14 @@ const TrackOrder = () => {
 
     const statusDetails = {
         Pending: {
-            title: "Order Received",
-            message: "Your order has been received and is waiting for kitchen confirmation.",
+            title: "Order Placed",
+            message: "Your order has been placed and is waiting for the kitchen to start preparing it.",
             icon: Receipt,
         },
 
         Accepted: {
-            title: "Order Accepted",
-            message: "The kitchen has accepted your order and will start preparing it shortly.",
+            title: "Order Placed",
+            message: "Your payment has been received. The kitchen will start preparing your order shortly.",
             icon: CheckCircle2,
         },
 
@@ -183,27 +192,21 @@ const TrackOrder = () => {
         },
 
         {
-            title: "Accepted",
-            icon: <CheckCircle2 size={18} />,
+            title: "Preparing",
+            icon: <ChefHat size={18} />,
             active: currentStep >= 1,
         },
 
         {
-            title: "Preparing",
-            icon: <ChefHat size={18} />,
-            active: currentStep >= 2,
-        },
-
-        {
-            title: "Ready",
+            title: "Ready for Pickup",
             icon: <PackageCheck size={18} />,
-            active: currentStep >= 3,
+            active: currentStep >= 2,
         },
 
         {
             title: "Completed",
             icon: <CheckCircle2 size={18} />,
-            active: currentStep >= 4,
+            active: currentStep >= 3,
         },
 
     ];
@@ -413,9 +416,7 @@ ${isRefunded
 
                                             <Sparkles size={16} />
 
-                                            {isRefunded
-                                                ? "Refund Initiated"
-                                                : order.status}
+                                            {getOrderStatusLabel(order.status)}
 
                                         </div>
 
@@ -579,7 +580,7 @@ ${isRefunded
 relative
 mt-14
 grid
-grid-cols-5
+grid-cols-4
 gap-1
 "
                                 >
@@ -612,16 +613,14 @@ gap-1
                                         style={{
                                             width:
                                                 currentStep === 0
-                                                    ? "10%"
+                                                    ? "12%"
                                                     : currentStep === 1
-                                                        ? "30%"
+                                                        ? "45%"
                                                         : currentStep === 2
-                                                            ? "55%"
-                                                            : currentStep === 3
-                                                                ? "80%"
-                                                                : currentStep >= 4
-                                                                    ? "100%"
-                                                                    : "0%",
+                                                            ? "78%"
+                                                            : currentStep >= 3
+                                                                ? "100%"
+                                                                : "0%",
                                         }}
                                     />
 

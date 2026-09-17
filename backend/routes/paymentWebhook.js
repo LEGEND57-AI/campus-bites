@@ -5,6 +5,13 @@ import { razorpay } from "../utils/razorpay.js";
 import { paymentLimiter } from "../middleware/rateLimiter.js";
 import { generateDailyToken } from "../utils/tokenGenerator.js";
 import { createNotification } from "../utils/notificationService.js";
+import { emitOrderUpdate, emitAdminOrderUpdate, emitAnalyticsUpdate } from "../socket/emitters.js";
+import {
+  REFUND_CLAIM_LOCK,
+  refundStatusFromWebhookEvent,
+  refundStatusTransition,
+} from "../utils/refundState.js";
+import { numericToPaise } from "../utils/money.js";
 import logger from "../utils/logger.js";
 
 // Razorpay webhook receiver.
@@ -80,6 +87,11 @@ router.post("/", async (req, res) => {
         await handlePaymentFailed(event, log);
         break;
 
+      case "refund.processed":
+      case "refund.failed":
+        await handleRefundStatus(event, log);
+        break;
+
       default:
         log.info(
           { event: event.event },
@@ -99,6 +111,146 @@ router.post("/", async (req, res) => {
     return res.status(500).json({ error: "Webhook processing failed" });
   }
 });
+
+// refund.processed / refund.failed: set orders.refund_status to "processed" or
+// "failed" for that exact refund (see utils/refundState.js). Other refund
+// events (refund.created, ...) are acknowledged without action.
+//
+// Safety:
+//   - the order is found by the exact Razorpay refund id, and must also carry
+//     the event's payment id -- a refund can never update an unrelated order;
+//   - the event's refund amount must equal the recorded refund amount;
+//   - an event whose name contradicts its own entity status is not applied;
+//   - the target state comes only from the signed event;
+//   - a duplicate delivery changes nothing and is not re-announced.
+//
+// Accounting counts only processed refunds, so every applied change is
+// announced to the admin screens.
+async function handleRefundStatus(event, log) {
+  const refund = event.payload?.refund?.entity;
+
+  if (!refund?.id || !refund?.payment_id) {
+    log.error(
+      { eventId: event?.id, eventType: event?.event },
+      "refund webhook missing refund id/payment id"
+    );
+    return;
+  }
+
+  const { status: razorpayStatus, conflict } = refundStatusFromWebhookEvent(event);
+  const logContext = {
+    eventType: event.event,
+    refundId: refund.id,
+    paymentId: refund.payment_id,
+    razorpayStatus,
+  };
+
+  if (conflict) {
+    log.error(
+      { ...logContext, entityStatus: typeof refund.status === "string" ? refund.status : null },
+      "refund webhook: event name contradicts the refund entity status; not applied, needs manual review"
+    );
+    return;
+  }
+
+  const { data: order, error: findError } = await supabase
+    .from("orders")
+    .select("id, user_id, status, payment_status, payment_id, refund_id, refund_type, refund_amount, refund_status, completed_at, cancel_reason, cancelled_by")
+    .eq("refund_id", refund.id)
+    .maybeSingle();
+
+  if (findError) throw findError;
+
+  if (order) {
+    if (order.payment_id !== refund.payment_id) {
+      log.error(
+        { ...logContext, orderId: order.id },
+        "refund webhook: refund id matches an order recorded against a different payment; not applied"
+      );
+      return;
+    }
+
+    if (!Number.isInteger(refund.amount) || numericToPaise(order.refund_amount) !== refund.amount) {
+      log.error(
+        { ...logContext, orderId: order.id },
+        "refund webhook: refund amount missing or different from the recorded refund amount; not applied, needs manual review"
+      );
+      return;
+    }
+
+    const { updates, reason } = refundStatusTransition(order, razorpayStatus);
+
+    if (!updates) {
+      const logFn = reason === "unknown_status" ? log.warn.bind(log) : log.info.bind(log);
+
+      logFn(
+        { ...logContext, orderId: order.id, currentRefundStatus: order.refund_status, reason },
+        "refund webhook: no change applied"
+      );
+      return;
+    }
+
+    // Conditional on the refund status read above, so two deliveries racing
+    // each other cannot both apply a transition computed from the same state.
+    let update = supabase
+      .from("orders")
+      .update(updates)
+      .eq("id", order.id)
+      .eq("refund_id", refund.id);
+
+    update =
+      order.refund_status === null
+        ? update.is("refund_status", null)
+        : update.eq("refund_status", order.refund_status);
+
+    const { data: updated, error } = await update.select().maybeSingle();
+
+    if (error) throw error;
+
+    if (!updated) {
+      // The row changed between the read and the update; let Razorpay
+      // redeliver so the transition is recomputed from the current state.
+      throw new Error("refund webhook: order refund state changed concurrently; asking Razorpay to retry");
+    }
+
+    emitOrderUpdate(updated.user_id, updated);
+    emitAdminOrderUpdate(updated);
+    emitAnalyticsUpdate();
+
+    const logFn = updated.refund_status === "failed" ? log.error.bind(log) : log.info.bind(log);
+
+    logFn(
+      { ...logContext, orderId: updated.id, refundStatus: updated.refund_status },
+      updated.refund_status === "failed"
+        ? "refund webhook: Razorpay reports the refund FAILED — customer was not refunded, needs manual follow-up"
+        : "refund webhook: refund status is now processed"
+    );
+    return;
+  }
+
+  // No order carries this refund id yet. If the payment's order is still
+  // mid-refund (claim lock held, refund not yet recorded), the admin route has
+  // not recorded the refund; fail so Razorpay redelivers this event once it
+  // has. Otherwise the refund was made outside this system -- acknowledge.
+  const { data: claimedOrder, error: claimedOrderError } = await supabase
+    .from("orders")
+    .select("id")
+    .eq("payment_id", refund.payment_id)
+    .eq("refund_status", REFUND_CLAIM_LOCK)
+    .is("refund_id", null)
+    .maybeSingle();
+
+  if (claimedOrderError) throw claimedOrderError;
+
+  if (claimedOrder) {
+    throw new Error("refund webhook arrived before the refund was recorded; asking Razorpay to retry");
+  }
+
+  log.warn(
+    logContext,
+    "refund webhook: no order records this refund (refund made outside the admin flow?), acknowledging"
+  );
+}
 
 async function handlePaymentCaptured(event, log) {
   const payment = event.payload?.payment?.entity;
@@ -384,6 +536,19 @@ async function handlePaymentCaptured(event, log) {
         "payment.captured webhook: payment_intents finalize retry also failed — needs manual reconciliation"
       );
     }
+  }
+
+  // Announce the recovered order in realtime like /verify and the cash route.
+  // Never throw from here: a 5xx would make Razorpay redeliver an event whose
+  // order already exists.
+  try {
+    emitOrderUpdate(claimedIntent.user_id, order);
+    emitAdminOrderUpdate(order);
+  } catch (emitErr) {
+    log.warn(
+      { orderId: order.id, message: emitErr?.message },
+      "payment.captured webhook: order created but realtime emit failed"
+    );
   }
 
   try {

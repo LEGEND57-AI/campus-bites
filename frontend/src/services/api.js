@@ -422,17 +422,28 @@ export const favoriteAPI = {
 export const adminAPI = {
 
   // Orders
+  // Today's orders as a bare array (Dashboard).
   getOrders: () =>
     api.get('/admin/orders'),
 
-  getHistory: (params) =>
-    api.get("/admin/history", {
-      params,
+  // Admin Orders queue: server-side search / filters / pagination.
+  // `signal` (AbortController) cancels a superseded request.
+  searchActiveOrders: (params, { signal } = {}) =>
+    api.get('/admin/orders', {
+      params: { ...params, view: 'active' },
+      signal,
     }),
 
-  updateOrderStatus: (id, status) =>
+  getHistory: (params, { signal } = {}) =>
+    api.get("/admin/history", {
+      params,
+      signal,
+    }),
+
+  updateOrderStatus: (id, status, { cancel_reason } = {}) =>
     api.patch(`/admin/orders/${id}/status`, {
       status,
+      cancel_reason,
     }),
 
 

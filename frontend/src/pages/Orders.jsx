@@ -21,8 +21,12 @@ import toast from "react-hot-toast";
 
 import { useSocket } from "../socket/SocketProvider";
 import { SocketEvents } from "../socket/constants";
+import { useResyncOnReconnect } from "../socket/useResyncOnReconnect";
 
 import { orderAPI } from "../services/api";
+
+const PAGE_SIZE = 20;
+const MAX_RESYNC_LIMIT = 100;
 
 import Sidebar from "../components/dashboard/Sidebar";
 import DashboardHeader from "../components/dashboard/DashboardHeader";
@@ -100,6 +104,36 @@ const Orders = () => {
         };
 
     }, [socket]);
+
+    // Updates emitted while the socket was down are never replayed, so re-read
+    // the list once per reconnect. This is not fetchOrders(1): that would flash
+    // the loading skeleton and drop every page infinite scroll already loaded.
+    // Instead everything currently loaded is re-read in one request (capped at
+    // the backend's 100-row page limit) and replaced quietly, keeping `page`
+    // consistent with how many 20-row pages the list now holds.
+    const resyncOrders = async () => {
+
+        const limit = Math.min(page * PAGE_SIZE, MAX_RESYNC_LIMIT);
+
+        try {
+
+            const { data } = await orderAPI.getOrders(1, limit);
+
+            setOrders(data.orders);
+            setHasMore(data.hasMore);
+            setPage(limit / PAGE_SIZE);
+
+        } catch (error) {
+
+            // The list on screen stays as it was; the next event or a reload
+            // corrects it.
+            console.error(error);
+
+        }
+
+    };
+
+    useResyncOnReconnect(socket, resyncOrders);
 
     const fetchOrders = async (
         pageNumber = 1,

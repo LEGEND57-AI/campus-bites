@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import toast from "react-hot-toast";
+import { getRefundInfo } from "../../../utils/refundInfo";
 import {
     CheckCircle2,
     XCircle,
@@ -34,11 +35,27 @@ const ORDER_STATUS_META = {
     },
 };
 
+// Right-side refund badge (under the payment method). It copies the Token
+// "Refunded" badge's markup, icon and cyan colour for every refund, and shows
+// only the refund TYPE ("Refunded" / "Partial Refund", from refund amount vs
+// order total). The refund lifecycle (refund_status) is not shown here. The
+// Token badge itself always shows the order status unchanged.
+const REFUND_BADGE = ORDER_STATUS_META.Refunded;
+const RefundBadgeIcon = REFUND_BADGE.icon;
+
+function refundBadgeFor(refundInfo) {
+    return {
+        label: refundInfo ? refundInfo.typeLabel : REFUND_BADGE.label,
+        badge: REFUND_BADGE.badge,
+    };
+}
+
 const PAYMENT_STYLES = {
     PAID: "bg-green-100 text-green-700",
     PENDING: "bg-yellow-100 text-yellow-700",
     FAILED: "bg-red-100 text-red-700",
     REFUNDED: "bg-orange-100 text-orange-700",
+    PARTIALLY_REFUNDED: "bg-orange-100 text-orange-700",
     CANCELLED: "bg-red-100 text-red-700",
 };
 
@@ -74,6 +91,9 @@ const HistoryCard = ({ order, onViewDetails }) => {
     const StatusIcon = statusMeta.icon;
 
     const isRefunded = order.status === "Refunded";
+    const refundInfo = getRefundInfo(order);
+    // Right-side refund badge only (the Token badge above shows order status).
+    const refundBadge = isRefunded ? refundBadgeFor(refundInfo) : null;
     const paymentBadgeClass = PAYMENT_STYLES[order.payment_status] || "bg-gray-100 text-gray-700";
 
     const { day, time } = formatDateParts(order.created_at);
@@ -202,15 +222,20 @@ const HistoryCard = ({ order, onViewDetails }) => {
                         <p className="text-xs text-gray-500">
                             {order.payment_method === "CASH" ? "Cash" : order.payment_method === "UPI" ? "UPI" : "Online"}
                         </p>
-                        <span
-                            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold ${isRefunded
-                                    ? "bg-cyan-100 text-cyan-700"
-                                    : paymentBadgeClass
-                                }`}
-                        >
-                            {isRefunded && <RotateCcw size={11} />}
-                            {isRefunded ? "REFUNDED" : (order.payment_status || "UNKNOWN")}
-                        </span>
+                        {!isRefunded && (
+                            <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold ${paymentBadgeClass}`}>
+                                {order.payment_status || "UNKNOWN"}
+                            </span>
+                        )}
+
+                        {/* Refund badge: same markup and icon as the left Token
+                            badge; refund type only (see refundBadgeFor). */}
+                        {refundBadge && (
+                            <div className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap ${refundBadge.badge}`}>
+                                <RefundBadgeIcon size={12} className="shrink-0" />
+                                {refundBadge.label}
+                            </div>
+                        )}
                     </div>
                 </div>
 

@@ -2,6 +2,21 @@ import express from "express";
 import { authenticate } from "../middleware/auth.js";
 import { isAdmin } from "../middleware/admin.js";
 import { supabase } from "../db.js";
+import {
+    istCalendarParts,
+    istStartOfDay,
+    istEndOfDay,
+    getISTDateRange,
+    istDayFromISODate,
+} from "../utils/istDate.js";
+import {
+    buildIntradayTrend,
+    buildMultiDayTrend,
+} from "../utils/revenueTrend.js";
+import {
+    accountingFigures,
+    callAccountingRpc,
+} from "../utils/accounting.js";
 
 const router = express.Router();
 
@@ -38,202 +53,10 @@ const CANCELLED_STATUSES = [
     ORDER_STATUS.REJECTED,
 ];
 
-/* ============================================================
-   DATE HELPERS
-============================================================ */
-
-function startOfDay(date = new Date()) {
-    const d = new Date(date);
-    d.setHours(0, 0, 0, 0);
-    return d;
-}
-
-function endOfDay(date = new Date()) {
-    const d = new Date(date);
-    d.setHours(23, 59, 59, 999);
-    return d;
-}
-
-function getDateRange(range = "7days") {
-
-    const now = new Date();
-
-    let start = new Date(now);
-
-    switch (range) {
-
-        case "today":
-            start = startOfDay(now);
-            break;
-
-        case "yesterday":
-
-            start = new Date(now);
-            start.setDate(now.getDate() - 1);
-            start = startOfDay(start);
-
-            return {
-                start,
-                end: endOfDay(start)
-            };
-
-        case "7days":
-            start.setDate(now.getDate() - 6);
-            start = startOfDay(start);
-            break;
-
-        case "3months":
-
-            start.setMonth(now.getMonth() - 3);
-            start = startOfDay(start);
-            break;
-
-        case "thismonth":
-
-            start = new Date(
-                now.getFullYear(),
-                now.getMonth(),
-                1
-            );
-
-            break;
-
-        case "thisyear":
-
-            start = new Date(
-                now.getFullYear(),
-                0,
-                1
-            );
-
-            break;
-
-        default:
-            start.setDate(now.getDate() - 6);
-            start = startOfDay(start);
-
-    }
-
-    return {
-
-        start,
-        end: endOfDay(now),
-
-    };
-
-}
-
 function formatMoney(value = 0) {
 
     return Number(value || 0);
 
-}
-
-/* ============================================================
-   IST DATE HELPERS
-   ------------------------------------------------------------
-   Used only by the two RPC-backed endpoints below. The helpers
-   above (startOfDay/endOfDay/getDateRange) resolve boundaries in
-   the Node process's own timezone, which is unset in this project
-   -- IST in development, UTC on a default Linux container. These
-   helpers pin the calendar to Asia/Kolkata regardless of where the
-   process runs, and hand PostgreSQL explicit instants so the
-   database's timezone cannot influence the result either.
-============================================================ */
-
-const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
-
-// The IST calendar date an instant falls on.
-function istCalendarParts(instant = new Date()) {
-
-    const shifted = new Date(instant.getTime() + IST_OFFSET_MS);
-
-    return {
-        year: shifted.getUTCFullYear(),
-        month: shifted.getUTCMonth(),
-        day: shifted.getUTCDate(),
-    };
-}
-
-// Date.UTC normalises out-of-range month/day, so { month: month - 3 } and
-// { day: day - 6 } roll back across year and month boundaries correctly.
-function istStartOfDay({ year, month, day }) {
-    return new Date(
-        Date.UTC(year, month, day, 0, 0, 0, 0) - IST_OFFSET_MS
-    );
-}
-
-function istEndOfDay({ year, month, day }) {
-    return new Date(
-        Date.UTC(year, month, day, 23, 59, 59, 999) - IST_OFFSET_MS
-    );
-}
-
-// Mirrors getDateRange()'s range semantics exactly, resolved in IST.
-function getISTDateRange(range = "7days") {
-
-    const today = istCalendarParts();
-
-    const endOfToday = istEndOfDay(today);
-
-    switch (range) {
-
-        case "today":
-            return { start: istStartOfDay(today), end: endOfToday };
-
-        case "yesterday": {
-            const yesterday = { ...today, day: today.day - 1 };
-            return {
-                start: istStartOfDay(yesterday),
-                end: istEndOfDay(yesterday),
-            };
-        }
-
-        case "7days":
-            return {
-                start: istStartOfDay({ ...today, day: today.day - 6 }),
-                end: endOfToday,
-            };
-
-        case "3months":
-            return {
-                start: istStartOfDay({ ...today, month: today.month - 3 }),
-                end: endOfToday,
-            };
-
-        case "thismonth":
-            return {
-                start: istStartOfDay({ ...today, day: 1 }),
-                end: endOfToday,
-            };
-
-        case "thisyear":
-            return {
-                start: istStartOfDay({ year: today.year, month: 0, day: 1 }),
-                end: endOfToday,
-            };
-
-        default:
-            return {
-                start: istStartOfDay({ ...today, day: today.day - 6 }),
-                end: endOfToday,
-            };
-    }
-}
-
-// A YYYY-MM-DD string is an IST calendar date, not an instant, so it is
-// parsed by component rather than by Date() -- which would read it as UTC.
-function istDayFromISODate(value) {
-
-    const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value || ""));
-
-    if (!match) return null;
-
-    return {
-        year: Number(match[1]),
-        month: Number(match[2]) - 1,
-        day: Number(match[3]),
-    };
 }
 
 function sumRevenue(orders) {
@@ -257,11 +80,9 @@ function sumRevenue(orders) {
 // Optionally scoped to a [start, end] window, which is pushed into the SQL
 // query instead of being applied to every order in JavaScript afterwards.
 //
-// The window itself is still computed by the JS date helpers above and passed
-// in as instants. That is deliberate: startOfDay()/endOfDay() use setHours(),
-// so the day boundaries follow the Node process's own timezone, which SQL
-// cannot observe. Recomputing them in SQL would silently redefine "today".
-// Filtering on instants keeps the existing semantics exactly.
+// The window is computed by the IST helpers in utils/istDate.js and passed in
+// as instants, so neither the Node process's nor the database's timezone can
+// redefine "today".
 //
 // Callers that pass no window get the previous behaviour -- every order -- so
 // the endpoints still relying on that are unaffected.
@@ -298,6 +119,41 @@ async function fetchOrders(start, end) {
     if (error) throw error;
 
     return data || [];
+
+}
+
+// Completed orders placed in [start, end], for the intraday Revenue Trend.
+// Paged, because PostgREST caps a single read at 1000 rows.
+//
+// Legacy fallback only: with the accounting migration applied the trend's
+// order rows (including refunds) come from analytics_revenue_accounting.
+const TREND_PAGE_SIZE = 1000;
+
+async function fetchCompletedOrdersInWindow(start, end) {
+
+    const rows = [];
+
+    for (let from = 0; ; from += TREND_PAGE_SIZE) {
+
+        const { data, error } = await supabase
+            .from("orders")
+            .select("id, total_amount, created_at")
+            .ilike("status", ORDER_STATUS.COMPLETED)
+            .gte("created_at", start.toISOString())
+            .lte("created_at", end.toISOString())
+            .order("created_at", { ascending: true })
+            .order("id", { ascending: true })
+            .range(from, from + TREND_PAGE_SIZE - 1);
+
+        if (error) throw error;
+
+        rows.push(...(data || []));
+
+        if (!data || data.length < TREND_PAGE_SIZE) break;
+
+    }
+
+    return rows;
 
 }
 
@@ -397,52 +253,67 @@ router.get("/dashboard", async (req, res) => {
         } = req.query;
 
         // Boundaries are resolved on the IST calendar and passed to the RPC as
-        // explicit instants. They previously came from setHours(), i.e. the
-        // Node process timezone, so the same range meant a different day in
-        // development (IST) and on a UTC container.
-        let start, end;
+        // explicit instants, so neither the Node process's nor the database's
+        // timezone can redefine a day.
+        let start, end, startParts, endParts;
 
         const fromDay = from ? istDayFromISODate(from) : null;
         const toDay = to ? istDayFromISODate(to) : null;
 
         if (fromDay && toDay) {
+            startParts = fromDay;
+            endParts = toDay;
             start = istStartOfDay(fromDay);
             end = istEndOfDay(toDay);
         } else {
             ({ start, end } = getISTDateRange(range));
+            startParts = istCalendarParts(start);
+            endParts = istCalendarParts(end);
+        }
+
+        if (start > end) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid date range.",
+            });
         }
 
         const todayParts = istCalendarParts();
         const todayStart = istStartOfDay(todayParts);
         const todayEnd = istEndOfDay(todayParts);
 
-        // Same bucketing rule the JS aggregation applied.
-        const groupByHour =
-            range === "today" ||
-            range === "yesterday" ||
-            Boolean(fromDay && toDay);
-
-        const bucket = groupByHour
-            ? "hour"
-            : range === "3months"
-                ? "month"
-                : "day";
-
-        // Every count, sum, grouping and top-N is now done in SQL.
+        // A range covering one IST calendar day (Today, Yesterday, a specific
+        // date) gets a time-of-day chart; anything longer gets a date axis.
         //
-        // The previous implementation fetched all orders in the window plus
-        // the ENTIRE order_items table (with joined food_items) and aggregated
-        // in JavaScript. PostgREST silently caps those reads at 1000 rows, so
-        // any range holding more than 1000 orders -- and the top/low item
-        // figures for every range, because order_items has 2014 rows -- was
-        // computed from partial data.
-        const { data, error } = await supabase.rpc("analytics_dashboard", {
-            p_start: start.toISOString(),
-            p_end: end.toISOString(),
-            p_today_start: todayStart.toISOString(),
-            p_today_end: todayEnd.toISOString(),
-            p_bucket: bucket,
-        });
+        // Previously every custom from/to range was bucketed by hour of day,
+        // so a multi-day custom range summed different days into the same
+        // "10:00" bucket.
+        const singleDay =
+            startParts.year === endParts.year &&
+            startParts.month === endParts.month &&
+            startParts.day === endParts.day;
+
+        // Every count, sum, grouping and top-N is done in SQL.
+        //
+        // analytics_dashboard supplies the order counters and status
+        // breakdown. analytics_revenue_accounting supplies Gross / Refunds /
+        // Net revenue, the per-day series, the intraday order rows and the
+        // item rankings, all over the same [start, end] window.
+        const [{ data, error }, accounting] = await Promise.all([
+            supabase.rpc("analytics_dashboard", {
+                p_start: start.toISOString(),
+                p_end: end.toISOString(),
+                p_today_start: todayStart.toISOString(),
+                p_today_end: todayEnd.toISOString(),
+                p_bucket: "day",
+            }),
+            callAccountingRpc("analytics_revenue_accounting", {
+                p_start: start.toISOString(),
+                p_end: end.toISOString(),
+                p_include_items: true,
+                p_include_order_rows: singleDay,
+            }),
+        ]);
 
         if (error) throw error;
 
@@ -450,79 +321,52 @@ router.get("/dashboard", async (req, res) => {
             throw new Error("analytics_dashboard returned no data");
         }
 
-        /* =====================================================
-           ZERO-FILL
+        const figures = accountingFigures(accounting, {
+            legacyRevenue: data.totalRevenue,
+            legacyRevenueOrders: data.completedOrders,
+        });
 
-           Presentation only, and deliberately still in Node: the
-           RPC returns the buckets that actually have orders, and
-           the back-fill below is unchanged from the previous
-           implementation.
+        /* =====================================================
+           REVENUE TREND
+
+           The same accounting as the KPIs: every point carries
+           gross, refunds and net revenue; the running line is net.
+           Dated by when orders were placed (IST).
         ===================================================== */
 
-        let revenueByDay = (data.revenueByDay || []).map(entry => ({
-            date: entry.date,
-            revenue: Number(entry.revenue || 0),
-            orders: Number(entry.orders || 0),
-        }));
+        let revenueTrend;
 
-        // Last 3 months me empty months bhi show honge
-        if (range === "3months") {
+        if (singleDay) {
+            const orderRows = accounting
+                ? accounting.orderRows || []
+                : await fetchCompletedOrdersInWindow(start, end);
 
-            const seen = new Set(
-                revenueByDay.map(entry => entry.date)
-            );
-
-            for (let i = 2; i >= 0; i--) {
-
-                const month = new Date(
-                    Date.UTC(todayParts.year, todayParts.month - i, 1, 12)
-                );
-
-                const key = `${month.getUTCFullYear()}-${String(month.getUTCMonth() + 1).padStart(2, "0")}-01`;
-
-                if (!seen.has(key)) {
-
-                    revenueByDay.push({
-                        date: key,
-                        revenue: 0,
-                        orders: 0,
-                    });
-
-                    seen.add(key);
-
-                }
-
-            }
-
-        }
-
-        if (groupByHour) {
-
-            const filled = [];
-
-            for (let hour = 0; hour < 24; hour++) {
-
-                const key = `${String(hour).padStart(2, "0")}:00`;
-
-                filled.push(
-                    revenueByDay.find(entry => entry.date === key) || {
-                        date: key,
-                        revenue: 0,
-                        orders: 0,
-                    }
-                );
-
-            }
-
-            revenueByDay = filled;
-
+            revenueTrend = buildIntradayTrend(orderRows, {
+                windowStart: start,
+                windowEnd: end,
+            });
         } else {
-
-            revenueByDay.sort(
-                (a, b) => new Date(a.date) - new Date(b.date)
+            revenueTrend = buildMultiDayTrend(
+                accounting ? accounting.revenueByDay || [] : data.revenueByDay || [],
+                { startParts, endParts }
             );
-
         }
+
+        // The simplified workflow is Pending -> Preparing -> Ready ->
+        // Completed. "Accepted" exists only on legacy rows, which have not
+        // started preparing, so they are reported with Pending instead of as
+        // a stage of their own.
+        const rawBreakdown = data.statusBreakdown || {};
+        const statusBreakdown = {
+            pending:
+                Number(rawBreakdown.pending || 0) +
+                Number(rawBreakdown.accepted || 0),
+            preparing: Number(rawBreakdown.preparing || 0),
+            ready: Number(rawBreakdown.ready || 0),
+            completed: Number(rawBreakdown.completed || 0),
+            cancelled: Number(rawBreakdown.cancelled || 0),
+            refunded: Number(rawBreakdown.refunded || 0),
+        };
 
         /* =====================================================
            RESPONSE
@@ -542,7 +386,12 @@ router.get("/dashboard", async (req, res) => {
             totalOrders:
                 Number(data.totalOrders || 0),
 
-            totalRevenue: formatMoney(data.totalRevenue),
+            // Gross / Refunds / Net revenue, revenue orders, AOV, failed
+            // refunds, and which accounting model produced them.
+            ...figures,
+
+            // Kept for older clients: the headline revenue figure, now NET.
+            totalRevenue: figures.netRevenue,
 
             activeOrders: Number(data.activeOrders || 0),
 
@@ -564,15 +413,21 @@ router.get("/dashboard", async (req, res) => {
             unavailableItems:
                 Number(data.unavailableItems || 0),
 
-            revenueByDay,
+            revenueTrend,
 
-            statusBreakdown: data.statusBreakdown,
+            statusBreakdown,
 
-            popularItems: data.popularItems || [],
+            // Ranked over revenue orders (Completed or Refunded) when the
+            // accounting function is available, so a refund does not remove
+            // what was sold; Completed orders only otherwise.
+            popularItems:
+                (accounting ? accounting.popularItems : data.popularItems) || [],
 
-            topCategories: data.topCategories || [],
+            topCategories:
+                (accounting ? accounting.topCategories : data.topCategories) || [],
 
-            lowItems: data.lowItems || [],
+            lowItems:
+                (accounting ? accounting.lowItems : data.lowItems) || [],
 
         });
 
@@ -608,43 +463,41 @@ router.get("/revenue", async (req, res) => {
 
         const { range = "7days" } = req.query;
 
+        // Resolved on the IST calendar like every other analytics range.
         const { start, end } =
-            getDateRange(range);
+            getISTDateRange(range);
 
-        const orders =
-            await fetchOrders();
+        const accounting = await callAccountingRpc("analytics_revenue_accounting", {
+            p_start: start.toISOString(),
+            p_end: end.toISOString(),
+            p_include_items: false,
+            p_include_order_rows: false,
+        });
 
-        const filtered =
-            orders.filter(order => {
+        let legacyRevenue = 0;
+        let legacyRevenueOrders = 0;
 
-                const created =
-                    new Date(order.created_at);
+        if (!accounting) {
+            const completed = (await fetchOrders(start, end)).filter(order =>
+                REVENUE_STATUSES.includes(String(order.status || "").toLowerCase())
+            );
 
-                return (
+            legacyRevenue = sumRevenue(completed);
+            legacyRevenueOrders = completed.length;
+        }
 
-                    created >= start &&
-                    created <= end &&
-
-                    REVENUE_STATUSES.includes(
-
-                        String(
-                            order.status || ""
-                        ).toLowerCase()
-
-                    )
-
-                );
-
-            });
+        const figures = accountingFigures(accounting, {
+            legacyRevenue,
+            legacyRevenueOrders,
+        });
 
         res.json({
 
             success: true,
 
-            totalRevenue:
-                formatMoney(
-                    sumRevenue(filtered)
-                ),
+            ...figures,
+
+            totalRevenue: figures.netRevenue,
 
             revenueByDay: [],
 
@@ -884,15 +737,24 @@ router.get("/dashboard-summary", async (req, res) => {
         const todayStart = istStartOfDay(todayParts);
         const todayEnd = istEndOfDay(todayParts);
 
-        // Counting, filtering and the revenue sum all happen in SQL now.
-        // Nothing is fetched into Node to be counted.
-        const { data, error } = await supabase.rpc(
-            "analytics_dashboard_summary",
-            {
-                p_today_start: todayStart.toISOString(),
-                p_today_end: todayEnd.toISOString(),
-            }
-        );
+        // Counting, filtering and the revenue sums all happen in SQL. Today's
+        // Gross / Refunds / Net revenue come from the same accounting function
+        // and the same IST window as Analytics, so both screens agree.
+        const [{ data, error }, accounting] = await Promise.all([
+            supabase.rpc(
+                "analytics_dashboard_summary",
+                {
+                    p_today_start: todayStart.toISOString(),
+                    p_today_end: todayEnd.toISOString(),
+                }
+            ),
+            callAccountingRpc("analytics_revenue_accounting", {
+                p_start: todayStart.toISOString(),
+                p_end: todayEnd.toISOString(),
+                p_include_items: false,
+                p_include_order_rows: false,
+            }),
+        ]);
 
         if (error) throw error;
 
@@ -902,13 +764,23 @@ router.get("/dashboard-summary", async (req, res) => {
             );
         }
 
+        // Legacy fallback has no Completed count here; AOV is not shown on the
+        // Dashboard, so it is left at 0 in that mode.
+        const figures = accountingFigures(accounting, {
+            legacyRevenue: data.totalRevenue,
+        });
+
         res.json({
 
             success: true,
 
             ordersToday: Number(data.ordersToday || 0),
 
-            totalRevenue: formatMoney(data.totalRevenue),
+            // Today's accounting (IST day of order placement).
+            ...figures,
+
+            // Kept for older clients: today's NET revenue.
+            totalRevenue: figures.netRevenue,
 
             activeOrders: Number(data.activeOrders || 0),
 
@@ -945,14 +817,31 @@ router.get("/overview", async (req, res) => {
             users,
             foodItems,
             orders,
+            accounting,
 
         ] = await Promise.all([
 
             fetchUsers(),
             fetchFoodItems(),
             fetchOrders(),
+            // All time.
+            callAccountingRpc("analytics_revenue_accounting", {
+                p_start: new Date(0).toISOString(),
+                p_end: new Date(Date.UTC(9999, 11, 31)).toISOString(),
+                p_include_items: false,
+                p_include_order_rows: false,
+            }),
 
         ]);
+
+        const completed = orders.filter(order =>
+            REVENUE_STATUSES.includes(String(order.status || "").toLowerCase())
+        );
+
+        const figures = accountingFigures(accounting, {
+            legacyRevenue: sumRevenue(completed),
+            legacyRevenueOrders: completed.length,
+        });
 
         res.json({
 
@@ -967,15 +856,10 @@ router.get("/overview", async (req, res) => {
             orders:
                 orders.length,
 
-            revenue: formatMoney(
-                sumRevenue(
-                    orders.filter(order =>
-                        REVENUE_STATUSES.includes(
-                            String(order.status || "").toLowerCase()
-                        )
-                    )
-                )
-            ),
+            ...figures,
+
+            // Kept for older clients: NET revenue.
+            revenue: figures.netRevenue,
 
             generatedAt:
                 new Date().toISOString(),

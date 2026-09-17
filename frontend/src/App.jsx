@@ -81,6 +81,9 @@ function App() {
         <Toaster
           position="top-center"
           gutter={12}
+          // One above the z-[9999] modal overlays (e.g. the admin refund
+          // modal), which would otherwise paint over toasts fired while open.
+          containerStyle={{ zIndex: 10000 }}
           toastOptions={{
             duration: 1800,
 

@@ -12,6 +12,7 @@ import { useCart } from "../../context/CartContext";
 import { downloadReceipt } from "../../utils/downloadReceipt";
 import { orderAPI } from "../../services/api";
 import { formatPrice } from "../../utils/formatPrice";
+import { getOrderStatusLabel } from "../../utils/orderStatusLabel";
 
 const OrderDesktopCard = ({ order }) => {
 
@@ -222,9 +223,7 @@ const OrderDesktopCard = ({ order }) => {
               ${getStatusColor(order.status)}
             `}
           >
-            {order.status?.toLowerCase() === "refunded"
-              ? "Refund Initiated"
-              : order.status}
+            {getOrderStatusLabel(order.status)}
           </span>
 
           <div className="mt-4">

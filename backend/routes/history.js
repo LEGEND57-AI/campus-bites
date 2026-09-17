@@ -3,121 +3,105 @@ import { supabase } from "../db.js";
 import { authenticate } from "../middleware/auth.js";
 import { isAdmin } from "../middleware/admin.js";
 import { adminLimiter } from "../middleware/rateLimiter.js";
+import { accountingFigures, callAccountingRpc } from "../utils/accounting.js";
+import {
+    ORDER_SCOPE,
+    OrderSearchInputError,
+    parseOrderSearchQuery,
+    searchOrders,
+} from "../utils/orderSearch.js";
 
 const router = express.Router();
 
 router.use(adminLimiter);
 router.use(authenticate, isAdmin);
 
-// Matches the orders list in routes/orders.js, the closest analogue.
-const DEFAULT_PAGE_SIZE = 20;
-
-// Upper bound so a client cannot ask for the entire history in one page.
-// The RPC clamps to the same value independently; this is not the only guard.
-const MAX_PAGE_SIZE = 100;
-
-// The only statuses this endpoint may expose. The RPC intersects whatever it
-// is given with the same list, so a bad value here cannot widen the result.
-const TERMINAL_STATUSES = [
-    "Completed",
-    "Rejected",
-    "Cancelled",
-    "Refunded",
-];
-
-const PAYMENT_METHODS = ["CASH", "RAZORPAY"];
-
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-
 // ---------- Order History ----------
 //
-// Searching, filtering, sorting, pagination and the summary aggregates all
-// happen inside the search_order_history RPC. They cannot be split: paginating
-// a result set that is then searched in the browser silently hides matches
-// that live on pages nobody has scrolled to, and summary cards computed from
-// loaded pages alone would climb as the admin scrolls.
+// GET /admin/history?search=&from=&to=&status=&payment_method=&page=&limit=&include_summary=
 //
-// The search is a single OR spanning orders and users, which PostgREST cannot
-// express against an embedded resource -- that is why this is an RPC call
-// rather than a query builder chain.
+// Searching, filtering, sorting and pagination happen in PostgreSQL through
+// the same function as the Admin Orders queue (utils/orderSearch.js,
+// public.admin_order_search, scope "history"), so both screens share one set
+// of search rules. Only the requested page is returned.
+//
+// The summary cards (counts over the date + payment window, independent of
+// status and search) and the Gross / Refunds / Net figures are only computed
+// when asked for: the client requests them when the window changes, not on
+// every search keystroke or next page, because on a large table that count is
+// the expensive part of the request.
 router.get("/", async (req, res) => {
+    let params;
+
     try {
-
-        const {
-            search,
-            from,
-            to,
-            status,
-            payment_method: paymentMethod,
-            page: rawPage,
-            limit: rawLimit,
-        } = req.query;
-
-        // Dates arrive as plain YYYY-MM-DD and are interpreted in IST by the
-        // RPC. Anything else is rejected rather than guessed at.
-        for (const [name, value] of [["from", from], ["to", to]]) {
-            if (value !== undefined && value !== "" && !ISO_DATE.test(value)) {
-                return res.status(400).json({
-                    error: `Invalid ${name} date. Expected YYYY-MM-DD.`,
-                });
-            }
+        params = parseOrderSearchQuery(req.query, ORDER_SCOPE.HISTORY);
+    } catch (err) {
+        if (err instanceof OrderSearchInputError) {
+            return res.status(err.status).json({ error: err.message });
         }
 
-        let statuses = null;
+        console.error("History fetch error:", err?.message);
+        return res.status(500).json({ error: "Failed to fetch order history" });
+    }
 
-        if (status !== undefined && status !== "") {
-            statuses = String(status)
-                .split(",")
-                .map((entry) => entry.trim())
-                .filter((entry) => TERMINAL_STATUSES.includes(entry));
+    try {
+        const [searched, accounting] = await Promise.all([
+            searchOrders(ORDER_SCOPE.HISTORY, params),
+            params.includeSummary
+                ? callAccountingRpc("order_history_accounting", {
+                    p_from: params.from,
+                    p_to: params.to,
+                    p_payment_method: params.paymentMethod,
+                })
+                : Promise.resolve(null),
+        ]);
 
-            // The caller asked to narrow by status but named nothing this
-            // endpoint serves. Falling through would silently return every
-            // status instead, so reject it.
-            if (statuses.length === 0) {
-                return res.status(400).json({
-                    error: "Invalid status filter",
-                });
-            }
-        }
+        let data = searched;
 
-        if (
-            paymentMethod !== undefined &&
-            paymentMethod !== "" &&
-            !PAYMENT_METHODS.includes(paymentMethod)
-        ) {
-            return res.status(400).json({
-                error: "Invalid payment_method filter",
+        if (!data) {
+            // Pre-migration fallback: the previous history RPC (also
+            // server-side and paginated).
+            const { data: legacy, error } = await supabase.rpc("search_order_history", {
+                p_search: params.search,
+                p_from: params.from,
+                p_to: params.to,
+                p_statuses: params.statuses,
+                p_payment_method: params.paymentMethod,
+                p_page: params.page,
+                p_limit: params.limit,
             });
+
+            if (error) throw error;
+
+            if (!legacy || !Array.isArray(legacy.orders)) {
+                throw new Error("search_order_history returned an unexpected shape");
+            }
+
+            data = { ...legacy, summary: params.includeSummary ? legacy.summary : null };
         }
 
-        const page = Math.max(parseInt(rawPage, 10) || 1, 1);
+        if (!params.includeSummary || !data.summary) {
+            return res.json({ orders: data.orders, pagination: data.pagination, summary: null });
+        }
 
-        const limit = Math.min(
-            Math.max(parseInt(rawLimit, 10) || DEFAULT_PAGE_SIZE, 1),
-            MAX_PAGE_SIZE
-        );
-
-        const { data, error } = await supabase.rpc("search_order_history", {
-            p_search: search ? String(search) : null,
-            p_from: from || null,
-            p_to: to || null,
-            p_statuses: statuses,
-            p_payment_method: paymentMethod || null,
-            p_page: page,
-            p_limit: limit,
+        const figures = accountingFigures(accounting, {
+            legacyRevenue: data.summary.revenue,
+            legacyRevenueOrders: data.summary.completed,
         });
 
-        if (error) throw error;
-
-        // The RPC always returns the full envelope; a null here would mean the
-        // function silently changed shape, which the caller cannot recover
-        // from, so fail loudly rather than send a half-empty page.
-        if (!data || !Array.isArray(data.orders)) {
-            throw new Error("search_order_history returned an unexpected shape");
-        }
-
-        res.json(data);
+        res.json({
+            orders: data.orders,
+            pagination: data.pagination,
+            summary: {
+                total: data.summary.total,
+                completed: data.summary.completed,
+                cancelled: data.summary.cancelled,
+                refunded: data.summary.refunded,
+                ...figures,
+                // Kept for older clients: the revenue card figure, now NET.
+                revenue: figures.netRevenue,
+            },
+        });
     } catch (err) {
         console.error("History fetch error:", err?.code, err?.message);
         res.status(500).json({ error: "Failed to fetch order history" });

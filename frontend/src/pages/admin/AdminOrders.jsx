@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
+import { REFUND_STATE_STYLES } from "../../utils/refundInfo";
 import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import toast from "react-hot-toast";
 import Swal from "sweetalert2";
 import { adminAPI } from "../../services/api";
@@ -19,12 +20,15 @@ import {
   Clock,
   ChefHat,
   CheckCircle2,
-  BadgeCheck,
   XCircle,
 } from "lucide-react";
 
 import { useSocket } from "../../socket/SocketProvider";
 import { SocketEvents } from "../../socket/constants";
+import { useResyncOnReconnect } from "../../socket/useResyncOnReconnect";
+import { useSingleFlightRefetch } from "../../hooks/useSingleFlightRefetch";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
+import { useLatestRequest, isAbortError } from "../../hooks/useLatestRequest";
 
 // ---------------- Constants ----------------
 const STATUS_STYLES = {
@@ -46,10 +50,31 @@ const PAYMENT_STYLES = {
 const REFRESH_INTERVAL = 30000;
 const INITIAL_VISIBLE = 10;
 
+// Server-side paging for the live queue. A realtime refresh re-reads the rows
+// already on screen in one request, up to the API's maximum page size.
+const QUEUE_PAGE_SIZE = 50;
+const QUEUE_MAX_LIMIT = 100;
+
+// Filter values -> API parameters. "Pending" includes legacy "Accepted" rows,
+// which the queue has always shown as Pending.
+const STATUS_PARAM = {
+  Pending: "Pending,Accepted",
+  Preparing: "Preparing",
+  Ready: "Ready",
+};
+
+const PAYMENT_PARAM = {
+  cash: "CASH",
+  online: "RAZORPAY",
+};
+
+const ACTIVE_STATUSES = ["Pending", "Accepted", "Preparing", "Ready"];
+
+const EMPTY_QUEUE_SUMMARY = { pending: 0, preparing: 0, ready: 0 };
+
 const STAT_DEFS = [
 
   { key: "Pending", label: "Pending", subtitle: "Awaiting preparation", icon: Clock, bg: "bg-orange-50", color: "text-orange-600" },
-  { key: "Accepted", label: "Accepted", subtitle: "Order confirmed", icon: BadgeCheck, bg: "bg-blue-50", color: "text-blue-600" },
   { key: "Preparing", label: "Preparing", subtitle: "Being prepared", icon: ChefHat, bg: "bg-purple-50", color: "text-purple-600" },
   { key: "Ready", label: "Ready", subtitle: "Ready for pickup", icon: CheckCircle2, bg: "bg-green-50", color: "text-green-600" },
 ];
@@ -57,18 +82,80 @@ const STAT_DEFS = [
 const STATUS_FILTER_OPTIONS = [
   "All Orders",
   "Pending",
-  "Accepted",
   "Preparing",
   "Ready",
 ];
 
 const STATUS_FLOW = [
   "Pending",
-  "Accepted",
   "Preparing",
   "Ready",
   "Completed",
 ];
+
+// "Accepted" is no longer its own admin step. Receiving cash now moves an
+// order straight to Preparing, but Accepted may still exist on older rows;
+// such an order is handled exactly like a paid Pending order: it waits for
+// "Accept & Prepare".
+const toWorkflowStatus = (status) =>
+  status === "Accepted" ? "Pending" : status;
+
+// ---------------- Refund Amount Helpers ----------------
+// Refund amounts are handled in integer paise so rupee values are never added
+// or compared as floats. Mirrors backend/utils/money.js.
+const RUPEE_AMOUNT_PATTERN = /^\d{1,9}(\.\d{1,2})?$/;
+const MIN_REFUND_PAISE = 100;
+
+const rupeesToPaise = (value) => {
+  const text = typeof value === "number"
+    ? (Number.isFinite(value) ? value.toFixed(2) : "")
+    : String(value ?? "").trim();
+  if (!RUPEE_AMOUNT_PATTERN.test(text)) return null;
+  const [whole, fraction = ""] = text.split(".");
+  return Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
+};
+
+const formatPaise = (paise) =>
+  `${Math.floor(paise / 100)}.${String(paise % 100).padStart(2, "0")}`;
+
+const lineTotalPaise = (item) =>
+  (rupeesToPaise(item.price_at_time) ?? 0) * (Number(item.quantity) || 0);
+
+// Turns a failed refund request into a short, safe message for the modal.
+// The refund route answers with fixed, human-readable `error` strings; those
+// are shown as-is. Anything else (no response, a generic 5xx, or something
+// that looks like internal detail) gets a plain fallback instead.
+const getRefundErrorMessage = (err) => {
+  const response = err?.response;
+
+  if (!response) {
+    return "Could not reach the server. Check your connection and try again.";
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    return "You are not authorized to issue refunds.";
+  }
+
+  if (response.status === 429) {
+    return "Too many requests. Please wait a moment and try again.";
+  }
+
+  const serverMessage = response.data?.error;
+  const looksInternal = (text) =>
+    /\bat\s+\S+\s*\(|Error:|stack|sql|supabase|postgres|PGRST|undefined|null/i.test(text);
+
+  if (
+    typeof serverMessage === "string" &&
+    serverMessage.trim() &&
+    serverMessage.length <= 300 &&
+    !looksInternal(serverMessage) &&
+    !/^(Failed to process refund|Internal server error)$/i.test(serverMessage.trim())
+  ) {
+    return serverMessage.trim();
+  }
+
+  return "Refund could not be processed. Please try again.";
+};
 
 // ---------------- Formatting Helpers ----------------
 const getStatusColor = (status) =>
@@ -134,8 +221,24 @@ const AdminOrders = () => {
   const [showRefundModal, setShowRefundModal] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [refundType, setRefundType] = useState("full");
+  const [refundAmountInput, setRefundAmountInput] = useState("");
   const [refundReason, setRefundReason] = useState("");
   const [refundLoading, setRefundLoading] = useState(false);
+  // Synchronous guard: two clicks in the same frame both see refundLoading as
+  // false (state has not re-rendered yet), so the state alone cannot stop a
+  // double submission.
+  const refundInFlightRef = useRef(false);
+  // Refund modal state machine: idle (form) -> processing (refundLoading) ->
+  // success (refundSuccess holds what the API returned) or error (refundError).
+  // All refund feedback is shown inside the modal, never as a toast.
+  const [refundSuccess, setRefundSuccess] = useState(null);
+  // Failure result (API error or blocked validation): { message }.
+  const [refundError, setRefundError] = useState(null);
+  const refundSuccessHeadingRef = useRef(null);
+  const refundErrorHeadingRef = useRef(null);
+  const refundSubmitRef = useRef(null);
+  const focusSubmitAfterRetryRef = useRef(false);
+  const prefersReducedMotion = useReducedMotion();
   const [selectedItems, setSelectedItems] = useState([]);
   const [activeStat, setActiveStat] = useState("");
   const today = getISTDate(new Date());
@@ -145,6 +248,12 @@ const AdminOrders = () => {
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(new Date());
   const [refreshing, setRefreshing] = useState(false);
+  // Server-side search/paging state.
+  const [summary, setSummary] = useState(EMPTY_QUEUE_SUMMARY);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreFailed, setLoadMoreFailed] = useState(false);
+  const [listEnd, setListEnd] = useState(null);
   const [showDateDropdown, setShowDateDropdown] = useState(false);
   const dateDropdownRef = useRef(null);
   const statusDropdownRef = useRef(null);
@@ -165,18 +274,110 @@ const AdminOrders = () => {
     };
   }, [showRefundModal]);
 
-  const fetchOrders = useCallback(async () => {
+  // ---------------- Server-side search ----------------
+  // Search, status, payment and paging are resolved by the API in PostgreSQL
+  // (GET /admin/orders?view=active); the browser never downloads the whole
+  // day and filters it. The search box is debounced so typing sends one
+  // request per pause, not one per keystroke.
+  const debouncedSearch = useDebouncedValue(search);
+
+  const queryParams = useMemo(() => {
+    const params = {};
+
+    const status = STATUS_PARAM[statusFilter];
+    if (status) params.status = status;
+
+    const payment = PAYMENT_PARAM[paymentFilter];
+    if (payment) params.payment_method = payment;
+
+    const query = debouncedSearch.trim();
+    if (query) params.search = query;
+
+    return params;
+  }, [statusFilter, paymentFilter, debouncedSearch]);
+
+  const queryKey = JSON.stringify(queryParams);
+
+  const queryParamsRef = useRef(queryParams);
+  queryParamsRef.current = queryParams;
+
+  // Stale-response protection: a new request aborts the previous one, and a
+  // response that is no longer the latest is ignored.
+  const { begin: beginListRequest, cancel: cancelListRequest } = useLatestRequest();
+  const { begin: beginMoreRequest, cancel: cancelMoreRequest } = useLatestRequest();
+
+  // Pages currently on screen for the current filters, so a refresh re-reads
+  // the same rows instead of collapsing the list to page 1.
+  const pagesLoadedRef = useRef(1);
+  const loadedQueryKeyRef = useRef(null);
+
+  // The stat cards count today's queue by payment method; they do not depend
+  // on search or the status filter. They are re-read only when the payment
+  // filter changes or the data itself changed (realtime event, action,
+  // Refresh), not on every search keystroke.
+  const summaryKeyRef = useRef(null);
+  const summaryDirtyRef = useRef(true);
+
+  // Only one list request runs at a time. A request made while one is in
+  // flight (a realtime event, Refresh, a status action) queues a single
+  // follow-up that starts after it, so the newest data always lands last.
+  const loadOrders = useCallback(async () => {
+    const params = queryParamsRef.current;
+    const key = JSON.stringify(params);
+    const sameQuery = loadedQueryKeyRef.current === key;
+    const pages = sameQuery ? pagesLoadedRef.current : 1;
+    const limit = Math.min(QUEUE_PAGE_SIZE * pages, QUEUE_MAX_LIMIT);
+
+    const summaryKey = params.payment_method || "all";
+    const needSummary = summaryDirtyRef.current || summaryKeyRef.current !== summaryKey;
+
+    const request = beginListRequest();
+
     try {
       setRefreshing(true);
-      const { data } = await adminAPI.getOrders();
-      if (!Array.isArray(data)) {
+
+      const { data } = await adminAPI.searchActiveOrders(
+        {
+          ...params,
+          page: 1,
+          limit,
+          ...(needSummary ? {} : { include_summary: 0 }),
+        },
+        { signal: request.signal }
+      );
+
+      if (!request.isLatest()) return;
+
+      if (!data || !Array.isArray(data.orders)) {
         setOrders([]);
         toast.error(data?.error || "Invalid orders data");
         return;
       }
-      setOrders(data);
+
+      // A load-more for the previous rows must not append to these.
+      cancelMoreRequest();
+      setLoadingMore(false);
+      setLoadMoreFailed(false);
+
+      setOrders(data.orders);
+      setHasMore(Boolean(data.pagination?.hasMore));
+      pagesLoadedRef.current = Math.max(Math.ceil(data.orders.length / QUEUE_PAGE_SIZE), 1);
+      loadedQueryKeyRef.current = key;
+
+      if (data.summary) {
+        setSummary({
+          pending: Number(data.summary.pending) || 0,
+          preparing: Number(data.summary.preparing) || 0,
+          ready: Number(data.summary.ready) || 0,
+        });
+        summaryKeyRef.current = summaryKey;
+        summaryDirtyRef.current = false;
+      }
+
       rateLimitedRef.current = false;
     } catch (err) {
+      if (isAbortError(err) || !request.isLatest()) return;
+
       console.error("Failed to fetch orders:", err);
 
       if (err?.response?.status === 429) {
@@ -190,19 +391,90 @@ const AdminOrders = () => {
       } else {
         toast.error("Failed to fetch orders");
         setOrders([]);
+        setHasMore(false);
       }
     } finally {
-      setLoading(false);
-      setRefreshing(false);
-      setLastUpdated(new Date());
+      if (request.isLatest()) {
+        setLoading(false);
+        setRefreshing(false);
+        setLastUpdated(new Date());
+      }
     }
-  }, []);
+  }, [beginListRequest, cancelMoreRequest]);
+
+  const {
+    refetch: refetchOrders,
+    markStale: markOrdersStale,
+  } = useSingleFlightRefetch(loadOrders);
+
+  // The data changed (realtime event, action, Refresh, reconnect, new day):
+  // re-read the rows on screen AND the stat-card counts.
+  const fetchOrders = useCallback(
+    (options) => {
+      summaryDirtyRef.current = true;
+      return refetchOrders(options);
+    },
+    [refetchOrders]
+  );
+
+  // Initial load and every search / filter change. The request for the
+  // previous filters is aborted; the cards on screen stay until the new page
+  // arrives (no skeleton after the first load).
+  useEffect(() => {
+    cancelListRequest();
+    cancelMoreRequest();
+    refetchOrders({ immediate: true });
+  }, [queryKey, cancelListRequest, cancelMoreRequest, refetchOrders]);
+
+  // Next page, appended (infinite scroll, same pattern as Order History).
+  const loadMoreOrders = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+
+    const params = queryParamsRef.current;
+    const key = JSON.stringify(params);
+    const nextPage = pagesLoadedRef.current + 1;
+    const request = beginMoreRequest();
+
+    setLoadingMore(true);
+    setLoadMoreFailed(false);
+
+    try {
+      const { data } = await adminAPI.searchActiveOrders(
+        { ...params, page: nextPage, limit: QUEUE_PAGE_SIZE, include_summary: 0 },
+        { signal: request.signal }
+      );
+
+      if (!request.isLatest() || loadedQueryKeyRef.current !== key) return;
+      if (!data || !Array.isArray(data.orders)) throw new Error("Invalid orders data");
+
+      setOrders((prev) => {
+        const seen = new Set(prev.map((order) => order.id));
+        return [...prev, ...data.orders.filter((order) => !seen.has(order.id))];
+      });
+      setHasMore(Boolean(data.pagination?.hasMore));
+      pagesLoadedRef.current = nextPage;
+    } catch (err) {
+      if (isAbortError(err) || !request.isLatest()) return;
+      console.error("Failed to load more orders:", err);
+      setLoadMoreFailed(true);
+    } finally {
+      if (request.isLatest()) setLoadingMore(false);
+    }
+  }, [beginMoreRequest, hasMore, loadingMore]);
 
   useEffect(() => {
+    if (!listEnd || !hasMore || loading || refreshing || loadingMore || loadMoreFailed) return;
 
-    fetchOrders();
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) loadMoreOrders();
+      },
+      { threshold: 0.2, rootMargin: "200px" }
+    );
 
-  }, [fetchOrders]);
+    observer.observe(listEnd);
+    return () => observer.disconnect();
+  }, [listEnd, hasMore, loading, refreshing, loadingMore, loadMoreFailed, loadMoreOrders]);
 
   // Split from the fetch above so it can depend on `socket` without
   // re-fetching when the socket connects.
@@ -252,13 +524,37 @@ const AdminOrders = () => {
         return;
       }
 
+      // A list request already in flight may have been answered before this
+      // change was made; make sure a fresh one follows so it cannot win.
+      markOrdersStale();
+
+      // An order that no longer belongs to the current view (it finished, or
+      // its status/payment no longer matches the filters) leaves the list at
+      // once; otherwise it is merged in place. Search cannot be affected: a
+      // status update never changes the token or the customer.
+      const params = queryParamsRef.current;
+      const merged = {
+        ...ordersRef.current.find((order) => order.id === updatedOrder.id),
+        ...updatedOrder,
+      };
+      const stillMatches =
+        ACTIVE_STATUSES.includes(merged.status) &&
+        (!params.status || params.status.split(",").includes(merged.status)) &&
+        (!params.payment_method || merged.payment_method === params.payment_method);
+
       setOrders((prev) =>
-        prev.map((order) =>
-          order.id === updatedOrder.id
-            ? { ...order, ...updatedOrder }
-            : order
-        )
+        stillMatches
+          ? prev.map((order) =>
+            order.id === updatedOrder.id
+              ? { ...order, ...updatedOrder }
+              : order
+          )
+          : prev.filter((order) => order.id !== updatedOrder.id)
       );
+
+      // The stat-card counts are server-side; refresh them (and the rows) in
+      // the background. The cards on screen stay visible.
+      fetchOrders();
     };
 
     socket.on(SocketEvents.ORDER_UPDATED, handleOrderUpdate);
@@ -267,7 +563,12 @@ const AdminOrders = () => {
       socket.off(SocketEvents.ORDER_UPDATED, handleOrderUpdate);
     };
 
-  }, [socket, fetchOrders]);
+  }, [socket, fetchOrders, markOrdersStale]);
+
+  // Updates emitted while the socket was down are never replayed, so refetch
+  // the list once per reconnect. The initial connect is skipped: the mount
+  // effect above already loaded it.
+  useResyncOnReconnect(socket, fetchOrders);
 
   useEffect(() => {
     let timeoutId;
@@ -359,7 +660,7 @@ const AdminOrders = () => {
   const receivePayment = async (orderId) => {
     const result = await Swal.fire({
       title: "Confirm cash payment?",
-      html: "<b>Confirm cash payment received?</b>",
+      html: "<b>Confirm cash payment received?</b><br/>The order will move to Preparing.",
       icon: "warning",
       showCancelButton: true,
       confirmButtonColor: "#16a34a",
@@ -372,7 +673,7 @@ const AdminOrders = () => {
 
     try {
       await adminAPI.markPaymentReceived(orderId);
-      toast.success("Cash payment received successfully");
+      toast.success("Cash payment received — order is now Preparing");
       fetchOrders();
     } catch (err) {
       console.error("Failed to update payment:", err);
@@ -423,6 +724,10 @@ const AdminOrders = () => {
   const openRefundModal = (order) => {
     setSelectedOrder(order);
     setRefundType("full");
+    setRefundReason("");
+    setRefundAmountInput("");
+    setRefundSuccess(null);
+    setRefundError(null);
 
     // Default me full refund ke liye sab items select
     setSelectedItems(order.order_items || []);
@@ -430,157 +735,143 @@ const AdminOrders = () => {
     setShowRefundModal(true);
   };
 
+  const closeRefundModal = () => {
+    // Closing mid-request would hide the outcome of a refund that may
+    // already have been issued.
+    if (refundInFlightRef.current) return;
+
+    setShowRefundModal(false);
+    setSelectedOrder(null);
+    setSelectedItems([]);
+    setRefundType("full");
+    setRefundReason("");
+    setRefundAmountInput("");
+    setRefundSuccess(null);
+    setRefundError(null);
+  };
+
+  // Move focus to the confirmation heading so keyboard and screen reader users
+  // land on the result (the Continue button they pressed no longer exists).
+  useEffect(() => {
+    if (refundSuccess) {
+      refundSuccessHeadingRef.current?.focus();
+    } else if (refundError) {
+      refundErrorHeadingRef.current?.focus();
+    } else if (focusSubmitAfterRetryRef.current) {
+      focusSubmitAfterRetryRef.current = false;
+      refundSubmitRef.current?.focus();
+    }
+  }, [refundSuccess, refundError]);
+
+  // Back to the form with everything the admin entered still in place.
+  const retryRefund = () => {
+    focusSubmitAfterRetryRef.current = true;
+    setRefundError(null);
+  };
+
   const handleRefund = async () => {
+    if (refundInFlightRef.current || refundSuccess || refundError) return;
+
     if (!refundReason) {
-      toast.error("Please select refund reason");
+      setRefundError({ message: "Please select a refund reason." });
+      return;
+    }
+
+    if (refundAmountError || refundAmountPaise === null) {
+      setRefundError({
+        message: refundAmountError
+          ? `${refundAmountError}.`
+          : "The refund amount is invalid.",
+      });
       return;
     }
 
     try {
+      refundInFlightRef.current = true;
       setRefundLoading(true);
 
-      await adminAPI.refundOrder(selectedOrder.id, {
+      const { data } = await adminAPI.refundOrder(selectedOrder.id, {
         refundType,
         refundReason,
-        refundedItems:
-          refundType === "partial"
-            ? selectedItems.map((item) => ({
-              food_item_id: item.food_item_id,
-            }))
-            : [],
+        ...(refundType === "partial"
+          ? { amount: formatPaise(refundAmountPaise) }
+          : {}),
       });
 
-      toast.success("Refund processed successfully");
+      // Show what the server actually refunded. The normal response carries
+      // refundAmount/refundType; the rare "processed but not fully recorded"
+      // response only carries the Razorpay refund entity (amount in paise).
+      const refundedPaise =
+        rupeesToPaise(data?.refundAmount) ??
+        (Number.isInteger(data?.refund?.amount) ? data.refund.amount : refundAmountPaise);
 
-      setShowRefundModal(false);
-      setSelectedOrder(null);
-      setSelectedItems([]);
-      setRefundReason("");
-      setRefundType("full");
+      setRefundSuccess({
+        amount: formatPaise(refundedPaise),
+        type:
+          data?.refundType === "full" || data?.refundType === "partial"
+            ? data.refundType
+            : refundedPaise >= orderTotalPaise ? "full" : "partial",
+        refundId: typeof data?.refund?.id === "string" ? data.refund.id : null,
+        note: data?.refundType ? "" : data?.message || "",
+      });
 
       fetchOrders();
 
     } catch (err) {
       console.error(err);
-      toast.error(
-        err?.response?.data?.error || "Refund failed"
-      );
+      setRefundError({ message: getRefundErrorMessage(err) });
     } finally {
+      refundInFlightRef.current = false;
       setRefundLoading(false);
     }
   };
 
-  const refundAmount = useMemo(() => {
-    if (!selectedOrder) return 0;
+  // Amount the order was paid, in paise.
+  const orderTotalPaise = useMemo(
+    () => (selectedOrder ? rupeesToPaise(selectedOrder.total_amount) ?? 0 : 0),
+    [selectedOrder]
+  );
 
-    // Full Refund
-    if (refundType === "full") {
-      return Number(selectedOrder.total_amount || 0);
+  // Full refund: always the amount paid. Partial refund: whatever the admin
+  // entered (prefilled from the ticked items); null when the input is invalid.
+  const refundAmountPaise = useMemo(() => {
+    if (refundType === "full") return orderTotalPaise;
+    return rupeesToPaise(refundAmountInput);
+  }, [refundType, orderTotalPaise, refundAmountInput]);
+
+  const refundAmountError = useMemo(() => {
+    if (!selectedOrder || refundType === "full") return "";
+    if (refundAmountInput.trim() === "") return "Enter the amount to refund";
+    if (refundAmountPaise === null) return "Enter a valid amount with at most 2 decimal places";
+    if (refundAmountPaise < MIN_REFUND_PAISE) return "Refund amount must be at least ₹1.00";
+    if (refundAmountPaise > orderTotalPaise) {
+      return `Refund amount cannot exceed ₹${formatPaise(orderTotalPaise)}`;
     }
+    if (refundAmountPaise === orderTotalPaise) {
+      return "That is the full amount — choose Full Refund instead";
+    }
+    return "";
+  }, [selectedOrder, refundType, refundAmountInput, refundAmountPaise, orderTotalPaise]);
 
-    // Partial Refund
-    return selectedItems.reduce(
-      (total, item) => total + item.price_at_time * item.quantity,
-      0
-    );
-  }, [refundType, selectedItems, selectedOrder]);
+  // Ticking items prefills the amount with their total; the admin can still
+  // edit it afterwards.
+  const applyItemSelection = (items) => {
+    setSelectedItems(items);
+    const itemsPaise = items.reduce((sum, item) => sum + lineTotalPaise(item), 0);
+    setRefundAmountInput(itemsPaise > 0 ? formatPaise(itemsPaise) : "");
+  };
 
-  // ---------------- Filtering for Today ----------------
-  const todayOrders = useMemo(() => {
-    return orders.filter((order) => {
-      const orderDate = getISTDate(order.created_at);
-      return orderDate === today;
-    });
-  }, [orders, today]);
+  // ---------------- Orders + stats come from the server ----------------
+  // `orders` is already searched, filtered and sorted by the API; nothing is
+  // re-filtered here. The stat cards use the server's counts for today's
+  // queue (independent of search and the status filter, as before).
+  const filteredOrders = orders;
 
-  // ---------------- Filtering ----------------
-  const filteredOrders = useMemo(() => {
-    return orders.filter((order) => {
-
-      if (
-        order.status === "Completed" ||
-        order.status === "Rejected" ||
-        order.status === "Cancelled" ||
-        order.status === "Refunded"
-      ) {
-        return false;
-      }
-
-      if (statusFilter !== "All Orders" && order.status !== statusFilter) {
-        return false;
-      }
-
-      if (dateFilter) {
-        const orderDate = new Date(order.created_at)
-          .toLocaleDateString("en-CA", {
-            timeZone: "Asia/Kolkata",
-          });
-        if (orderDate !== dateFilter) return false;
-      }
-
-      // Payment Filter
-      if (paymentFilter === "cash" && order.payment_method !== "CASH") {
-        return false;
-      }
-
-      if (
-        paymentFilter === "online" &&
-        order.payment_method !== "RAZORPAY"
-      ) {
-        return false;
-      }
-
-      if (search.trim()) {
-        const q = search.trim().toLowerCase();
-        const matchesId = String(order.id).toLowerCase().includes(q);
-        const matchesToken = formatToken(order).toLowerCase().includes(q);
-        const matchesName = order.user?.name?.toLowerCase().includes(q);
-        const matchesPhone = order.user?.phone?.toLowerCase().includes(q);
-
-        if (!matchesId && !matchesToken && !matchesName && !matchesPhone) return false;
-      }
-
-      return true;
-    })
-      .sort(
-        (a, b) =>
-          new Date(b.created_at) - new Date(a.created_at)
-      );
-  }, [orders, statusFilter, dateFilter, paymentFilter, search]);
-
-  // ---------------- Stats (always computed from the FULL unfiltered list) ----------------
-  const statCounts = useMemo(() => {
-
-    const counts = {
-      Pending: 0,
-      Accepted: 0,
-      Preparing: 0,
-      Ready: 0,
-    };
-
-    todayOrders.forEach((order) => {
-
-      if (
-        paymentFilter === "cash" &&
-        order.payment_method !== "CASH"
-      ) {
-        return;
-      }
-
-      if (
-        paymentFilter === "online" &&
-        order.payment_method !== "RAZORPAY"
-      ) {
-        return;
-      }
-
-      if (counts[order.status] !== undefined) {
-        counts[order.status]++;
-      }
-    });
-
-    return counts;
-  }, [todayOrders, paymentFilter]);
+  const statCounts = useMemo(() => ({
+    Pending: summary.pending,
+    Preparing: summary.preparing,
+    Ready: summary.ready,
+  }), [summary]);
 
   // reset to page 1 whenever filters change
   useEffect(() => {
@@ -872,7 +1163,7 @@ ${paymentFilter === "online"
       </div>
 
       {/* ================= STAT CARDS ================= */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         {STAT_DEFS.map((stat, i) => {
           const Icon = stat.icon;
           const count = stat.key === "all" ? statCounts.all : statCounts[stat.key];
@@ -911,9 +1202,11 @@ ${paymentFilter === "online"
 
       {/* ================= ORDER LIST ================= */}
       {filteredOrders.length === 0 ? (
-        <div className="text-center py-16 text-gray-400 text-sm">
-          No orders match your filters.
-        </div>
+        !refreshing && (
+          <div className="text-center py-16 text-gray-400 text-sm">
+            No orders match your filters.
+          </div>
+        )
       ) : (
         <div className="space-y-4">
           {paginatedOrders.map((order) => {
@@ -1013,7 +1306,9 @@ ${paymentFilter === "online"
                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                       <div className="flex items-center justify-between">
                         {STATUS_FLOW.map((step, index) => {
-                          const currentIndex = STATUS_FLOW.indexOf(order.status);
+                          const currentIndex = STATUS_FLOW.indexOf(
+                            toWorkflowStatus(order.status)
+                          );
 
                           return (
                             <div key={step} className="flex flex-1 items-center">
@@ -1130,24 +1425,13 @@ ${paymentFilter === "online"
                             </button>
                           )}
 
-                          {isPaid && order.status === "Pending" && (
-                            <button
-                              type="button"
-                              onClick={() => updateStatus(order.id, "Accepted")}
-                              className="w-full rounded-xl bg-green-600 px-4 sm:px-5 py-2.5 sm:py-3 text-sm sm:text-base font-semibold text-white hover:bg-green-700"
-                            >
-                              Accept Order
-                            </button>
-                          )}
-
-
-                          {isPaid && order.status === "Accepted" && (
+                          {isPaid && ["Pending", "Accepted"].includes(order.status) && (
                             <button
                               type="button"
                               onClick={() => updateStatus(order.id, "Preparing")}
                               className="w-full rounded-xl bg-indigo-600 px-4 sm:px-5 py-2.5 sm:py-3 text-sm sm:text-base font-semibold text-white hover:bg-indigo-700"
                             >
-                              Start Preparing
+                              Accept &amp; Prepare
                             </button>
                           )}
 
@@ -1167,7 +1451,7 @@ ${paymentFilter === "online"
                               onClick={() => updateStatus(order.id, "Completed")}
                               className="w-full rounded-xl bg-emerald-600 px-4 sm:px-5 py-2.5 sm:py-3 text-sm sm:text-base font-semibold text-white hover:bg-emerald-700"
                             >
-                              ✅ Complete Order
+                              ✅ Complete
                             </button>
                           )}
 
@@ -1213,22 +1497,65 @@ ${paymentFilter === "online"
         </div>
       )}
 
+      {/* Infinite scroll foot (server pages) */}
+      {filteredOrders.length > 0 && (
+        <div>
+          {loadingMore && (
+            <div className="space-y-4" role="status" aria-live="polite" aria-label="Loading more orders">
+              {[1, 2].map((i) => (
+                <div key={i} className="h-32 rounded-xl bg-gray-200 animate-pulse" />
+              ))}
+            </div>
+          )}
+
+          {loadMoreFailed && (
+            <div className="flex flex-col items-center gap-3 py-6">
+              <p className="text-sm text-slate-500">Could not load more orders.</p>
+              <button
+                onClick={() => {
+                  setLoadMoreFailed(false);
+                  loadMoreOrders();
+                }}
+                className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700"
+              >
+                Try again
+              </button>
+            </div>
+          )}
+
+          {hasMore && !loadingMore && !loadMoreFailed && (
+            <div ref={setListEnd} className="h-1" aria-hidden="true" />
+          )}
+        </div>
+      )}
+
       {showRefundModal &&
         createPortal(
           <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4">
-            <div className="w-full max-w-2xl max-h-[90vh] overflow-hidden rounded-3xl bg-white shadow-[0_20px_60px_rgba(0,0,0,0.18)]">
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={
+                refundSuccess
+                  ? "refund-success-title"
+                  : refundError
+                    ? "refund-error-title"
+                    : "refund-modal-title"
+              }
+              className={`w-full max-w-2xl max-h-[90vh] overflow-hidden rounded-3xl bg-white shadow-[0_20px_60px_rgba(0,0,0,0.18)] ${refundSuccess || refundError ? "flex flex-col" : ""}`}
+            >
 
               {/* Header */}
-              <div className="flex items-start justify-between border-b border-slate-100 px-8 py-6">
+              <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-100 px-5 py-5 sm:px-8 sm:py-6">
 
-                <div className="flex items-center gap-4">
+                <div className="flex items-center min-w-0 gap-3 sm:gap-4">
 
-                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-600 text-2xl text-white shadow-lg">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-600 text-xl text-white shadow-lg sm:h-14 sm:w-14 sm:text-2xl">
                     💸
                   </div>
 
                   <div>
-                    <h2 className="text-3xl font-bold text-slate-900">
+                    <h2 id="refund-modal-title" className="text-xl font-bold text-slate-900 sm:text-3xl">
                       Refund Order
                     </h2>
 
@@ -1240,19 +1567,246 @@ ${paymentFilter === "online"
                 </div>
 
                 <button
-                  onClick={() => {
-                    setShowRefundModal(false);
-                    setSelectedOrder(null);
-                    setSelectedItems([]);
-                    setRefundType("full");
-                  }}
-                  className="flex h-11 w-11 items-center justify-center rounded-xl text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                  type="button"
+                  aria-label="Close refund dialog"
+                  onClick={closeRefundModal}
+                  disabled={refundLoading}
+                  className="flex h-11 w-11 items-center justify-center rounded-xl text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   ✕
                 </button>
 
               </div>
 
+              {refundSuccess ? (
+                <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+
+                  <div className="px-5 py-8 sm:px-8 sm:py-10">
+                    <div className="mx-auto flex max-w-md flex-col items-center text-center">
+
+                      {/* Animated confirmation icon (decorative: the heading carries the meaning) */}
+                      <motion.div
+                        aria-hidden="true"
+                        initial={prefersReducedMotion ? false : { scale: 0.6, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        transition={{ type: "spring", stiffness: 260, damping: 20 }}
+                        className="relative flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 shadow-lg shadow-blue-200 sm:h-24 sm:w-24"
+                      >
+                        {!prefersReducedMotion && (
+                          <motion.span
+                            className="absolute inset-0 rounded-full bg-blue-500/30"
+                            initial={{ scale: 1, opacity: 0.6 }}
+                            animate={{ scale: 1.45, opacity: 0 }}
+                            transition={{ duration: 0.9, ease: "easeOut", delay: 0.15 }}
+                          />
+                        )}
+
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          className="relative h-10 w-10 text-white sm:h-12 sm:w-12"
+                        >
+                          <motion.path
+                            d="M5 12.5l4.5 4.5L19 7.5"
+                            stroke="currentColor"
+                            strokeWidth="2.6"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            initial={prefersReducedMotion ? false : { pathLength: 0 }}
+                            animate={{ pathLength: 1 }}
+                            transition={{ duration: 0.45, ease: "easeOut", delay: 0.25 }}
+                          />
+                        </svg>
+                      </motion.div>
+
+                      <motion.div
+                        initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.3, delay: prefersReducedMotion ? 0 : 0.35 }}
+                        className="w-full"
+                      >
+                        <h3
+                          id="refund-success-title"
+                          ref={refundSuccessHeadingRef}
+                          tabIndex={-1}
+                          className="mt-6 break-words text-2xl font-bold text-slate-900 outline-none sm:text-3xl"
+                        >
+                          Refund Successful
+                        </h3>
+
+                        <p className="mt-2 text-sm text-slate-500 sm:text-base">
+                          Razorpay has processed the refund to the customer's original payment method.
+                        </p>
+
+                        <div className="mt-6 w-full rounded-3xl border border-blue-100 bg-gradient-to-br from-blue-50 via-white to-cyan-50 p-5 sm:p-6">
+                          <p className="text-sm font-medium text-slate-500">
+                            Amount refunded
+                          </p>
+
+                          <p className="mt-1 break-words text-4xl font-extrabold text-blue-600 sm:text-5xl">
+                            ₹{refundSuccess.amount}
+                          </p>
+
+                          <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+                            <span className="inline-flex rounded-full bg-blue-100 px-3 py-1 text-sm font-semibold text-blue-700">
+                              {refundSuccess.type === "full" ? "Full Refund" : "Partial Refund"}
+                            </span>
+
+                            <span
+                              className={`inline-flex rounded-full px-3 py-1 text-sm font-semibold ${REFUND_STATE_STYLES.processed.badge}`}
+                            >
+                              {refundSuccess.type === "full" ? "Refunded" : "Partial Refund"}
+                            </span>
+                          </div>
+
+                          {refundSuccess.refundId && (
+                            <p className="mt-4 text-xs text-slate-500 sm:text-sm">
+                              Refund ID{" "}
+                              <span className="break-all font-mono text-slate-700">
+                                {refundSuccess.refundId}
+                              </span>
+                            </p>
+                          )}
+                        </div>
+
+                        {refundSuccess.note && (
+                          <p className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-left text-sm text-amber-800">
+                            {refundSuccess.note}
+                          </p>
+                        )}
+                      </motion.div>
+
+                    </div>
+                  </div>
+
+                  <div className="sticky bottom-0 mt-auto flex flex-col-reverse gap-3 border-t bg-white px-5 py-4 sm:flex-row sm:justify-end sm:px-8 sm:py-5">
+                    <button
+                      type="button"
+                      onClick={closeRefundModal}
+                      className="min-h-[44px] rounded-xl border px-5 py-2.5 font-medium text-slate-700 transition hover:bg-slate-50"
+                    >
+                      Back to Orders
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        closeRefundModal();
+                        navigate("/admin");
+                      }}
+                      className="min-h-[44px] rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-5 py-2.5 font-semibold text-white transition-all duration-300 hover:shadow-xl active:scale-95"
+                    >
+                      Go to Home
+                    </button>
+                  </div>
+
+                </div>
+              ) : refundError ? (
+                <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+
+                  <div className="px-5 py-8 sm:px-8 sm:py-10">
+                    <div className="mx-auto flex max-w-md flex-col items-center text-center">
+
+                      {/* Animated failure icon (decorative: the heading carries the meaning) */}
+                      <motion.div
+                        aria-hidden="true"
+                        initial={prefersReducedMotion ? false : { scale: 0.6, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        transition={{ type: "spring", stiffness: 260, damping: 20 }}
+                        className="relative flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-rose-500 to-red-600 shadow-lg shadow-red-200 sm:h-24 sm:w-24"
+                      >
+                        {!prefersReducedMotion && (
+                          <motion.span
+                            className="absolute inset-0 rounded-full bg-red-500/30"
+                            initial={{ scale: 1, opacity: 0.6 }}
+                            animate={{ scale: 1.45, opacity: 0 }}
+                            transition={{ duration: 0.9, ease: "easeOut", delay: 0.15 }}
+                          />
+                        )}
+
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          className="relative h-10 w-10 text-white sm:h-12 sm:w-12"
+                        >
+                          <motion.path
+                            d="M7.5 7.5l9 9"
+                            stroke="currentColor"
+                            strokeWidth="2.6"
+                            strokeLinecap="round"
+                            initial={prefersReducedMotion ? false : { pathLength: 0 }}
+                            animate={{ pathLength: 1 }}
+                            transition={{ duration: 0.3, ease: "easeOut", delay: 0.25 }}
+                          />
+                          <motion.path
+                            d="M16.5 7.5l-9 9"
+                            stroke="currentColor"
+                            strokeWidth="2.6"
+                            strokeLinecap="round"
+                            initial={prefersReducedMotion ? false : { pathLength: 0 }}
+                            animate={{ pathLength: 1 }}
+                            transition={{ duration: 0.3, ease: "easeOut", delay: prefersReducedMotion ? 0 : 0.45 }}
+                          />
+                        </svg>
+                      </motion.div>
+
+                      <motion.div
+                        initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.3, delay: prefersReducedMotion ? 0 : 0.35 }}
+                        className="w-full"
+                      >
+                        <h3
+                          id="refund-error-title"
+                          ref={refundErrorHeadingRef}
+                          tabIndex={-1}
+                          className="mt-6 break-words text-2xl font-bold text-slate-900 outline-none sm:text-3xl"
+                        >
+                          Refund Failed
+                        </h3>
+
+                        <p className="mt-2 text-sm text-slate-500 sm:text-base">
+                          Review the reason below before trying again.
+                        </p>
+
+                        <div
+                          role="alert"
+                          className="mt-6 w-full rounded-3xl border border-red-100 bg-gradient-to-br from-red-50 via-white to-rose-50 p-5 sm:p-6"
+                        >
+                          <p className="text-sm font-medium text-slate-500">
+                            Reason
+                          </p>
+
+                          <p className="mt-1 break-words text-base font-semibold text-red-700 sm:text-lg">
+                            {refundError.message}
+                          </p>
+                        </div>
+                      </motion.div>
+
+                    </div>
+                  </div>
+
+                  <div className="sticky bottom-0 mt-auto flex flex-col-reverse gap-3 border-t bg-white px-5 py-4 sm:flex-row sm:justify-end sm:px-8 sm:py-5">
+                    <button
+                      type="button"
+                      onClick={closeRefundModal}
+                      className="min-h-[44px] rounded-xl border px-5 py-2.5 font-medium text-slate-700 transition hover:bg-slate-50"
+                    >
+                      Cancel
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={retryRefund}
+                      className="min-h-[44px] rounded-xl bg-gradient-to-r from-rose-500 to-red-600 px-5 py-2.5 font-semibold text-white transition-all duration-300 hover:shadow-xl active:scale-95"
+                    >
+                      Try Again
+                    </button>
+                  </div>
+
+                </div>
+              ) : (
+              <>
               {/* Body */}
               <div className="
 max-h-[calc(90vh-170px)]
@@ -1280,8 +1834,9 @@ scrollbar-track-transparent
 
                       if (type === "full") {
                         setSelectedItems(selectedOrder?.order_items || []);
+                        setRefundAmountInput("");
                       } else {
-                        setSelectedItems([]);
+                        applyItemSelection([]);
                       }
                     }}
                     className="w-full rounded-2xl border border-slate-200 bg-white px-5 py-4 text-base font-medium outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
@@ -1302,8 +1857,14 @@ scrollbar-track-transparent
                     </p>
 
                     <h2 className="mt-2 text-3xl sm:text-5xl font-extrabold text-blue-600">
-                      ₹{refundAmount.toFixed(2)}
+                      {refundAmountPaise === null ? "—" : `₹${formatPaise(refundAmountPaise)}`}
                     </h2>
+
+                    <p className="mt-1 text-sm text-slate-500">
+                      {refundType === "full"
+                        ? "Full amount paid"
+                        : `Partial refund · order paid ₹${formatPaise(orderTotalPaise)}`}
+                    </p>
 
                   </div>
 
@@ -1414,13 +1975,11 @@ scrollbar-track-transparent
                               type="checkbox"
                               checked={selectedItems.includes(item)}
                               onChange={(e) => {
-                                if (e.target.checked) {
-                                  setSelectedItems((prev) => [...prev, item]);
-                                } else {
-                                  setSelectedItems((prev) =>
-                                    prev.filter((i) => i !== item)
-                                  );
-                                }
+                                applyItemSelection(
+                                  e.target.checked
+                                    ? [...selectedItems, item]
+                                    : selectedItems.filter((i) => i !== item)
+                                );
                               }}
                             />
 
@@ -1436,10 +1995,37 @@ scrollbar-track-transparent
                           </div>
 
                           <span className="text-xl font-bold text-slate-800">
-                            ₹{item.price_at_time * item.quantity}
+                            ₹{formatPaise(lineTotalPaise(item))}
                           </span>
                         </label>
                       ))}
+                    </div>
+
+                    <div className="mt-5">
+                      <label
+                        htmlFor="partial-refund-amount"
+                        className="text-base font-semibold text-slate-700"
+                      >
+                        Amount to refund (₹)
+                      </label>
+                      <input
+                        id="partial-refund-amount"
+                        type="text"
+                        inputMode="decimal"
+                        autoComplete="off"
+                        placeholder="e.g. 10.50"
+                        value={refundAmountInput}
+                        onChange={(e) => setRefundAmountInput(e.target.value)}
+                        disabled={refundLoading}
+                        className={`mt-2 w-full rounded-2xl border bg-white px-5 py-4 text-base outline-none transition focus:ring-4 ${refundAmountError
+                          ? "border-red-300 focus:border-red-500 focus:ring-red-100"
+                          : "border-slate-200 focus:border-blue-500 focus:ring-blue-100"
+                          }`}
+                      />
+                      <p className={`mt-2 text-sm ${refundAmountError ? "text-red-600" : "text-slate-500"}`}>
+                        {refundAmountError ||
+                          `Ticked items prefill this amount. Maximum ₹${formatPaise(orderTotalPaise)}.`}
+                      </p>
                     </div>
                   </div>
                 )}
@@ -1450,25 +2036,19 @@ scrollbar-track-transparent
               <div className="sticky bottom-0 flex justify-end gap-3 border-t bg-white px-8 py-5">
 
                 <button
-                  onClick={() => {
-                    setShowRefundModal(false);
-                    setSelectedOrder(null);
-                    setSelectedItems([]);
-                    setRefundType("full");
-                  }}
-                  className="rounded-xl border px-5 py-2"
+                  type="button"
+                  onClick={closeRefundModal}
+                  disabled={refundLoading}
+                  className="rounded-xl border px-5 py-2 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Cancel
                 </button>
 
                 <button
+                  ref={refundSubmitRef}
+                  type="button"
                   onClick={handleRefund}
-                  disabled={
-                    refundLoading ||
-                    !refundReason ||
-                    (refundType === "partial" &&
-                      selectedItems.length === 0)
-                  }
+                  disabled={refundLoading}
                   className={`
     relative overflow-hidden
     rounded-xl
@@ -1493,6 +2073,8 @@ scrollbar-track-transparent
                 </button>
 
               </div>
+              </>
+              )}
 
             </div>
           </div>,

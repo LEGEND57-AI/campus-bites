@@ -1,17 +1,12 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { analyticsAPI } from "../../services/api";
-import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  LineChart, Line, Area, AreaChart,
-  PieChart, Pie, Cell, CartesianGrid, Legend
-} from 'recharts';
+import { Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   TrendingUp,
   TrendingDown,
   ShoppingBag,
-  Clock,
   Wallet,
   Flame,
   AlertTriangle,
@@ -22,49 +17,23 @@ import {
   ChevronLeft,
   X,
   RefreshCw,
+  RotateCcw,
+  Receipt,
+  CheckCircle2,
 } from 'lucide-react';
 import { useSocket } from "../../socket/SocketProvider";
 import { SocketEvents } from "../../socket/constants";
-
-// 🔥 Fill missing dates (timezone-safe: does all math on local Y/M/D parts,
-// never round-trips through toISOString for the arithmetic itself)
-const fillMissingDates = (data) => {
-  if (!data || data.length === 0) return [];
-
-  const map = new Map(data.map(d => [d.date, Number(d.revenue || 0)]));
-
-  const parseYMD = (str) => {
-    const [y, m, d] = str.split('-').map(Number);
-    return new Date(y, m - 1, d); // local, no UTC shift
-  };
-
-  const toYMD = (dateObj) => {
-    const y = dateObj.getFullYear();
-    const m = String(dateObj.getMonth() + 1).padStart(2, '0');
-    const d = String(dateObj.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
-  };
-
-  const start = parseYMD(data[0].date);
-  const end = parseYMD(data[data.length - 1].date);
-
-  const result = [];
-  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-    const dateStr = toYMD(d);
-    result.push({
-      date: dateStr,
-      revenue: Number(map.get(dateStr) || 0)
-    });
-  }
-
-  return result;
-};
+import { useResyncOnReconnect } from "../../socket/useResyncOnReconnect";
+import { useSingleFlightRefetch } from "../../hooks/useSingleFlightRefetch";
+import RevenueTrendChart from "../../components/admin/RevenueTrendChart";
+import { formatRupees } from "../../utils/revenueChart";
 
 // Order + labels for the dropdown menu (matches Image 1)
 const RANGE_OPTIONS = [
   { key: 'today', label: 'Today' },
   { key: 'yesterday', label: 'Yesterday' },
   { key: '7days', label: 'Last 7 Days' },
+  { key: '30days', label: 'Last 30 Days' },
   { key: '3months', label: 'Last 3 Months' },
   { key: 'thismonth', label: 'This Month' },
   { key: 'thisyear', label: 'This Year' },
@@ -75,9 +44,10 @@ const RANGE_LABELS = RANGE_OPTIONS.reduce((acc, o) => {
   return acc;
 }, {});
 
+// Pending -> Preparing -> Ready -> Completed. Legacy "Accepted" orders are
+// counted with Pending by the server.
 const STATUS_COLORS = {
   Pending: "#f59e0b",      // Orange
-  Accepted: "#3b82f6",     // Blue
   Preparing: "#8b5cf6",    // Purple
   Ready: "#22c55e",        // Green
   Completed: "#10b981",    // Emerald
@@ -93,69 +63,14 @@ const getISTDate = (date) =>
 
 const todayStr = () => getISTDate(new Date());
 
+// A YYYY-MM-DD value is a calendar date; parsing it with Date() would read it
+// as UTC midnight and could show the previous day west of UTC.
 const formatDisplayDate = (isoStr) => {
   if (!isoStr) return '';
-  return new Date(isoStr).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-};
-
-const formatXAxisLabel = (value, range) => {
-
-  switch (range) {
-
-    case "today":
-    case "yesterday":
-    case "specific": {
-      const hour = Number(value.split(":")[0]);
-
-      const displayHour =
-        hour === 0 ? 12 :
-          hour > 12 ? hour - 12 :
-            hour;
-
-      const period = hour >= 12 ? "PM" : "AM";
-
-      return `${displayHour} ${period}`;
-    }
-
-    case "7days": {
-      const date = new Date(value);
-
-      return date.toLocaleDateString("en-IN", {
-        weekday: "short",
-      });
-    }
-
-
-    case "3months": {
-      const date = new Date(value);
-
-      return date.toLocaleDateString("en-IN", {
-        month: "short",
-      });
-    }
-
-    case "thisyear": {
-      const date = new Date(value);
-
-      return date.toLocaleDateString("en-IN", {
-        month: "short",
-      });
-    }
-
-    case "thismonth": {
-      const date = new Date(value);
-
-      return date.toLocaleDateString("en-IN", {
-        day: "numeric",
-        month: "short",
-      });
-    }
-
-
-
-    default:
-      return value;
-  }
+  const [y, m, d] = isoStr.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString('en-IN', {
+    day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC',
+  });
 };
 
 const AdminAnalytics = () => {
@@ -167,7 +82,7 @@ const AdminAnalytics = () => {
   const [loading, setLoading] = useState(true);       // true only for the very first load
   const [refreshing, setRefreshing] = useState(false); // true for background/range-switch fetches
 
-  // 'today' | 'yesterday' | '7days' |  '3months' | 'thismonth' | 'thisyear' | 'specific'
+  // 'today' | 'yesterday' | '7days' | '30days' | '3months' | 'thismonth' | 'thisyear' | 'specific'
   const [range, setRange] = useState('7days');
 
   // applied specific date (only updates when user picks a day in the calendar)
@@ -187,6 +102,16 @@ const AdminAnalytics = () => {
   const requestSeqRef = useRef(0);
   const hasLoadedOnceRef = useRef(false);
 
+  // The selection the screen currently shows. Requests run one at a time (see
+  // useSingleFlightRefetch below), so a range switch made while a request is
+  // in flight queues a follow-up; the in-flight response, which belongs to the
+  // previous selection, is dropped instead of briefly overwriting the view.
+  const selectionKey = `${range}|${specificDate}`;
+  const selectionKeyRef = useRef(selectionKey);
+  selectionKeyRef.current = selectionKey;
+  // Set by a user range change so the next load shows the refreshing state.
+  const userRequestedRef = useRef(false);
+
   // close menu on outside click
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -205,6 +130,7 @@ const AdminAnalytics = () => {
 
   const fetchAnalytics = useCallback(async (isBackground = false) => {
     const mySeq = ++requestSeqRef.current;
+    const requestedSelection = `${range}|${specificDate}`;
 
     if (!hasLoadedOnceRef.current) {
       setLoading(true);
@@ -221,36 +147,25 @@ const AdminAnalytics = () => {
 
       const { data } = await analyticsAPI.getDashboard(params);
 
-      // A newer request has since been fired (user switched range again) —
-      // discard this stale response.
-      if (mySeq !== requestSeqRef.current) return;
-
-      let revenue = data?.revenueByDay || [];
-
-      revenue = revenue
-        .map(r => ({
-          ...r,
-          revenue: Number(r.revenue || 0)
-        }))
-        .sort((a, b) => new Date(a.date) - new Date(b.date));
-
+      // A newer request has since been fired, or the user switched to another
+      // range while this one was loading — discard this stale response.
       if (
-        range === "7days" ||
-        range === "thismonth"
-      ) {
-        revenue = fillMissingDates(revenue);
-      }
+        mySeq !== requestSeqRef.current ||
+        requestedSelection !== selectionKeyRef.current
+      ) return;
 
-      setStats({
-        ...data,
-        revenueByDay: revenue
-      });
+      // The server returns the Revenue Trend already bucketed and
+      // zero-filled on the IST calendar.
+      setStats(data || {});
 
       rateLimitedRef.current = false;
       hasLoadedOnceRef.current = true;
 
     } catch (err) {
-      if (mySeq !== requestSeqRef.current) return;
+      if (
+        mySeq !== requestSeqRef.current ||
+        requestedSelection !== selectionKeyRef.current
+      ) return;
 
       console.error(err);
 
@@ -267,12 +182,34 @@ const AdminAnalytics = () => {
       }
 
     } finally {
-      if (mySeq === requestSeqRef.current) {
+      // A dropped response leaves the loading state to the follow-up request.
+      if (
+        mySeq === requestSeqRef.current &&
+        requestedSelection === selectionKeyRef.current
+      ) {
         setLoading(false);
         setRefreshing(false);
       }
     }
   }, [range, specificDate]);
+
+  // Every load -- first load, range change, realtime event, reconnect -- runs
+  // through one single-flight queue, so at most one analytics request is ever
+  // in flight and triggers that arrive meanwhile coalesce into one follow-up.
+  // Realtime events additionally share a short window, so the paired
+  // order-updated + analytics-updated of a single admin action cost one
+  // request.
+  const { refetch: refetchAnalytics } = useSingleFlightRefetch(
+    () => {
+      if (range === "specific" && !specificDate) return undefined;
+
+      const isBackground = !userRequestedRef.current;
+      userRequestedRef.current = false;
+
+      return fetchAnalytics(isBackground);
+    },
+    { coalesceMs: 100 }
+  );
 
   useEffect(() => {
 
@@ -280,9 +217,10 @@ const AdminAnalytics = () => {
       return;
     }
 
-    fetchAnalytics(false);
+    userRequestedRef.current = true;
+    refetchAnalytics({ immediate: true });
 
-  }, [range, specificDate, fetchAnalytics]);
+  }, [range, specificDate, refetchAnalytics]);
 
   // Split from the fetch above so it can depend on `socket`. The handler is a
   // stored reference and cleanup passes it to off(); the previous
@@ -299,17 +237,26 @@ const AdminAnalytics = () => {
       return;
     }
 
+    // New orders and auto-cancellations emit only order-updated but still
+    // change these figures, so both events refresh the view.
     const handleAnalyticsUpdate = () => {
-      fetchAnalytics(true);
+      refetchAnalytics();
     };
 
     socket.on(SocketEvents.ANALYTICS_UPDATED, handleAnalyticsUpdate);
+    socket.on(SocketEvents.ORDER_UPDATED, handleAnalyticsUpdate);
 
     return () => {
       socket.off(SocketEvents.ANALYTICS_UPDATED, handleAnalyticsUpdate);
+      socket.off(SocketEvents.ORDER_UPDATED, handleAnalyticsUpdate);
     };
 
-  }, [socket, range, specificDate, fetchAnalytics]);
+  }, [socket, range, specificDate, refetchAnalytics]);
+
+  // Updates emitted while the socket was down are never replayed.
+  useResyncOnReconnect(socket, () => {
+    refetchAnalytics({ immediate: true });
+  });
 
   const selectRange = (key) => {
     setRange(key);
@@ -339,46 +286,52 @@ const AdminAnalytics = () => {
       ? formatDisplayDate(specificDate)
       : RANGE_LABELS[range];
 
-  const revenueByDay = stats.revenueByDay || [];
+  const revenueTrend = stats.revenueTrend;
+  const isSingleDay = revenueTrend?.mode === 'intraday';
 
-  // 🔥 Trend: compare last half of range vs first half
+  // Net Revenue trend badge: net revenue in the second half of a multi-day
+  // range against the first half. Not shown for a single day, where halves of
+  // the clock say little.
   const getTrend = () => {
-    if (revenueByDay.length < 2) return null;
+    const points = revenueTrend?.points || [];
+    if (isSingleDay || points.length < 2) return null;
 
-    const mid = Math.floor(revenueByDay.length / 2);
-    const firstHalf = revenueByDay.slice(0, mid);
-    const secondHalf = revenueByDay.slice(mid);
+    const mid = Math.floor(points.length / 2);
+    const sum = (arr) => arr.reduce((s, d) => s + Number(d.revenue || 0), 0);
 
-    const sum = (arr) => arr.reduce((s, d) => s + d.revenue, 0);
-
-    const firstSum = sum(firstHalf) || 0;
-    const secondSum = sum(secondHalf) || 0;
+    const firstSum = sum(points.slice(0, mid));
+    const secondSum = sum(points.slice(mid));
 
     if (firstSum === 0) return null;
 
-    const change = ((secondSum - firstSum) / firstSum) * 100;
-    return change;
+    return ((secondSum - firstSum) / firstSum) * 100;
   };
 
   const trend = getTrend();
 
-  // FIX: was `totalRevenue / ordersToday`, which is wrong for any range
-  // other than "today" (mixes a range-scoped number with a today-only number).
-  // Backend should return `totalOrders` = order count for the SAME range as
-  // totalRevenue. Falls back to ordersToday only when range === 'today'.
-  const ordersForRange =
-    range === 'today'
-      ? (stats.ordersToday || 0)
-      : (stats.totalOrders ?? stats.ordersToday ?? 0);
+  // Every accounting figure below comes from the backend (Gross / Refunds /
+  // Net revenue, revenue orders and AOV = Net / revenue orders); nothing is
+  // recalculated here.
+  const isLegacyAccounting = stats.accountingModel === 'legacy';
+  const failedRefunds = Number(stats.failedRefunds || 0);
+  const revenueOrders = Number(stats.revenueOrders || 0);
+  const refundedRevenueOrders = Math.max(
+    revenueOrders - Number(stats.statusBreakdown?.completed || 0),
+    0
+  );
 
-  const avgOrderValue =
-    ordersForRange > 0
-      ? (Number(stats.totalRevenue || 0) / ordersForRange)
-      : 0;
+  const refundsHint = isLegacyAccounting
+    ? 'Refund accounting unavailable'
+    : failedRefunds > 0
+      ? `${failedRefunds} failed, not counted`
+      : 'Successful refunds only';
+
+  // "yesterday", "last 7 days", or a formatted date as-is.
+  const trendRangeLabel =
+    range === 'specific' ? currentRangeLabel : currentRangeLabel.toLowerCase();
 
   const pieData = [
     { name: "Pending", value: stats.statusBreakdown?.pending || 0 },
-    { name: "Accepted", value: stats.statusBreakdown?.accepted || 0 },
     { name: "Preparing", value: stats.statusBreakdown?.preparing || 0 },
     { name: "Ready", value: stats.statusBreakdown?.ready || 0 },
     { name: "Completed", value: stats.statusBreakdown?.completed || 0 },
@@ -392,39 +345,61 @@ const AdminAnalytics = () => {
 
   const summaryCards = [
     {
-      title: "Total Revenue",
-      value: `₹${Number(stats.totalRevenue || 0).toFixed(2)}`,
+      title: "Gross Revenue",
+      value: formatRupees(stats.grossRevenue),
+      hint: "Completed & refunded orders",
+      icon: Receipt,
+      color: "text-slate-700",
+      bg: "bg-slate-100",
+    },
+    {
+      title: "Refunds",
+      value: formatRupees(stats.refunds),
+      hint: refundsHint,
+      icon: RotateCcw,
+      color: "text-rose-600",
+      bg: "bg-rose-50",
+    },
+    {
+      title: "Net Revenue",
+      value: formatRupees(stats.netRevenue),
+      hint: "Gross minus refunds",
       icon: Wallet,
       color: "text-green-600",
       bg: "bg-green-50",
       trend,
     },
     {
+      title: "Avg. Order Value",
+      value: formatRupees(stats.avgOrderValue),
+      hint: "Net per revenue order",
+      icon: TrendingUp,
+      color: "text-indigo-600",
+      bg: "bg-indigo-50",
+    },
+    {
       title:
         range === "today"
           ? "Orders Today"
-          : "Orders",
+          : "Total Orders",
       value:
         range === "today"
           ? stats.ordersToday
           : stats.totalOrders,
+      hint: `All statuses · ${stats.activeOrders || 0} active`,
       icon: ShoppingBag,
       color: "text-blue-600",
       bg: "bg-blue-50",
     },
     {
-      title: "Active Orders",
-      value: stats.activeOrders || 0,
-      icon: Clock,
-      color: "text-orange-600",
-      bg: "bg-orange-50",
-    },
-    {
-      title: "Avg. Order Value",
-      value: `₹${avgOrderValue.toFixed(2)}`,
-      icon: TrendingUp,
-      color: "text-indigo-600",
-      bg: "bg-indigo-50",
+      title: "Revenue Orders",
+      value: revenueOrders,
+      hint: refundedRevenueOrders > 0
+        ? `Completed · ${refundedRevenueOrders} refunded`
+        : "Completed orders",
+      icon: CheckCircle2,
+      color: "text-emerald-600",
+      bg: "bg-emerald-50",
     },
   ];
 
@@ -436,8 +411,8 @@ const AdminAnalytics = () => {
     return (
       <div className="space-y-6">
         <div className="h-8 w-48 bg-gray-200 animate-pulse rounded-lg" />
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-          {[1, 2, 3, 4].map((i) => (
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 sm:gap-6">
+          {[1, 2, 3, 4, 5, 6].map((i) => (
             <div key={i} className="h-28 bg-gray-200 animate-pulse rounded-2xl" />
           ))}
         </div>
@@ -602,7 +577,7 @@ const AdminAnalytics = () => {
       </div>
 
       {/* SUMMARY — KPI CARDS */}
-      <div className={`grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6 transition-opacity duration-200 ${refreshing ? 'opacity-60' : 'opacity-100'}`}>
+      <div className={`grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-6 transition-opacity duration-200 ${refreshing ? 'opacity-60' : 'opacity-100'}`}>
         {summaryCards.map((card, i) => {
           const Icon = card.icon;
 
@@ -635,9 +610,15 @@ const AdminAnalytics = () => {
               </div>
 
               <p className="text-gray-500 text-[11px] sm:text-sm">{card.title}</p>
-              <p className={`text-lg sm:text-2xl font-bold mt-0.5 sm:mt-1 truncate ${card.color}`}>
-                {card.value}
+              <p
+                className={`text-lg sm:text-2xl font-bold mt-0.5 sm:mt-1 truncate ${card.color}`}
+                title={String(card.value ?? 0)}
+              >
+                {card.value ?? 0}
               </p>
+              {card.hint && (
+                <p className="text-[10px] sm:text-xs text-slate-400 mt-0.5 leading-snug">{card.hint}</p>
+              )}
             </motion.div>
           );
         })}
@@ -645,126 +626,13 @@ const AdminAnalytics = () => {
 
       {/* REVENUE TREND — full width hero chart */}
       <div className={`bg-white rounded-2xl shadow-sm border border-slate-100 p-4 sm:p-6 transition-opacity duration-200 ${refreshing ? 'opacity-60' : 'opacity-100'}`}>
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-base sm:text-lg font-bold text-slate-900">Revenue Trend</h3>
-            <p className="text-xs sm:text-sm text-gray-400">Daily revenue over {currentRangeLabel.toLowerCase()}</p>
-          </div>
-        </div>
-
-        {revenueByDay.length === 0 ? (
-          <p className="text-gray-400 text-center py-16 text-sm">No revenue data available</p>
-        ) : (
-          <ResponsiveContainer width="100%" height={240} className="sm:!h-[300px]">
-            <AreaChart data={revenueByDay} margin={{
-              top: 10,
-              right: 15,
-              left: 5,
-              bottom: 10,
-            }}>
-
-              <CartesianGrid strokeDasharray="3 3" opacity={0.15} vertical={false} />
-
-              <defs>
-                <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#2563EB" stopOpacity={0.35} />
-                  <stop offset="95%" stopColor="#2563EB" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-
-              <XAxis
-                dataKey="date"
-                interval={
-                  range === "7days"
-                    ? 0
-                    : range === "thismonth"
-                      ? 4
-                      : range === "3months"
-                        ? 0
-                        : range === "thisyear"
-                          ? 0
-                          : "preserveStartEnd"
-                }
-                tickFormatter={(value) => formatXAxisLabel(value, range)}
-                tick={{ fontSize: 11, fill: '#94a3b8' }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis
-                tick={{ fontSize: 11, fill: '#94a3b8' }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <Tooltip
-                labelFormatter={(label) => {
-                  if (
-                    range === "today" ||
-                    range === "yesterday" ||
-                    range === "specific"
-                  ) {
-                    return formatXAxisLabel(label, range);
-                  }
-
-                  const date = new Date(label);
-
-                  if (range === "7days") {
-                    return date.toLocaleDateString("en-IN", {
-                      weekday: "long",
-                      day: "numeric",
-                      month: "short",
-                    });
-                  }
-
-                  return date.toLocaleDateString("en-IN", {
-                    day: "numeric",
-                    month: "long",
-                    year: "numeric",
-                  });
-                }}
-
-                formatter={(value) => [
-                  `₹${Number(value).toFixed(2)}`,
-                  "Revenue",
-                ]}
-                contentStyle={{
-                  borderRadius: 14,
-                  border: "1px solid #E2E8F0",
-                  boxShadow: "0 10px 30px rgba(15,23,42,0.08)",
-                  background: "#fff",
-                  fontSize: 13,
-                }}
-              />
-
-              <Area
-                type={
-                  range === "today" ||
-                    range === "yesterday" ||
-                    range === "specific"
-                    ? "linear"
-                    : "monotone"
-                }
-                dataKey="revenue"
-                stroke="#2563EB"
-                strokeWidth={4}
-                fill="url(#colorRevenue)"
-                animationDuration={800}
-                dot={{
-                  r: 4,
-                  stroke: "#2563EB",
-                  strokeWidth: 2,
-                  fill: "#ffffff",
-                }}
-                activeDot={{
-                  r: 7,
-                  stroke: "#2563EB",
-                  strokeWidth: 3,
-                  fill: "#ffffff",
-                }}
-              />
-
-            </AreaChart>
-          </ResponsiveContainer>
-        )}
+        <RevenueTrendChart
+          trend={revenueTrend}
+          rangeLabel={trendRangeLabel}
+          isToday={range === 'today'}
+          totalOrders={Number(stats.totalOrders || 0)}
+          cancelledOrders={Number(stats.statusBreakdown?.cancelled || 0)}
+        />
       </div>
 
       {/* GRID: STATUS + TOP ITEMS + TOP CATEGORIES */}
@@ -808,7 +676,12 @@ const AdminAnalytics = () => {
                       />
                       <span className="text-gray-600">{entry.name}</span>
                     </div>
-                    <span className="font-semibold text-slate-900">{entry.value}</span>
+                    <span className="font-semibold text-slate-900 tabular-nums">
+                      {entry.value}
+                      <span className="ml-1.5 text-xs font-normal text-slate-400">
+                        {Math.round((entry.value / totalStatusCount) * 100)}%
+                      </span>
+                    </span>
                   </div>
                 ))}
               </div>

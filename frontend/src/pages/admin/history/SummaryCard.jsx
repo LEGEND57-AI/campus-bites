@@ -10,6 +10,7 @@ const SummaryCard = ({
     delay = 0,
     onClick,
     isActive = false,
+    hint,
 }) => (
     <motion.div
         initial={{ opacity: 0, y: 10 }}
@@ -36,6 +37,7 @@ const SummaryCard = ({
         </div>
         <p className="text-xs font-semibold text-slate-500">{label}</p>
         <p className={`text-xl sm:text-2xl font-bold mt-0.5 ${color}`}>{value}</p>
+        {hint && <p className="text-[10px] sm:text-xs text-slate-400 mt-0.5 leading-snug">{hint}</p>}
     </motion.div>
 );
 

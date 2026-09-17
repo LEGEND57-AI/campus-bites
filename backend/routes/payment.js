@@ -6,6 +6,7 @@ import { authenticate } from "../middleware/auth.js";
 import { generateDailyToken } from "../utils/tokenGenerator.js";
 import { paymentLimiter } from "../middleware/rateLimiter.js";
 import { createNotification } from "../utils/notificationService.js";
+import { emitOrderUpdate, emitAdminOrderUpdate } from "../socket/emitters.js";
 import {
   MAX_ITEM_QUANTITY,
   MAX_DISTINCT_ITEMS,
@@ -501,6 +502,19 @@ router.post("/verify", async (req, res) => {
             }
             // Fall through to the success response below regardless —
             // the order was created successfully.
+        }
+
+        // Announce the new order in realtime, exactly as the cash order route
+        // does. Without this, online orders only reached Admin Orders after a
+        // manual refresh. A socket failure must not fail a paid order.
+        try {
+            emitOrderUpdate(req.user.id, order);
+            emitAdminOrderUpdate(order);
+        } catch (emitError) {
+            console.error("Realtime order emit failed after online order creation.", {
+                orderId: order.id,
+                message: emitError?.message,
+            });
         }
 
         await createNotification({

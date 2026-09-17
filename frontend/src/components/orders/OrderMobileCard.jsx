@@ -12,6 +12,7 @@ import { downloadReceipt } from "../../utils/downloadReceipt";
 import { orderAPI } from "../../services/api";
 import { useCart } from "../../context/CartContext";
 import { formatPrice } from "../../utils/formatPrice";
+import { getOrderStatusLabel } from "../../utils/orderStatusLabel";
 
 const OrderMobileCard = ({ order }) => {
 
@@ -177,11 +178,7 @@ const OrderMobileCard = ({ order }) => {
             ${getStatusColor(order.status)}
           `}
                                 >
-                                    {order.status?.toLowerCase() === "refunded"
-                                        ? "Refund Initiated"
-                                        : order.status?.toLowerCase() === "cancelled"
-                                            ? "Cancelled"
-                                            : order.status}
+                                    {getOrderStatusLabel(order.status)}
                                 </span>
 
                                 <button

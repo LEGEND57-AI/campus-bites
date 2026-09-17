@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { formatRupees } from "../../utils/revenueChart";
 import { adminAPI, analyticsAPI } from "../../services/api";
 import { motion } from 'framer-motion';
 import {
@@ -13,6 +14,13 @@ import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { useSocket } from "../../socket/SocketProvider";
 import { SocketEvents } from "../../socket/constants";
+import { useResyncOnReconnect } from "../../socket/useResyncOnReconnect";
+import { useSingleFlightRefetch } from "../../hooks/useSingleFlightRefetch";
+
+// The IST calendar date (YYYY-MM-DD) an instant falls on. CampusCraves runs on
+// India time, so "today" must not depend on the browser's own timezone.
+const getISTDate = (date) =>
+  new Date(date).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -24,7 +32,9 @@ const AdminDashboard = () => {
 
   const [stats, setStats] = useState({
     ordersToday: 0,
-    totalRevenue: 0,
+    grossRevenue: 0,
+    refunds: 0,
+    netRevenue: 0,
     activeOrders: 0,
 
     pendingOrders: 0,
@@ -43,11 +53,80 @@ const AdminDashboard = () => {
     recentOrdersRef.current = recentOrders;
   }, [recentOrders]);
 
+  const fetchStats = async () => {
+    try {
+      const { data } = await analyticsAPI.getDashboardSummary();
+
+      setStats({
+        ordersToday: data.ordersToday || 0,
+        // Today's accounting (IST), computed by the backend: net = gross -
+        // successful refunds. totalRevenue is the older name for net.
+        grossRevenue: Number(data.grossRevenue ?? data.totalRevenue ?? 0),
+        refunds: Number(data.refunds || 0),
+        netRevenue: Number(data.netRevenue ?? data.totalRevenue ?? 0),
+        activeOrders: data.activeOrders || 0,
+
+        pendingOrders: data.pendingOrders || 0,
+        preparingOrders: data.preparingOrders || 0,
+        readyOrders: data.readyOrders || 0,
+      });
+
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to load stats');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchRecentOrders = async () => {
+    try {
+      const { data } = await adminAPI.getOrders();
+
+      // Compared on the IST calendar, matching the server's IST "today"
+      // window. toDateString() used the browser's local timezone.
+      const today = getISTDate(new Date());
+
+      const todayOrders = data
+        .filter(order =>
+          getISTDate(order.created_at) === today
+        )
+        .sort((a, b) => b.token_number - a.token_number)
+        .slice(0, 5);
+
+      setRecentOrders(todayOrders);
+
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to load recent orders');
+    }
+  };
+
+  // One request at a time per data set; triggers that arrive while one is
+  // running coalesce into a single follow-up (see useSingleFlightRefetch).
+  // Stats get a short coalescing window because a single admin action emits
+  // both order-updated and analytics-updated, which should share one request.
+  const {
+    refetch: refetchStats,
+  } = useSingleFlightRefetch(fetchStats, { coalesceMs: 100 });
+
+  const {
+    refetch: refetchRecentOrders,
+    markStale: markRecentOrdersStale,
+  } = useSingleFlightRefetch(fetchRecentOrders);
+
   // 🔥 AUTO REFRESH
   useEffect(() => {
-    fetchStats();
-    fetchRecentOrders();
-  }, []);
+    refetchStats({ immediate: true });
+    refetchRecentOrders();
+  }, [refetchStats, refetchRecentOrders]);
+
+  // Updates emitted while the socket was down are never replayed, so re-read
+  // both once per reconnect (the first connection is skipped).
+  useResyncOnReconnect(socket, () => {
+    refetchStats({ immediate: true });
+    refetchRecentOrders();
+  });
 
   // Split out from the initial fetch above so it can depend on `socket`
   // without re-firing that fetch when the socket connects.
@@ -59,7 +138,7 @@ const AdminDashboard = () => {
     // every order; a single updated order is not enough to recompute them
     // correctly, so merging would risk showing wrong numbers.
     const handleAnalyticsUpdate = () => {
-      fetchStats();
+      refetchStats();
     };
 
     // The recent-orders list, by contrast, can be merged in place when the
@@ -68,8 +147,13 @@ const AdminDashboard = () => {
     // of the list.
     const handleOrderUpdate = (updatedOrder) => {
 
+      // New orders and auto-cancellations emit only order-updated, and they
+      // change the today/active/per-status counts too, so the stats follow
+      // every order event (coalesced with analytics-updated).
+      refetchStats();
+
       if (!updatedOrder?.id) {
-        fetchRecentOrders();
+        refetchRecentOrders();
         return;
       }
 
@@ -78,9 +162,12 @@ const AdminDashboard = () => {
       );
 
       if (!alreadyListed) {
-        fetchRecentOrders();
+        refetchRecentOrders();
         return;
       }
+
+      // An in-flight list response may predate this change.
+      markRecentOrdersStale();
 
       setRecentOrders((prev) =>
         prev.map((order) =>
@@ -112,58 +199,8 @@ const AdminDashboard = () => {
         handleOrderUpdate
       );
     };
-  }, [socket]);
+  }, [socket, refetchStats, refetchRecentOrders, markRecentOrdersStale]);
 
-  const fetchStats = async () => {
-    try {
-      const { data } = await analyticsAPI.getDashboardSummary();
-
-      setStats({
-        ordersToday: data.ordersToday || 0,
-        totalRevenue: Number(data.totalRevenue || 0),
-        activeOrders: data.activeOrders || 0,
-
-        pendingOrders: data.pendingOrders || 0,
-        preparingOrders: data.preparingOrders || 0,
-        readyOrders: data.readyOrders || 0,
-      });
-
-    } catch (err) {
-      console.error(err);
-      toast.error('Failed to load stats');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchRecentOrders = async () => {
-    try {
-      const { data } = await adminAPI.getOrders();
-
-      const today = new Date().toDateString();
-
-      const todayOrders = data
-        .filter(order =>
-          new Date(order.created_at).toDateString() === today
-        )
-        .sort((a, b) => b.token_number - a.token_number)
-        .slice(0, 5);
-
-      setRecentOrders(todayOrders);
-
-    } catch (err) {
-      console.error(err);
-      toast.error('Failed to load recent orders');
-    }
-  };
-
-  // ✅ FORMAT ₹
-  const formatCurrency = (amount) => {
-    return `₹${Number(amount || 0).toLocaleString('en-IN', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    })}`;
-  };
 
   const formatToken = (token) => {
     return `#${String(token || 0).padStart(2, "0")}`;
@@ -177,8 +214,10 @@ const AdminDashboard = () => {
       color: 'text-blue-500'
     },
     {
-      title: 'Total Revenue',
-      value: formatCurrency(stats.totalRevenue), // ✅ FIXED
+      // Today only (IST), so it is labelled as such.
+      title: "Today's Net Revenue",
+      value: formatRupees(stats.netRevenue),
+      hint: `Gross ${formatRupees(stats.grossRevenue)} · Refunds ${formatRupees(stats.refunds)}`,
       icon: DollarSign,
       color: 'text-green-500'
     },
@@ -261,6 +300,9 @@ const AdminDashboard = () => {
               <div>
                 <p className="text-gray-500 text-sm">{card.title}</p>
                 <p className="text-3xl font-bold mt-2">{card.value}</p>
+                {card.hint && (
+                  <p className="text-xs text-gray-400 mt-1">{card.hint}</p>
+                )}
               </div>
 
               <card.icon className={`w-12 h-12 ${card.color} opacity-50`} />

@@ -11,7 +11,9 @@ import {
   CheckCircle2,
   XCircle,
   Hash,
+  RotateCcw,
 } from "lucide-react";
+import { getRefundInfo } from "../../../utils/refundInfo";
 
 const formatAmount = (amount) => `₹${Number(amount || 0).toFixed(2)}`;
 
@@ -49,6 +51,18 @@ const ViewDetailsModal = ({ order, onClose }) => {
   // Only rendered if these actually exist on the order — never fabricated
   const hasTax = order.tax_amount !== undefined && order.tax_amount !== null;
   const hasDiscount = order.discount_amount !== undefined && order.discount_amount !== null;
+  const refundInfo = getRefundInfo(order);
+  // A refund is "processed" (green: Refunded / Partial Refund) or "failed"
+  // (red: Refund Failed), from the refund's own refund_status. A refund whose
+  // status is neither (recorded before that model) keeps the neutral cyan
+  // "Refunded" and is never shown as processed.
+  const isRefundedOrder = order.status === "Refunded";
+  const refundProcessed = refundInfo?.state === "processed";
+  const refundFailed = refundInfo?.state === "failed";
+  const refundedLabel = refundInfo ? refundInfo.label : "Refunded";
+  const refundedBadge = refundProcessed || refundFailed ? refundInfo.styles.badge : "bg-cyan-100 text-cyan-700";
+  const refundedText = refundProcessed || refundFailed ? refundInfo.styles.text : "text-cyan-600";
+  const RefundedIcon = refundProcessed ? CheckCircle2 : refundFailed ? XCircle : RotateCcw;
 
   return createPortal(
     <AnimatePresence>
@@ -88,13 +102,20 @@ const ViewDetailsModal = ({ order, onClose }) => {
                   <span
                     className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold ${order.status === "Completed"
                       ? "bg-green-100 text-green-700"
-                      : "bg-red-100 text-red-700"
+                      : isRefundedOrder
+                        ? refundedBadge
+                        : "bg-red-100 text-red-700"
                       }`}
                   >
                     {order.status === "Completed" ? (
                       <>
                         <CheckCircle2 size={13} />
                         Completed
+                      </>
+                    ) : isRefundedOrder ? (
+                      <>
+                        <RefundedIcon size={13} />
+                        {refundedLabel}
                       </>
                     ) : (
                       <>
@@ -267,14 +288,18 @@ const ViewDetailsModal = ({ order, onClose }) => {
                     <h4
                       className={`font-bold ${order.status === "Completed"
                         ? "text-green-600"
-                        : "text-red-600"
+                        : isRefundedOrder
+                          ? refundedText
+                          : "text-red-600"
                         }`}
                     >
                       {order.status === "Completed"
                         ? "Completed"
                         : order.status === "Rejected"
                           ? "Cancelled"
-                          : order.status}
+                          : isRefundedOrder
+                            ? refundedLabel
+                            : order.status}
                     </h4>
 
                   </div>
@@ -325,13 +350,51 @@ const ViewDetailsModal = ({ order, onClose }) => {
                   <span
                     className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${order.payment_status === "PAID"
                       ? "bg-green-100 text-green-700"
-                      : "bg-yellow-100 text-yellow-700"
+                      : order.payment_status === "REFUNDED" || order.payment_status === "PARTIALLY_REFUNDED"
+                        ? "bg-cyan-100 text-cyan-700"
+                        : "bg-yellow-100 text-yellow-700"
                       }`}
                   >
                     {order.payment_status || "UNKNOWN"}
                   </span>
 
                 </div>
+
+                {refundInfo && (
+                  <div className="rounded-xl border bg-slate-50 p-4 sm:col-span-2 space-y-2.5">
+
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs text-slate-400">Refund</span>
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold ${refundedBadge}`}
+                      >
+                        <RefundedIcon size={13} />
+                        {refundInfo.label}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs text-slate-400">Refund Amount</span>
+                      <span className="font-semibold text-slate-800">
+                        {formatAmount(refundInfo.amount)}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs text-slate-400">Refund Type</span>
+                      <span className="font-semibold text-slate-800">
+                        {refundInfo.typeText}
+                      </span>
+                    </div>
+
+                    {refundFailed && (
+                      <p className="text-xs font-medium text-red-600">
+                        No money was returned to the customer. Retry the refund from the Razorpay Dashboard.
+                      </p>
+                    )}
+
+                  </div>
+                )}
 
               </div>
 
@@ -428,6 +491,22 @@ const ViewDetailsModal = ({ order, onClose }) => {
                   </span>
 
                 </div>
+
+                {refundInfo && (
+                  <>
+                    <div className="flex items-center justify-between gap-3 text-blue-100">
+                      <span>{refundFailed ? "Refund Failed" : refundInfo.typeText}</span>
+                      <span className={refundProcessed ? "" : "line-through opacity-80"}>
+                        -{formatAmount(refundInfo.amount)}
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between font-semibold">
+                      <span>Net amount kept</span>
+                      <span>{formatAmount(refundInfo.netAmount)}</span>
+                    </div>
+                  </>
+                )}
 
               </div>
 

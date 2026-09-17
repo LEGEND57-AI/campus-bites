@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { formatRupees } from "../../../utils/revenueChart";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import "../../../styles/datepicker.css";
@@ -24,6 +25,10 @@ import {
 } from "lucide-react";
 import { useSocket } from "../../../socket/SocketProvider";
 import { SocketEvents } from "../../../socket/constants";
+import { useResyncOnReconnect } from "../../../socket/useResyncOnReconnect";
+import { useSingleFlightRefetch } from "../../../hooks/useSingleFlightRefetch";
+import { useDebouncedValue } from "../../../hooks/useDebouncedValue";
+import { useLatestRequest, isAbortError } from "../../../hooks/useLatestRequest";
 
 
 const getISTDate = (date) =>
@@ -133,6 +138,9 @@ const EMPTY_SUMMARY = {
     cancelled: 0,
     refunded: 0,
     revenue: 0,
+    grossRevenue: 0,
+    refunds: 0,
+    netRevenue: 0,
 };
 
 const AdminOrderHistory = () => {
@@ -142,7 +150,12 @@ const AdminOrderHistory = () => {
 
     const [orders, setOrders] = useState([]);
     const [summary, setSummary] = useState(EMPTY_SUMMARY);
+    // Same pattern as Admin Orders: `loading` is only the first load (full
+    // skeleton). Every later page-1 reload -- filters, search, Refresh -- sets
+    // `refreshing` instead and keeps the current rows on screen until the new
+    // ones arrive, so the page never flashes back to the skeleton.
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
 
     // Kept separate from `loading` so an in-flight next page never blanks the
     // rows already on screen.
@@ -159,7 +172,6 @@ const AdminOrderHistory = () => {
     const [staleList, setStaleList] = useState(false);
 
     const [search, setSearch] = useState("");
-    const [debouncedSearch, setDebouncedSearch] = useState("");
     const [summaryFilter, setSummaryFilter] = useState("all");
     const [paymentFilter, setPaymentFilter] = useState("all");
     const [showPaymentFilter, setShowPaymentFilter] = useState(false);
@@ -175,6 +187,9 @@ const AdminOrderHistory = () => {
     const requestTokenRef = useRef(0);
     const inFlightRef = useRef(false);
     const loadedPagesRef = useRef(new Set());
+    // Set when a reconnect happens before page 1 has loaded; the missed-change
+    // check then runs as soon as that first page arrives.
+    const recheckAfterFirstPageRef = useRef(false);
 
     const [observerTarget, setObserverTarget] = useState(null);
 
@@ -238,18 +253,9 @@ const AdminOrderHistory = () => {
         };
     }, [showDateFilter, showPaymentFilter, showSpecificPopup, showRangePopup]);
 
-    // One request per pause in typing rather than one per keystroke. Search is
-    // now a server round trip, so this matters; 350ms is short enough that it
-    // still feels immediate.
-    useEffect(() => {
-
-        const timer = setTimeout(() => {
-            setDebouncedSearch(search);
-        }, 350);
-
-        return () => clearTimeout(timer);
-
-    }, [search]);
+    // One request per pause in typing rather than one per keystroke; search
+    // runs on the server (PostgreSQL), shared with Admin Orders.
+    const debouncedSearch = useDebouncedValue(search);
 
     // Every filter the page offers, resolved to the API's parameters. Search,
     // status, payment and the date window are ALL applied server-side now --
@@ -286,6 +292,20 @@ const AdminOrderHistory = () => {
         debouncedSearch,
     ]);
 
+    // Stale-response protection: a new page-1 load aborts the previous one
+    // ("Har" -> "Harsh" -> "Harshil" can only ever show "Harshil"); next-page
+    // loads have their own controller.
+    const { begin: beginListRequest, cancel: cancelListRequest } = useLatestRequest();
+    const { begin: beginMoreRequest, cancel: cancelMoreRequest } = useLatestRequest();
+
+    // The summary cards depend only on the date window and payment method. A
+    // search, a status card, or a next page leaves them unchanged, so the
+    // (comparatively expensive) summary is only requested when that window
+    // changes or the data itself changed (Refresh, first load).
+    const summaryKey = JSON.stringify([queryParams.from, queryParams.to, queryParams.payment_method]);
+    const loadedSummaryKeyRef = useRef(null);
+    const summaryDirtyRef = useRef(true);
+
     const loadPage = useCallback(async (pageNumber, { append }) => {
 
         // Two observer callbacks firing during a fast scroll, or a retry
@@ -298,26 +318,34 @@ const AdminOrderHistory = () => {
         inFlightRef.current = true;
 
         const token = requestTokenRef.current;
+        const request = append ? beginMoreRequest() : beginListRequest();
+        const needSummary =
+            !append &&
+            (summaryDirtyRef.current || loadedSummaryKeyRef.current !== summaryKey);
 
         if (append) {
             setLoadingMore(true);
             setLoadMoreFailed(false);
         } else {
-            setLoading(true);
+            setRefreshing(true);
             setInitialLoadFailed(false);
         }
 
         try {
 
-            const { data } = await adminAPI.getHistory({
-                ...queryParams,
-                page: pageNumber,
-                limit: PAGE_SIZE,
-            });
+            const { data } = await adminAPI.getHistory(
+                {
+                    ...queryParams,
+                    page: pageNumber,
+                    limit: PAGE_SIZE,
+                    ...(needSummary ? {} : { include_summary: 0 }),
+                },
+                { signal: request.signal }
+            );
 
             // The filters changed while this was in flight; these rows belong
             // to the previous filter set.
-            if (token !== requestTokenRef.current) return;
+            if (token !== requestTokenRef.current || !request.isLatest()) return;
 
             if (!data || !Array.isArray(data.orders)) {
                 throw new Error("Invalid orders data");
@@ -340,12 +368,23 @@ const AdminOrderHistory = () => {
                 ];
             });
 
-            setSummary(data.summary || EMPTY_SUMMARY);
+            if (data.summary) {
+                setSummary(data.summary);
+                loadedSummaryKeyRef.current = summaryKey;
+                summaryDirtyRef.current = false;
+            }
+
             setHasMore(Boolean(data.pagination?.hasMore));
+
+            if (!append && recheckAfterFirstPageRef.current) {
+                recheckAfterFirstPageRef.current = false;
+                // Deferred so this page's state is committed first.
+                setTimeout(() => checkForMissedChangesRef.current(), 0);
+            }
 
         } catch (err) {
 
-            if (token !== requestTokenRef.current) return;
+            if (token !== requestTokenRef.current || isAbortError(err) || !request.isLatest()) return;
 
             console.error("Failed to fetch order history:", err?.message);
 
@@ -355,6 +394,7 @@ const AdminOrderHistory = () => {
             } else {
                 setOrders([]);
                 setSummary(EMPTY_SUMMARY);
+                loadedSummaryKeyRef.current = null;
                 setHasMore(false);
                 setInitialLoadFailed(true);
                 toast.error("Failed to fetch order history");
@@ -362,35 +402,41 @@ const AdminOrderHistory = () => {
 
         } finally {
 
-            inFlightRef.current = false;
+            if (request.isLatest()) inFlightRef.current = false;
 
-            if (token === requestTokenRef.current) {
-                if (append) setLoadingMore(false);
-                else setLoading(false);
+            if (token === requestTokenRef.current && request.isLatest()) {
+                if (append) {
+                    setLoadingMore(false);
+                } else {
+                    setLoading(false);
+                    setRefreshing(false);
+                }
             }
         }
 
-    }, [queryParams]);
+    }, [queryParams, summaryKey, beginListRequest, beginMoreRequest]);
 
-    // Filter change: invalidate everything in flight, drop the old rows, and
-    // start again at page 1. `loadPage` changes identity exactly when
+    // Filter change: invalidate everything in flight and start again at page 1.
+    // The rows on screen stay until page 1 replaces them (no skeleton). `loadPage` changes identity exactly when
     // `queryParams` does, so this runs once per filter change and not on
     // unrelated re-renders.
     useEffect(() => {
 
         requestTokenRef.current += 1;
+        cancelListRequest();
+        cancelMoreRequest();
         loadedPagesRef.current = new Set();
         inFlightRef.current = false;
         pageRef.current = 1;
 
-        setOrders([]);
         setHasMore(false);
+        setLoadingMore(false);
         setLoadMoreFailed(false);
         setStaleList(false);
 
         loadPage(1, { append: false });
 
-    }, [loadPage]);
+    }, [loadPage, cancelListRequest, cancelMoreRequest]);
 
     const loadNextPage = useCallback(() => {
         loadPage(pageRef.current + 1, { append: true });
@@ -402,7 +448,7 @@ const AdminOrderHistory = () => {
     useEffect(() => {
 
         if (!observerTarget) return;
-        if (!hasMore || loading || loadingMore || loadMoreFailed) return;
+        if (!hasMore || loading || refreshing || loadingMore || loadMoreFailed) return;
 
         const observer = new IntersectionObserver(
             (entries) => {
@@ -424,6 +470,7 @@ const AdminOrderHistory = () => {
         observerTarget,
         hasMore,
         loading,
+        refreshing,
         loadingMore,
         loadMoreFailed,
         loadNextPage,
@@ -432,18 +479,23 @@ const AdminOrderHistory = () => {
     const refreshFromStart = useCallback(() => {
 
         requestTokenRef.current += 1;
+        cancelListRequest();
+        cancelMoreRequest();
+        // The data changed (that is why the admin refreshed): re-read the
+        // summary cards too.
+        summaryDirtyRef.current = true;
         loadedPagesRef.current = new Set();
         inFlightRef.current = false;
         pageRef.current = 1;
 
-        setOrders([]);
         setHasMore(false);
+        setLoadingMore(false);
         setLoadMoreFailed(false);
         setStaleList(false);
 
         loadPage(1, { append: false });
 
-    }, [loadPage]);
+    }, [loadPage, cancelListRequest, cancelMoreRequest]);
 
     // Split from the fetch above so it can depend on `socket`. The handler is
     // a stored reference and cleanup passes it to off(); the previous
@@ -470,6 +522,41 @@ const AdminOrderHistory = () => {
     useEffect(() => {
         activeStatusesRef.current = activeStatuses;
     }, [activeStatuses]);
+
+    // A change to an order already on screen (for example a refund being
+    // confirmed or failing) changes the summary cards -- counts and Gross /
+    // Refunds / Net revenue -- even when the row itself is merged in place.
+    // Only the summary is re-read: a one-row request with the same filters,
+    // so loaded pages and the scroll position are untouched. Runs through the
+    // single-flight queue, so a burst of updates costs one request.
+    const refreshSummary = useCallback(async () => {
+        const token = requestTokenRef.current;
+
+        try {
+            const { data } = await adminAPI.getHistory({
+                ...queryParams,
+                page: 1,
+                limit: 1,
+            });
+
+            // Filters changed meanwhile; that reload brings its own summary.
+            if (token !== requestTokenRef.current) return;
+
+            if (data?.summary) {
+                setSummary(data.summary);
+                loadedSummaryKeyRef.current = summaryKey;
+            }
+        } catch (err) {
+            // A failed refresh leaves the current cards on screen.
+            console.error("History summary refresh failed:", err?.message);
+        }
+    }, [queryParams, summaryKey]);
+
+    const { refetch: refetchSummary } =
+        useSingleFlightRefetch(refreshSummary, { coalesceMs: 100 });
+
+    const refetchSummaryRef = useRef(refetchSummary);
+    refetchSummaryRef.current = refetchSummary;
 
     useEffect(() => {
 
@@ -513,6 +600,7 @@ const AdminOrderHistory = () => {
                 );
 
                 setStaleList(true);
+                refetchSummaryRef.current();
                 return;
             }
 
@@ -525,6 +613,8 @@ const AdminOrderHistory = () => {
                         : order
                 )
             );
+
+            refetchSummaryRef.current();
         };
 
         socket.on(SocketEvents.ORDER_UPDATED, handleOrderUpdate);
@@ -534,6 +624,71 @@ const AdminOrderHistory = () => {
         };
 
     }, [socket]);
+
+    // Updates emitted while the socket was down are never replayed. Reloading
+    // from page 1 would discard every scrolled page, so -- like the realtime
+    // handler above -- a reconnect only checks: it re-reads page 1 once with
+    // the current filters and, if the summary or the leading rows differ from
+    // what is on screen, raises the existing "stale list" banner.
+    const summaryRef = useRef(summary);
+
+    useEffect(() => {
+        summaryRef.current = summary;
+    }, [summary]);
+
+    const checkForMissedChanges = useCallback(async () => {
+
+        if (!loadedPagesRef.current.has(1)) {
+            // Page 1 is still loading (or failed); check once it arrives.
+            recheckAfterFirstPageRef.current = true;
+            return;
+        }
+
+        const token = requestTokenRef.current;
+
+        try {
+            const { data } = await adminAPI.getHistory({
+                ...queryParams,
+                page: 1,
+                limit: PAGE_SIZE,
+            });
+
+            // Filters changed meanwhile; that reload is already fresh.
+            if (token !== requestTokenRef.current) return;
+            if (!data || !Array.isArray(data.orders)) return;
+
+            const shown = ordersRef.current.slice(0, data.orders.length);
+
+            const rowsDiffer =
+                shown.length !== data.orders.length ||
+                data.orders.some((order, index) =>
+                    order.id !== shown[index]?.id ||
+                    order.status !== shown[index]?.status ||
+                    order.payment_status !== shown[index]?.payment_status
+                );
+
+            const summaryDiffers =
+                JSON.stringify(data.summary || EMPTY_SUMMARY) !==
+                JSON.stringify(summaryRef.current);
+
+            if (rowsDiffer || summaryDiffers) {
+                setStaleList(true);
+            }
+
+        } catch (err) {
+            // A failed check changes nothing on screen.
+            console.error("History reconnect check failed:", err?.message);
+        }
+
+    }, [queryParams]);
+
+    const checkForMissedChangesRef = useRef(checkForMissedChanges);
+    checkForMissedChangesRef.current = checkForMissedChanges;
+
+    const { refetch: runMissedChangeCheck } =
+        useSingleFlightRefetch(checkForMissedChanges);
+
+    useResyncOnReconnect(socket, runMissedChangeCheck);
 
     // No client-side date/payment/status/search filtering and no client-side
     // aggregation remain. `orders` is a prefix of the server's already-filtered
@@ -1037,8 +1192,15 @@ const AdminOrderHistory = () => {
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="Search by Order ID, Customer Name, Phone Number"
-                    className="w-full pl-11 pr-4 py-3 rounded-xl border border-slate-200 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition"
+                    className="w-full pl-11 pr-11 py-3 rounded-xl border border-slate-200 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition"
                 />
+                {refreshing && (
+                    <RefreshCw
+                        size={15}
+                        aria-label="Updating results"
+                        className="absolute right-4 top-1/2 -translate-y-1/2 animate-spin text-slate-400"
+                    />
+                )}
             </div>
 
 
@@ -1101,7 +1263,9 @@ const AdminOrderHistory = () => {
                     isActive={summaryFilter === "refunded"}
                 />
 
-                <SummaryCard icon={Wallet} label="Total Revenue" value={`₹${summary.revenue.toLocaleString("en-IN")}`} bg="bg-blue-50" color="text-blue-600" delay={0.15}
+                {/* Net revenue = gross - successful refunds, from the backend. */}
+                <SummaryCard icon={Wallet} label="Net Revenue" value={formatRupees(summary.netRevenue ?? summary.revenue)} bg="bg-blue-50" color="text-blue-600" delay={0.15}
+                    hint={`Gross ${formatRupees(summary.grossRevenue ?? summary.revenue)} · Refunds ${formatRupees(summary.refunds)}`}
                     onClick={() =>
                         setSummaryFilter((prev) =>
                             prev === "revenue" ? "" : "revenue"
@@ -1129,6 +1293,7 @@ const AdminOrderHistory = () => {
 
             {/* HISTORY LIST */}
             {orders.length === 0 ? (
+                !refreshing && (
                 <div className="text-center py-16 text-gray-400 text-sm">
                     {initialLoadFailed
                         ? "Could not load order history."
@@ -1145,8 +1310,9 @@ const AdminOrderHistory = () => {
                         </div>
                     )}
                 </div>
+                )
             ) : (
-                <div className="space-y-4">
+                <div className="space-y-4" aria-busy={refreshing}>
                     {orders.map((order) => (
                         <HistoryCard key={order.id} order={order} onViewDetails={setSelectedOrder} />
                     ))}

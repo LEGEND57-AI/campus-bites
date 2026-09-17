@@ -227,6 +227,18 @@ app.use((err, req, res, next) => {
     return res.status(413).json({ error: "Request body too large" });
   }
 
+  // A body that is not valid JSON. body-parser tags these `entity.parse.failed`
+  // with status 400; it is a malformed client request, not a server fault, so
+  // it is answered 400 rather than falling through to the 500 below.
+  if (err && err.type === "entity.parse.failed") {
+    (req.log || logger).warn(
+      { path: req.originalUrl },
+      "Rejected malformed JSON request body"
+    );
+
+    return res.status(400).json({ error: "Malformed JSON request body" });
+  }
+
   (req.log || logger).error({ err }, "Unhandled error");
 
   res.status(500).json({ error: "Internal server error" });

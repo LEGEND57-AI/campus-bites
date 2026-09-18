@@ -1,4 +1,6 @@
 import React, { lazy, Suspense } from "react";
+import FullScreenLoader, { AppEntryLoader } from "./components/FullScreenLoader";
+import { useAppEntryLifecycle } from "./utils/appEntry";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 
@@ -53,30 +55,22 @@ const AdminAnalytics = lazy(() => import("./pages/admin/AdminAnalytics"));
 const AdminCategories = lazy(() => import("./pages/admin/AdminCategories"));
 const AdminProfile = lazy(() => import("./pages/admin/AdminProfile"));
 
-// Shown only while a route chunk is in flight. Deliberately the same spinner
-// the app already uses elsewhere rather than a new pattern.
+// Shown only while a route chunk is in flight. The full-screen loading slot
+// decides between the branded loader (app entry) and the quiet spinner
+// (refresh / route change); see utils/appEntry.js.
 function RouteFallback() {
-  return (
-    <div className="min-h-screen bg-[#F3F6FB] flex items-center justify-center">
-      <div
-        className="
-          w-12
-          h-12
-          rounded-full
-          border-4
-          border-blue-200
-          border-t-blue-600
-          animate-spin
-        "
-      />
-    </div>
-  );
+  return <FullScreenLoader />;
 }
 
 function App() {
+  // Page lifecycle (first open / refresh / return after inactivity).
+  useAppEntryLifecycle();
+
   return (
     <CartProvider>
       <FavoriteProvider>
+
+        <AppEntryLoader />
 
         <Toaster
           position="top-center"

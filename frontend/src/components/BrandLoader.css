@@ -1,0 +1,366 @@
+/* =====================================================================
+   CampusCraves branded full-screen loader (approved design "v4").
+   CSS only: transforms, opacity, gradients. See BrandLoader.jsx.
+
+   Scene
+     .cc-loader              white room + very faint blue atmosphere
+       .cc-scene             entrance focus/opacity (flat layer)
+         .cc-stage           perspective camera
+           .cc-rig           entrance: from slightly back -> settles
+             .cc-float       float + micro-scale (3.8s)
+               .cc-tilt      micro tilt (18s) — parallax parent
+                 .cc-glow    soft blue volumetric glow (parallax, behind)
+                 .cc-depth×3 thin stacked copies = clean edge depth
+                 .cc-face    the logo (always sharp)
+                 .cc-shade   key light + reflected bounce (masked)
+                 .cc-rim     rim light on the upper-left edge (masked)
+                 .cc-spec    specular hotspot that tracks the tilt (masked)
+                 .cc-sweep   slow, soft specular sweep (masked)
+           .cc-shadow        contact shadow (responds to the float)
+         .cc-line            thin brand line with a soft travelling light
+
+   Budget: one small blurred surface (the glow); no animated filters in
+   the idle loop — everything else is transform / opacity /
+   background-position. prefers-reduced-motion shows a static logo.
+   ===================================================================== */
+
+.cc-loader {
+  --cc-blue: 37, 99, 235;
+  --cc-blue-deep: 30, 64, 175;
+  --cc-blue-light: 96, 165, 250;
+  --cc-cyan: 6, 182, 212;
+  --cc-cyan-deep: 8, 145, 178;
+
+  /* Responsive sizing: bounded by width AND height, so phones in
+     landscape and short laptop windows never clip the logo. */
+  --cc-size: clamp(148px, min(46vw, 42vh), 300px);
+  --cc-gap: clamp(22px, 5vmin, 46px);
+  --cc-line-w: clamp(104px, min(30vw, 24vh), 176px);
+
+  --cc-ease-cine: cubic-bezier(0.16, 1, 0.3, 1);
+  --cc-ease-soft: cubic-bezier(0.45, 0, 0.55, 1);
+  --cc-enter: 1350ms;
+  --cc-float-loop: 3.8s;
+  --cc-tilt-loop: 18s;
+  --cc-start: calc(var(--cc-enter) + 80ms);
+
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: #ffffff;
+  /* Extremely faint blue atmosphere — barely perceptible. */
+  background-image:
+    radial-gradient(70% 55% at 50% 44%, rgba(var(--cc-blue-light), 0.055) 0%, rgba(var(--cc-blue-light), 0) 70%),
+    radial-gradient(45% 40% at 50% 96%, rgba(var(--cc-blue), 0.035) 0%, rgba(var(--cc-blue), 0) 70%);
+}
+
+/* Optional micro-dust: large screens only, almost invisible. */
+.cc-dust { position: absolute; inset: 0; pointer-events: none; }
+.cc-dust i {
+  position: absolute;
+  left: var(--x); top: var(--y);
+  width: var(--s); height: var(--s);
+  border-radius: 50%;
+  background: rgba(var(--cc-blue), 0.5);
+  opacity: 0;
+  animation: cc-mote var(--d) linear var(--delay) infinite;
+}
+@media (max-width: 767px), (max-height: 500px) {
+  .cc-dust { display: none; }
+}
+
+/* ---------------- camera + entrance ---------------- */
+.cc-scene {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: var(--cc-gap);
+  translate: 0 -1.5vmin;
+  opacity: 0;
+  filter: blur(7px);
+  animation: cc-focus var(--cc-enter) var(--cc-ease-cine) 80ms forwards;
+}
+
+.cc-stage {
+  position: relative;
+  width: var(--cc-size);
+  aspect-ratio: 1;
+  perspective: 1200px;
+  perspective-origin: 50% 42%;
+}
+
+.cc-rig {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  transform: translate3d(0, 10px, -180px) rotateX(9deg) rotateY(-12deg);
+  animation: cc-arrive var(--cc-enter) var(--cc-ease-cine) 80ms forwards;
+}
+
+.cc-float {
+  position: absolute; inset: 0;
+  transform-style: preserve-3d;
+  animation: cc-float var(--cc-float-loop) var(--cc-ease-soft) var(--cc-start) infinite;
+}
+
+.cc-tilt {
+  position: absolute; inset: 0;
+  transform-style: preserve-3d;
+  animation: cc-tilt var(--cc-tilt-loop) var(--cc-ease-soft) var(--cc-start) infinite;
+}
+
+/* ---------------- the object ---------------- */
+.cc-layer {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+  backface-visibility: hidden;
+}
+
+/* Volumetric glow: blur on the wrapper, logo shape on the child, so the
+   glow stays soft instead of being clipped back to a sharp copy. */
+.cc-glow {
+  position: absolute;
+  inset: -14%;
+  transform: translateZ(-60px) translateY(8px);
+  filter: blur(18px);
+  opacity: 0;
+  animation: cc-glow-in 900ms var(--cc-ease-cine) 320ms forwards;
+  pointer-events: none;
+}
+.cc-glow__shape {
+  position: absolute;
+  inset: 12.3%;
+  -webkit-mask: var(--cc-logo) center / contain no-repeat;
+          mask: var(--cc-logo) center / contain no-repeat;
+  background: linear-gradient(160deg, rgba(var(--cc-blue-light), 0.9) 0%, rgba(var(--cc-cyan), 0.85) 100%);
+}
+
+/* Edge depth: three thin copies only — clean, never chunky. */
+.cc-depth { filter: brightness(0.66) saturate(1.2); }
+.cc-depth:nth-of-type(1) { transform: translateZ(-2px);   opacity: 0.5; }
+.cc-depth:nth-of-type(2) { transform: translateZ(-4.5px); opacity: 0.3; }
+.cc-depth:nth-of-type(3) { transform: translateZ(-7px);   opacity: 0.16; }
+
+.cc-face { transform: translateZ(0.01px); }
+
+.cc-mask {
+  position: absolute; inset: 0;
+  transform: translateZ(0.4px);
+  -webkit-mask: var(--cc-logo) center / contain no-repeat;
+          mask: var(--cc-logo) center / contain no-repeat;
+  pointer-events: none;
+}
+
+/* Key light from upper-left + cool reflected bounce from lower-right. */
+.cc-shade {
+  background:
+    linear-gradient(150deg,
+      rgba(255, 255, 255, 0.30) 0%,
+      rgba(255, 255, 255, 0.06) 34%,
+      rgba(255, 255, 255, 0) 52%,
+      rgba(var(--cc-blue-deep), 0.10) 78%,
+      rgba(var(--cc-cyan), 0.14) 100%);
+  mix-blend-mode: soft-light;
+}
+
+/* Rim light: a thin bright edge where the key light grazes the object. */
+.cc-rim {
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.85) 0%, rgba(255, 255, 255, 0) 26%);
+  mix-blend-mode: screen;
+  opacity: 0.5;
+  animation: cc-rim var(--cc-tilt-loop) var(--cc-ease-soft) var(--cc-start) infinite;
+}
+
+/* Specular hotspot: drifts with the tilt (light follows movement). */
+.cc-spec {
+  background: radial-gradient(42% 34% at 50% 50%, rgba(255, 255, 255, 0.5) 0%, rgba(255, 255, 255, 0.14) 46%, rgba(255, 255, 255, 0) 72%);
+  background-size: 165% 165%;
+  background-repeat: no-repeat;
+  background-position: 34% 24%;
+  mix-blend-mode: soft-light;
+  animation: cc-spec var(--cc-tilt-loop) var(--cc-ease-soft) var(--cc-start) infinite;
+}
+
+/* Specular sweep: wide, soft, low intensity, once every 9s. */
+.cc-sweep {
+  background:
+    linear-gradient(100deg,
+      rgba(255, 255, 255, 0) 32%,
+      rgba(255, 255, 255, 0.16) 44%,
+      rgba(255, 255, 255, 0.42) 50%,
+      rgba(255, 255, 255, 0.16) 56%,
+      rgba(255, 255, 255, 0) 68%);
+  background-size: 240% 100%;
+  background-repeat: no-repeat;
+  background-position: 150% 0;
+  mix-blend-mode: soft-light;
+  animation: cc-sweep 9s cubic-bezier(0.6, 0, 0.4, 1) calc(var(--cc-start) + 1.1s) infinite;
+}
+
+/* Contact shadow: rises/softens with the float. */
+.cc-shadow {
+  position: absolute;
+  left: 50%;
+  bottom: 2%;
+  width: 54%;
+  height: 8%;
+  translate: -50% 0;
+  border-radius: 50%;
+  background: radial-gradient(closest-side,
+    rgba(var(--cc-cyan-deep), 0.30) 0%,
+    rgba(var(--cc-cyan), 0.12) 55%,
+    rgba(var(--cc-cyan), 0) 100%);
+  opacity: 0;
+  animation:
+    cc-shadow-in 700ms ease-out 700ms forwards,
+    cc-shadow var(--cc-float-loop) var(--cc-ease-soft) var(--cc-start) infinite;
+}
+
+/* ---------------- loading line ---------------- */
+.cc-line {
+  position: relative;
+  width: var(--cc-line-w);
+  height: 2px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: linear-gradient(90deg,
+    rgba(var(--cc-blue), 0) 0%,
+    rgba(var(--cc-blue), 0.14) 22%,
+    rgba(var(--cc-blue), 0.14) 78%,
+    rgba(var(--cc-blue), 0) 100%);
+  opacity: 0;
+  animation: cc-line-in 600ms ease-out 900ms forwards;
+}
+.cc-line__light {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 42%;
+  border-radius: inherit;
+  background: linear-gradient(90deg,
+    rgba(var(--cc-blue), 0) 0%,
+    rgba(var(--cc-blue), 0.85) 45%,
+    rgba(var(--cc-cyan), 0.9) 70%,
+    rgba(var(--cc-cyan), 0) 100%);
+  box-shadow: 0 0 8px rgba(var(--cc-blue), 0.28);
+  animation: cc-line-travel 2.6s cubic-bezier(0.6, 0, 0.4, 1) 1200ms infinite;
+}
+
+.cc-sr {
+  position: absolute;
+  width: 1px; height: 1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+}
+
+/* ---------------- continuing loader ---------------- */
+/* When one full-screen loader hands over to another almost immediately
+   (session restore -> lazy page chunk), the second one continues in the
+   settled state instead of replaying the entrance, so nothing flickers. */
+.cc-loader--continue .cc-scene,
+.cc-loader--continue .cc-rig,
+.cc-loader--continue .cc-glow,
+.cc-loader--continue .cc-shadow,
+.cc-loader--continue .cc-line {
+  animation-duration: 1ms;
+  animation-delay: 0ms;
+}
+.cc-loader--continue .cc-shadow {
+  animation:
+    cc-shadow-in 1ms linear forwards,
+    cc-shadow var(--cc-float-loop) var(--cc-ease-soft) infinite;
+}
+.cc-loader--continue .cc-float,
+.cc-loader--continue .cc-tilt,
+.cc-loader--continue .cc-rim,
+.cc-loader--continue .cc-spec { animation-delay: 0ms; }
+.cc-loader--continue .cc-line__light { animation-delay: 0ms; }
+
+/* ---------------- keyframes ---------------- */
+@keyframes cc-focus {
+  0%   { opacity: 0; filter: blur(7px); }
+  60%  { opacity: 1; }
+  100% { opacity: 1; filter: blur(0); }
+}
+
+/* Comes forward, then a tiny settle (a fraction of a degree) at the end. */
+@keyframes cc-arrive {
+  0%   { transform: translate3d(0, 10px, -180px) rotateX(9deg) rotateY(-12deg); }
+  72%  { transform: translate3d(0, 0, 4px) rotateX(-0.8deg) rotateY(1.4deg); }
+  100% { transform: translate3d(0, 0, 0) rotateX(0deg) rotateY(0deg); }
+}
+
+@keyframes cc-glow-in { to { opacity: 0.5; } }
+@keyframes cc-shadow-in { to { opacity: 1; } }
+@keyframes cc-line-in { to { opacity: 1; } }
+
+/* Float + micro-scale: ~6px and 1.2% — felt more than seen. */
+@keyframes cc-float {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50%      { transform: translate3d(0, -6px, 5px) scale(1.012); }
+}
+
+/* Micro tilt: a slow, closed path of about two degrees. */
+@keyframes cc-tilt {
+  0%, 100% { transform: rotateX(0deg)    rotateY(0deg); }
+  22%      { transform: rotateX(1.4deg)  rotateY(-2.4deg); }
+  48%      { transform: rotateX(-1deg)   rotateY(-1.1deg); }
+  72%      { transform: rotateX(-1.5deg) rotateY(2.5deg); }
+  90%      { transform: rotateX(0.7deg)  rotateY(1.2deg); }
+}
+
+@keyframes cc-spec {
+  0%, 100% { background-position: 34% 24%; }
+  22%      { background-position: 56% 18%; }
+  48%      { background-position: 44% 32%; }
+  72%      { background-position: 20% 36%; }
+  90%      { background-position: 29% 22%; }
+}
+
+/* Rim brightness follows the same cycle. */
+@keyframes cc-rim {
+  0%, 100% { opacity: 0.5; }
+  22%      { opacity: 0.72; }
+  48%      { opacity: 0.4; }
+  72%      { opacity: 0.62; }
+}
+
+/* 1.6s of travel, then ~7.4s of rest. */
+@keyframes cc-sweep {
+  0%        { background-position: 150% 0; }
+  18%, 100% { background-position: -50% 0; }
+}
+
+/* Higher = larger, softer, fainter; settled = tighter and stronger. */
+@keyframes cc-shadow {
+  0%, 100% { transform: scale(1);    opacity: 1; }
+  50%      { transform: scale(1.07); opacity: 0.6; }
+}
+
+@keyframes cc-line-travel {
+  0%   { transform: translateX(-110%); opacity: 0; }
+  12%  { opacity: 1; }
+  88%  { opacity: 1; }
+  100% { transform: translateX(245%);  opacity: 0; }
+}
+
+@keyframes cc-mote {
+  0%   { transform: translate3d(0, 0, 0);            opacity: 0; }
+  25%  { opacity: var(--o); }
+  75%  { opacity: var(--o); }
+  100% { transform: translate3d(var(--dx), -80px, 0); opacity: 0; }
+}
+
+/* ---------------- reduced motion ---------------- */
+@media (prefers-reduced-motion: reduce) {
+  .cc-loader *, .cc-loader *::before, .cc-loader *::after { animation: none !important; }
+  .cc-scene { opacity: 1; filter: none; }
+  .cc-rig { transform: none; }
+  .cc-glow { opacity: 0.42; }
+  .cc-shadow, .cc-line { opacity: 1; }
+  .cc-dust, .cc-sweep, .cc-line__light { display: none; }
+}

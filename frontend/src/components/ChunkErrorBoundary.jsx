@@ -20,16 +20,53 @@ const CHUNK_ERROR_PATTERNS = [
   /Loading CSS chunk/i,
 ];
 
+// Anything can be thrown, not just Error objects. Classifying the caught value
+// must never throw itself: an exception here would replace (and hide) the
+// original error. String() throws for objects that have no primitive form --
+// e.g. null-prototype objects or module namespaces -- and a property read can
+// throw on exotic objects such as revoked proxies.
+function readProperty(value, key) {
+  try {
+    return value[key];
+  } catch {
+    return undefined;
+  }
+}
+
+function toSafeText(value) {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  try {
+    return String(value);
+  } catch {
+    return "";
+  }
+}
+
 function isChunkLoadError(error) {
-  if (!error) {
+  if (error === null || error === undefined) {
     return false;
   }
 
-  if (error.name === "ChunkLoadError") {
+  if (typeof error === "string") {
+    return CHUNK_ERROR_PATTERNS.some((pattern) => pattern.test(error));
+  }
+
+  if (typeof error !== "object" && typeof error !== "function") {
+    return false;
+  }
+
+  if (toSafeText(readProperty(error, "name")) === "ChunkLoadError") {
     return true;
   }
 
-  const message = String(error.message || "");
+  const message = toSafeText(readProperty(error, "message"));
 
   return CHUNK_ERROR_PATTERNS.some((pattern) => pattern.test(message));
 }
@@ -38,13 +75,15 @@ class ChunkErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
 
-    this.state = { error: null };
+    // hasError, not the caught value, marks the failure: null / undefined /
+    // other falsy values can be thrown too.
+    this.state = { hasError: false, error: null };
 
     this.handleReload = this.handleReload.bind(this);
   }
 
   static getDerivedStateFromError(error) {
-    return { error };
+    return { hasError: true, error };
   }
 
   componentDidCatch(error, errorInfo) {
@@ -58,9 +97,9 @@ class ChunkErrorBoundary extends React.Component {
   }
 
   render() {
-    const { error } = this.state;
+    const { hasError, error } = this.state;
 
-    if (error) {
+    if (hasError) {
       // Not a chunk-loading problem. Rethrow so the error keeps behaving
       // exactly as it did before this boundary existed rather than being
       // silently absorbed here -- this boundary must not become a catch-all

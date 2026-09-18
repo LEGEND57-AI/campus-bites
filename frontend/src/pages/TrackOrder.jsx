@@ -228,7 +228,7 @@ const TrackOrder = () => {
             overflow-visible
 
             md:min-h-[calc(100vh-40px)]
-            md:rounded-[34px]
+            lg:rounded-[34px]
             md:overflow-hidden
             md:shadow-[0_15px_45px_rgba(0,0,0,.08)]
         "
@@ -296,7 +296,7 @@ const TrackOrder = () => {
             overflow-visible
 
             md:min-h-[calc(100vh-40px)]
-            md:rounded-[34px]
+            lg:rounded-[34px]
             md:overflow-hidden
             md:shadow-[0_15px_45px_rgba(0,0,0,.08)]
         "

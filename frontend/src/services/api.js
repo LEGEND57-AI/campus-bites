@@ -525,9 +525,16 @@ export const notificationAPI = {
   markAsRead: (id) =>
     api.put(`/notifications/${id}/read`),
 
-  // Mark all notifications as read
-  markAllAsRead: () =>
-    api.put("/notifications/read-all"),
+  // Mark all notifications as read. `upTo`: the newest notification the user
+  // has seen, so one arriving mid-request stays unread.
+  markAllAsRead: (upTo) =>
+    api.put("/notifications/read-all", upTo ? { upTo } : {}),
+
+  // Clear all READ notifications (unread ones are kept). `upTo` as above.
+  clearAll: (upTo) =>
+    api.delete("/notifications", {
+      params: upTo ? { upTo } : {},
+    }),
 
   // Delete notification
   deleteNotification: (id) =>

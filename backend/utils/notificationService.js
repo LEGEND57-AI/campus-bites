@@ -1,6 +1,8 @@
 import { supabase } from "../db.js";
 import {
     emitNotification,
+    emitNotificationsRead,
+    emitNotificationsCleared,
 } from "../socket/emitters.js";
 
 import { sendPushNotification } from "./pushNotification.js";
@@ -124,14 +126,28 @@ const markAsRead = async (notificationId, userId) => {
 
     if (error) throw error;
 
-    return data;
+    const unreadCount = await getUnreadCount(userId);
+
+    emitNotificationsRead(userId, { scope: "ids", ids: [data.id], unreadCount });
+
+    return { notification: data, unreadCount };
 };
 
 /**
- * Mark all notifications as read
+ * Mark all notifications as read.
+ *
+ * One conditional UPDATE, scoped to the user and to rows that are still
+ * unread, so it is atomic and idempotent (a second click updates nothing).
+ *
+ * `upTo` (optional ISO timestamp) limits it to notifications created at or
+ * before the newest one the user has seen, so a notification that arrives
+ * while the request is in flight stays unread.
+ *
+ * Returns the number of rows changed and the user's fresh unread count, and
+ * tells the user's other tabs/devices.
  */
-const markAllAsRead = async (userId) => {
-    const { error } = await supabase
+const markAllAsRead = async (userId, { upTo } = {}) => {
+    let query = supabase
         .from("notifications")
         .update({
             is_read: true,
@@ -140,25 +156,74 @@ const markAllAsRead = async (userId) => {
         .eq("is_read", false)
         .eq("is_deleted", false);
 
+    if (upTo) query = query.lte("created_at", upTo);
+
+    const { data, error } = await query.select("id");
+
     if (error) throw error;
 
-    return true;
+    const unreadCount = await getUnreadCount(userId);
+    const updated = data?.length || 0;
+
+    emitNotificationsRead(userId, { scope: "all", upTo: upTo || null, unreadCount });
+
+    return { updated, unreadCount };
+};
+
+/**
+ * Clear (soft delete) all of the user's READ notifications, the same way a
+ * single notification is deleted. Unread notifications are never cleared, so
+ * one that arrives while the request is in flight survives.
+ *
+ * `upTo` (optional ISO timestamp) additionally limits it to notifications
+ * created at or before the newest one the user has seen.
+ *
+ * Atomic and idempotent: one conditional UPDATE scoped to the user.
+ */
+const clearReadNotifications = async (userId, { upTo } = {}) => {
+    let query = supabase
+        .from("notifications")
+        .update({
+            is_deleted: true,
+        })
+        .eq("user_id", userId)
+        .eq("is_read", true)
+        .eq("is_deleted", false);
+
+    if (upTo) query = query.lte("created_at", upTo);
+
+    const { data, error } = await query.select("id");
+
+    if (error) throw error;
+
+    const unreadCount = await getUnreadCount(userId);
+    const cleared = data?.length || 0;
+
+    emitNotificationsCleared(userId, { scope: "read", upTo: upTo || null, unreadCount });
+
+    return { cleared, unreadCount };
 };
 
 /**
  * Soft delete a notification
  */
 const deleteNotification = async (notificationId, userId) => {
-    const { error } = await supabase
+    const { data, error } = await supabase
         .from("notifications")
         .update({
             is_deleted: true,
         })
         .eq("id", notificationId)
         .eq("user_id", userId)
-        .eq("is_deleted", false);
+        .eq("is_deleted", false)
+        .select("id");
 
     if (error) throw error;
+
+    if (data?.length) {
+        const unreadCount = await getUnreadCount(userId);
+        emitNotificationsCleared(userId, { scope: "ids", ids: [notificationId], unreadCount });
+    }
 
     return true;
 };
@@ -169,5 +234,6 @@ export {
     getUnreadCount,
     markAsRead,
     markAllAsRead,
+    clearReadNotifications,
     deleteNotification,
 };

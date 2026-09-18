@@ -334,7 +334,7 @@ const Menu = () => {
           shadow-none
           overflow-visible
 
-          md:rounded-[32px]
+          lg:rounded-[32px]
           md:overflow-hidden
           md:min-h-[calc(100vh-24px)]
           md:shadow-[0_15px_40px_rgba(0,0,0,0.08)]

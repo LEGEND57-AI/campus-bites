@@ -39,6 +39,32 @@ export function emitNotification(userId, notification) {
     );
 }
 
+/**
+ * Tell all of a user's tabs/devices that notifications were read.
+ * payload: { scope: "all", upTo, unreadCount } | { scope: "ids", ids, unreadCount }
+ */
+export function emitNotificationsRead(userId, payload) {
+    const io = getIO();
+
+    io.to(getUserRoom(userId)).emit(
+        SocketEvents.NOTIFICATION_READ,
+        payload
+    );
+}
+
+/**
+ * Tell all of a user's tabs/devices that notifications were cleared.
+ * payload: { scope: "read", upTo, unreadCount } | { scope: "ids", ids, unreadCount }
+ */
+export function emitNotificationsCleared(userId, payload) {
+    const io = getIO();
+
+    io.to(getUserRoom(userId)).emit(
+        SocketEvents.NOTIFICATION_CLEARED,
+        payload
+    );
+}
+
 export function emitAnalyticsUpdate() {
     const io = getIO();
 

@@ -2,6 +2,7 @@ import React, {
     useCallback,
     useEffect,
     useMemo,
+    useRef,
     useState,
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -9,7 +10,9 @@ import toast from "react-hot-toast";
 import {
     Bell,
     Check,
+    Loader2,
     SlidersHorizontal,
+    Trash2,
 } from "lucide-react";
 
 import Sidebar from "../components/dashboard/Sidebar";
@@ -17,6 +20,7 @@ import DashboardHeader from "../components/dashboard/DashboardHeader";
 import MobileBottomNav from "../components/dashboard/MobileBottomNav";
 import NotificationCard from "../components/notifications/NotificationCard";
 import NotificationSkeleton from "../components/notifications/NotificationSkeleton";
+import ClearNotificationsModal from "../components/notifications/ClearNotificationsModal";
 
 import { useSocket } from "../socket/SocketProvider";
 import { SocketEvents } from "../socket/constants";
@@ -53,6 +57,19 @@ const getDateGroup = (dateStr) => {
 
 const GROUP_ORDER = ["Today", "Yesterday", "This Week", "Earlier"];
 
+const createdAtMs = (n) => Date.parse(n?.created_at) || 0;
+
+// The newest notification the user has seen: bulk actions only touch
+// notifications created at or before it, so one that arrives while a request
+// is in flight is never marked read or cleared unseen.
+const newestCreatedAt = (list) =>
+    list.reduce(
+        (newest, n) => (!newest || createdAtMs(n) > createdAtMs({ created_at: newest }) ? n.created_at : newest),
+        null
+    );
+
+const isAtOrBefore = (n, upTo) => !upTo || createdAtMs(n) <= Date.parse(upTo);
+
 const Notifications = () => {
     // Reactive socket: getSocket() returned null on a fresh load because child
     // effects run before SocketProvider's, leaving the listener unattached.
@@ -68,6 +85,24 @@ const Notifications = () => {
 
     const [observerTarget, setObserverTarget] = useState(null);
 
+    // Server-side unread count (all pages, not just the loaded rows). It
+    // decides the header action together with the list:
+    //   unreadCount > 0             -> "Mark all as read"
+    //   unreadCount 0, list has any -> "Clear all"
+    //   empty list                  -> no action
+    const [unreadCount, setUnreadCount] = useState(0);
+
+    // "read" | "clear" | null while a bulk request is in flight; the ref also
+    // blocks a second click before React re-renders.
+    const [pendingAction, setPendingAction] = useState(null);
+    const actionInFlightRef = useRef(false);
+    const [confirmClearOpen, setConfirmClearOpen] = useState(false);
+
+    // Latest list for the socket handlers (membership checks without stale
+    // closures).
+    const notificationsRef = useRef(notifications);
+    notificationsRef.current = notifications;
+
     const loadNotifications = useCallback(
         async (pageNumber = 1, append = false) => {
 
@@ -79,11 +114,19 @@ const Notifications = () => {
 
             try {
 
-                const { data } =
-                    await notificationAPI.getNotifications(
+                const [{ data }, countResponse] = await Promise.all([
+                    notificationAPI.getNotifications(
                         pageNumber,
                         10
-                    );
+                    ),
+                    pageNumber === 1
+                        ? notificationAPI.getUnreadCount().catch(() => null)
+                        : Promise.resolve(null),
+                ]);
+
+                if (countResponse?.data && Number.isInteger(countResponse.data.count)) {
+                    setUnreadCount(countResponse.data.count);
+                }
 
                 if (append) {
 
@@ -151,6 +194,14 @@ const Notifications = () => {
 
         const handleNewNotification = (notification) => {
 
+            if (!notification?.id) return;
+
+            // A re-delivered notification changes nothing (and is not
+            // counted twice).
+            if (notificationsRef.current.some((n) => n.id === notification.id)) {
+                return;
+            }
+
             setNotifications((prev) => {
 
                 if (prev.some((n) => n.id === notification.id)) {
@@ -164,14 +215,59 @@ const Notifications = () => {
 
             });
 
+            // New notifications arrive unread; this is what turns "Clear all"
+            // back into "Mark all as read".
+            if (!notification.is_read) {
+                setUnreadCount((count) => count + 1);
+            }
+
             setHasMore(true);
 
         };
 
+        // Read in this tab or another tab/device of the same user.
+        const handleRead = (payload) => {
+
+            if (!payload) return;
+
+            if (payload.scope === "all") {
+                setNotifications((prev) =>
+                    prev.map((n) => (!n.is_read && isAtOrBefore(n, payload.upTo) ? { ...n, is_read: true } : n))
+                );
+            } else if (Array.isArray(payload.ids)) {
+                const ids = new Set(payload.ids);
+                setNotifications((prev) => prev.map((n) => (ids.has(n.id) ? { ...n, is_read: true } : n)));
+            }
+
+            if (Number.isInteger(payload.unreadCount)) setUnreadCount(payload.unreadCount);
+
+        };
+
+        // Cleared / deleted in this tab or another tab/device of the same user.
+        const handleCleared = (payload) => {
+
+            if (!payload) return;
+
+            if (payload.scope === "read") {
+                setNotifications((prev) => prev.filter((n) => !(n.is_read && isAtOrBefore(n, payload.upTo))));
+                if (payload.unreadCount === 0) setHasMore(false);
+            } else if (Array.isArray(payload.ids)) {
+                const ids = new Set(payload.ids);
+                setNotifications((prev) => prev.filter((n) => !ids.has(n.id)));
+            }
+
+            if (Number.isInteger(payload.unreadCount)) setUnreadCount(payload.unreadCount);
+
+        };
+
         socket.on(SocketEvents.NOTIFICATION_NEW, handleNewNotification);
+        socket.on(SocketEvents.NOTIFICATION_READ, handleRead);
+        socket.on(SocketEvents.NOTIFICATION_CLEARED, handleCleared);
 
         return () => {
             socket.off(SocketEvents.NOTIFICATION_NEW, handleNewNotification);
+            socket.off(SocketEvents.NOTIFICATION_READ, handleRead);
+            socket.off(SocketEvents.NOTIFICATION_CLEARED, handleCleared);
         };
 
     }, [socket]);
@@ -204,7 +300,9 @@ const Notifications = () => {
 
         try {
 
-            await notificationAPI.markAsRead(id);
+            const { data } = await notificationAPI.markAsRead(id);
+
+            if (Number.isInteger(data?.unreadCount)) setUnreadCount(data.unreadCount);
 
         } catch (err) {
 
@@ -226,17 +324,22 @@ const Notifications = () => {
 
     const handleMarkAllRead = async () => {
 
-        // Only the ids that were actually unread, so a rollback cannot mark
-        // something unread that the user had already read.
-        const previouslyUnreadIds = new Set(
-            notifications.filter((n) => !n.is_read).map((n) => n.id)
-        );
+        if (actionInFlightRef.current) return;
 
-        setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+        const upTo = newestCreatedAt(notificationsRef.current);
+
+        actionInFlightRef.current = true;
+        setPendingAction("read");
 
         try {
 
-            await notificationAPI.markAllAsRead();
+            const { data } = await notificationAPI.markAllAsRead(upTo);
+
+            setNotifications((prev) =>
+                prev.map((n) => (!n.is_read && isAtOrBefore(n, upTo) ? { ...n, is_read: true } : n))
+            );
+
+            if (Number.isInteger(data?.unreadCount)) setUnreadCount(data.unreadCount);
 
             toast.success("All notifications marked as read");
 
@@ -244,13 +347,53 @@ const Notifications = () => {
 
             console.error(err);
 
-            setNotifications((prev) =>
-                prev.map((n) =>
-                    previouslyUnreadIds.has(n.id) ? { ...n, is_read: false } : n
-                )
-            );
-
             toast.error("Failed to mark all notifications as read");
+
+        } finally {
+
+            actionInFlightRef.current = false;
+            setPendingAction(null);
+
+        }
+
+    };
+
+    const handleClearAll = async () => {
+
+        if (actionInFlightRef.current) return;
+
+        const upTo = newestCreatedAt(notificationsRef.current);
+
+        actionInFlightRef.current = true;
+        setPendingAction("clear");
+
+        try {
+
+            const { data } = await notificationAPI.clearAll(upTo);
+
+            // Only read notifications are cleared on the server; anything that
+            // arrived unread meanwhile stays.
+            setNotifications((prev) => prev.filter((n) => !(n.is_read && isAtOrBefore(n, upTo))));
+
+            if (Number.isInteger(data?.unreadCount)) {
+                setUnreadCount(data.unreadCount);
+                if (data.unreadCount === 0) setHasMore(false);
+            }
+
+            setConfirmClearOpen(false);
+
+            toast.success("All notifications cleared");
+
+        } catch (err) {
+
+            console.error(err);
+
+            toast.error("Failed to clear notifications");
+
+        } finally {
+
+            actionInFlightRef.current = false;
+            setPendingAction(null);
 
         }
 
@@ -355,7 +498,55 @@ const Notifications = () => {
 
     ]);
 
-    const unreadInView = filteredNotifications.filter((n) => !n.is_read).length;
+    // Decided from the data (server unread count + list), never from which
+    // button was last clicked.
+    const headerAction =
+        unreadCount > 0 ? "read" : filteredNotifications.length > 0 ? "clear" : null;
+
+    // "Mark all as read" / "Clear all". Compact variant for the mobile row
+    // beside the first group label.
+    const renderHeaderAction = ({ compact = false } = {}) => {
+
+        if (loading || !headerAction) return null;
+
+        const size = compact
+            ? "gap-1.5 px-3 py-1.5 rounded-lg text-xs"
+            : "gap-2 px-4 py-2.5 rounded-xl text-sm";
+        const iconSize = compact ? 13 : 15;
+
+        if (headerAction === "read") {
+            return (
+                <button
+                    type="button"
+                    onClick={handleMarkAllRead}
+                    disabled={pendingAction !== null}
+                    aria-busy={pendingAction === "read"}
+                    className={`flex items-center ${size} border border-slate-200 bg-white font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-60 disabled:hover:bg-white disabled:cursor-not-allowed transition`}
+                >
+                    {pendingAction === "read"
+                        ? <Loader2 size={iconSize} className="animate-spin" />
+                        : <Check size={iconSize} />}
+                    Mark all as read
+                </button>
+            );
+        }
+
+        return (
+            <button
+                type="button"
+                onClick={() => setConfirmClearOpen(true)}
+                disabled={pendingAction !== null}
+                aria-busy={pendingAction === "clear"}
+                className={`flex items-center ${size} border border-slate-200 bg-white font-semibold text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 disabled:opacity-60 disabled:hover:bg-white disabled:cursor-not-allowed transition`}
+            >
+                {pendingAction === "clear"
+                    ? <Loader2 size={iconSize} className="animate-spin" />
+                    : <Trash2 size={iconSize} />}
+                Clear all
+            </button>
+        );
+
+    };
 
     return (
         <div className="min-h-screen bg-[#F3F6FB] p-0 md:p-3 lg:p-5">
@@ -370,7 +561,7 @@ const Notifications = () => {
             shadow-none
             overflow-visible
 
-            md:rounded-[32px]
+            lg:rounded-[32px]
             md:overflow-hidden
             md:min-h-[calc(100vh-24px)]
             md:shadow-[0_15px_40px_rgba(0,0,0,0.08)]
@@ -395,7 +586,7 @@ const Notifications = () => {
     "
                     >
 
-                        <div className="space-y-6">
+                        <div className="space-y-4 sm:space-y-6">
 
                             {/* HEADER */}
                             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -404,16 +595,10 @@ const Notifications = () => {
                                     <p className="text-gray-500 text-sm mt-1">Stay updated with real-time alerts and important updates</p>
                                 </div>
 
-                                <div className="flex items-center gap-2 shrink-0">
-                                    <button
-                                        onClick={handleMarkAllRead}
-                                        disabled={unreadInView === 0}
-                                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white transition"
-                                    >
-                                        <Check size={15} />
-                                        Mark all as read
-                                    </button>
-
+                                {/* Tablet / desktop: action beside the title. On mobile it sits
+                                    on the first group's row instead (see LIST). */}
+                                <div className="hidden sm:flex items-center gap-2 shrink-0">
+                                    {renderHeaderAction()}
                                 </div>
                             </div>
 
@@ -437,11 +622,19 @@ const Notifications = () => {
                                 </div>
                             ) : (
                                 <div className="space-y-8">
-                                    {groupedNotifications.map((group) => (
+                                    {groupedNotifications.map((group, groupIndex) => (
                                         <div key={group.label}>
-                                            <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wide mb-3">
-                                                {group.label}
-                                            </h3>
+                                            <div className="flex items-center justify-between gap-3 mb-3">
+                                                <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wide">
+                                                    {group.label}
+                                                </h3>
+
+                                                {groupIndex === 0 && (
+                                                    <div className="flex sm:hidden items-center gap-2 shrink-0">
+                                                        {renderHeaderAction({ compact: true })}
+                                                    </div>
+                                                )}
+                                            </div>
 
                                             <div className="space-y-3">
                                                 <AnimatePresence initial={false}>
@@ -507,6 +700,13 @@ const Notifications = () => {
                     </main>
 
                     <MobileBottomNav />
+
+                    <ClearNotificationsModal
+                        open={confirmClearOpen}
+                        busy={pendingAction === "clear"}
+                        onClose={() => setConfirmClearOpen(false)}
+                        onConfirm={handleClearAll}
+                    />
 
                 </div>
 

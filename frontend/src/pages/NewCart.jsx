@@ -443,7 +443,7 @@ const NewCart = () => {
       shadow-none
       overflow-visible
 
-      md:rounded-[34px]
+      lg:rounded-[34px]
       md:overflow-hidden
       md:min-h-[calc(100vh-24px)]
       md:shadow-[0_15px_45px_rgba(0,0,0,0.08)]

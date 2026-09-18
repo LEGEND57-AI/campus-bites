@@ -73,16 +73,28 @@ const DashboardHeader = ({
       );
     };
 
+    // Read / cleared (from this tab or another tab/device of the same user):
+    // the server sends the fresh unread count.
+    const handleCountSync = (payload) => {
+      if (Number.isInteger(payload?.unreadCount)) {
+        setUnreadCount(payload.unreadCount);
+      }
+    };
+
     socket.on(
       SocketEvents.NOTIFICATION_NEW,
       handleNewNotification
     );
+    socket.on(SocketEvents.NOTIFICATION_READ, handleCountSync);
+    socket.on(SocketEvents.NOTIFICATION_CLEARED, handleCountSync);
 
     return () => {
       socket.off(
         SocketEvents.NOTIFICATION_NEW,
         handleNewNotification
       );
+      socket.off(SocketEvents.NOTIFICATION_READ, handleCountSync);
+      socket.off(SocketEvents.NOTIFICATION_CLEARED, handleCountSync);
     };
 
   }, [socket, authLoading, user]);

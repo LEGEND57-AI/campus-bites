@@ -183,7 +183,7 @@ const Dashboard = () => {
                     shadow-none
                     overflow-visible
 
-                    md:rounded-[32px]
+                    lg:rounded-[32px]
                     md:overflow-hidden
                     md:min-h-[calc(100vh-24px)]
                     md:shadow-[0_15px_40px_rgba(0,0,0,0.08)]
@@ -236,17 +236,25 @@ const Dashboard = () => {
 
                             <div
                                 className="
-                                    flex
-                                    justify-between
+                                    grid
+                                    grid-cols-[minmax(0,1fr)_auto]
                                     items-center
+                                    gap-x-3
+                                    md:flex
+                                    md:justify-between
+                                    md:gap-x-0
                                     mb-6
                                 "
                             >
 
-                                <div>
+                                {/* Mobile: heading spans the row; subtitle (left) and
+                                    View Full Menu (right) share the next row. From md
+                                    up this is the unchanged flex header. */}
+                                <div className="contents md:block">
 
                                     <h2
                                         className="
+                                            col-span-2
                                             text-2xl
                                             font-bold
                                             text-gray-900
@@ -258,6 +266,7 @@ const Dashboard = () => {
 
                                     <p
                                         className="
+                                            min-w-0
                                             text-gray-500
                                             text-sm
                                             mt-1
@@ -266,24 +275,25 @@ const Dashboard = () => {
                                         Fresh picks loved by students
                                     </p>
 
-
-                                    {/* Mobile View Full Menu */}
-
-                                    <button
-                                        onClick={() =>
-                                            navigate("/menu")
-                                        }
-                                        className="
-                                            md:hidden
-                                            mt-3
-                                            text-blue-600
-                                            font-semibold
-                                        "
-                                    >
-                                        View Full Menu →
-                                    </button>
-
                                 </div>
+
+
+                                {/* Mobile View Full Menu */}
+
+                                <button
+                                    onClick={() =>
+                                        navigate("/menu")
+                                    }
+                                    className="
+                                        md:hidden
+                                        whitespace-nowrap
+                                        py-2
+                                        text-blue-600
+                                        font-semibold
+                                    "
+                                >
+                                    View Full Menu →
+                                </button>
 
 
                                 {/* Desktop View Full Menu */}

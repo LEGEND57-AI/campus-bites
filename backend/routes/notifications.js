@@ -6,6 +6,7 @@ import {
     getUnreadCount,
     markAsRead,
     markAllAsRead,
+    clearReadNotifications,
     deleteNotification,
 } from "../utils/notificationService.js";
 
@@ -18,6 +19,23 @@ const MAX_PAGE_SIZE = 100;
 
 // All notification routes require authentication
 router.use(authenticate);
+
+// Optional `upTo` cutoff for the bulk actions: an ISO timestamp (the newest
+// notification the client has seen). Returns undefined when absent, null when
+// present but invalid. The target user always comes from the session, never
+// from the request.
+// The validated original string is passed through (as a bound value), so the
+// database's microsecond precision is kept: re-serialising through Date would
+// truncate to milliseconds and exclude the newest notification itself.
+const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}(:?\d{2})?)$/;
+
+const parseUpTo = (value) => {
+    if (value === undefined || value === null || value === "") return undefined;
+    if (typeof value !== "string" || value.length > 64) return null;
+    if (!ISO_TIMESTAMP.test(value) || Number.isNaN(Date.parse(value))) return null;
+
+    return value;
+};
 
 /**
  * GET /api/notifications
@@ -94,7 +112,7 @@ router.get("/unread-count", async (req, res) => {
 router.put("/:id/read", async (req, res) => {
     try {
 
-        const notification = await markAsRead(
+        const { notification, unreadCount } = await markAsRead(
             req.params.id,
             req.user.id
         );
@@ -102,6 +120,7 @@ router.put("/:id/read", async (req, res) => {
         res.json({
             success: true,
             notification,
+            unreadCount,
         });
 
     } catch (error) {
@@ -128,16 +147,25 @@ router.put("/:id/read", async (req, res) => {
 
 /**
  * PUT /api/notifications/read-all
- * Mark all notifications as read
+ * Mark all of the current user's unread notifications as read.
+ * Body (optional): { upTo: ISO timestamp } — only those created at or before it.
  */
 router.put("/read-all", async (req, res) => {
+    const upTo = parseUpTo(req.body?.upTo);
+
+    if (upTo === null) {
+        return res.status(400).json({ error: "Invalid upTo timestamp" });
+    }
+
     try {
 
-        await markAllAsRead(req.user.id);
+        const { updated, unreadCount } = await markAllAsRead(req.user.id, { upTo });
 
         res.json({
             success: true,
             message: "All notifications marked as read.",
+            updated,
+            unreadCount,
         });
 
     } catch (error) {
@@ -146,6 +174,41 @@ router.put("/read-all", async (req, res) => {
 
         res.status(500).json({
             error: "Failed to mark all notifications as read",
+        });
+
+    }
+});
+
+/**
+ * DELETE /api/notifications
+ * Clear all of the current user's READ notifications (soft delete, like the
+ * single delete below). Unread notifications are kept.
+ * Query (optional): ?upTo=ISO timestamp — only those created at or before it.
+ */
+router.delete("/", async (req, res) => {
+    const upTo = parseUpTo(req.query?.upTo);
+
+    if (upTo === null) {
+        return res.status(400).json({ error: "Invalid upTo timestamp" });
+    }
+
+    try {
+
+        const { cleared, unreadCount } = await clearReadNotifications(req.user.id, { upTo });
+
+        res.json({
+            success: true,
+            message: "Notifications cleared.",
+            cleared,
+            unreadCount,
+        });
+
+    } catch (error) {
+
+        console.error("Clear Notifications Error:", error);
+
+        res.status(500).json({
+            error: "Failed to clear notifications",
         });
 
     }

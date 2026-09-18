@@ -25,6 +25,7 @@ export const SocketEvents = {
   // Notifications
   NOTIFICATION_NEW: "notification-new",
   NOTIFICATION_READ: "notification-read",
+  NOTIFICATION_CLEARED: "notification-cleared",
 
   // Analytics
   ANALYTICS_UPDATED: "analytics-updated",

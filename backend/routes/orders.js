@@ -2,7 +2,7 @@ import express from 'express';
 import { supabase } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { generateDailyToken } from "../utils/tokenGenerator.js";
-import { orderLimiter } from "../middleware/rateLimiter.js";
+import { orderCreateLimiter, orderReadLimiter } from "../middleware/rateLimiter.js";
 import { createNotification } from "../utils/notificationService.js";
 import {
   MAX_ITEM_QUANTITY,
@@ -15,7 +15,12 @@ import {
 } from "../socket/emitters.js";
 
 const router = express.Router();
-router.use(orderLimiter);
+
+// Every order route is bounded per signed-in student (orderReadLimiter keys on
+// the verified token, so it runs before authenticate and a flood never reaches
+// the user lookup). Only placing an order also counts against the strict
+// creation quota -- viewing and tracking orders must not use it up.
+router.use(orderReadLimiter);
 
 router.use(authenticate);
 
@@ -45,7 +50,7 @@ function cartFingerprint(pairs) {
   );
 }
 
-router.post('/', async (req, res) => {
+router.post('/', orderCreateLimiter, async (req, res) => {
   try {
 
     const { items, paymentMethod, idempotencyKey: rawIdempotencyKey } = req.body;

@@ -1,5 +1,5 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
-import { authAPI, setAccessToken, bootstrapSession } from '../services/api';
+import { authAPI, setAccessToken, bootstrapSession, isSessionRejected } from '../services/api';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import {
@@ -41,12 +41,19 @@ export const AuthProvider = ({ children }) => {
 
         setToken(freshToken);
         setUser(parsedUser);
-      } catch {
-        // No valid session (refresh cookie missing/expired/revoked) --
-        // treat as logged out.
-        localStorage.removeItem('user');
+      } catch (error) {
+        // This tab has no working session, so it starts signed out either way.
         setAccessToken(null);
         setUser(null);
+
+        // The cached user is shared by every open tab. Clear it only when the
+        // backend actually rejected the session (refresh cookie missing,
+        // expired or revoked). A transient failure -- offline, timeout, 429,
+        // 5xx -- proves nothing about the session, and must not sign out the
+        // other tabs or the next page load.
+        if (isSessionRejected(error)) {
+          localStorage.removeItem('user');
+        }
       } finally {
         setLoading(false);
       }

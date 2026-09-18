@@ -39,6 +39,7 @@ import cookieParser from "cookie-parser";
 import logger from "./utils/logger.js";
 import { getAllowedOrigins } from "./utils/allowedOrigins.js";
 import pinoHttp from "pino-http";
+import { getClientIp } from "./utils/clientIp.js";
 
 
 dotenv.config();
@@ -95,6 +96,14 @@ const corsOptions = {
   allowedHeaders: ["Content-Type", "Authorization"],
 
   credentials: true,
+
+  // Let browsers cache a successful preflight. Every API call carries an
+  // Authorization header, so without this each distinct URL paid an extra
+  // OPTIONS round trip on every visit (5 on a cold Home load). 7200 s is the
+  // ceiling Chromium honours (Firefox allows more). It only reuses an answer
+  // this same allowlist already gave, and the origin check still runs on every
+  // actual request, so a removed origin is refused immediately regardless.
+  maxAge: 7200,
 };
 
 
@@ -127,9 +136,53 @@ app.use(express.json({ limit: "100kb" }));
 
 app.use(cookieParser());
 
+// Request logging. Every request used to be written at info level with its
+// full request and response headers (~1.5 kB per line); in load testing that
+// serialization, header redaction and the writes took ~14% of backend CPU,
+// almost all of it for requests that simply succeeded.
+//
+// - 2xx/3xx: debug -- not written at the default "info" level (LOG_LEVEL=debug
+//   brings them back when needed).
+// - 4xx: warn -- every 401 / 403 / 429 (auth, authorization and rate-limit
+//   signals) and every other rejected request is still recorded.
+// - 5xx / errors: error, with the error and stack as before.
+//
+// A written line carries the request id, method, path (no query string -- it
+// can hold search terms such as a student's name or phone), status, response
+// time and the resolved client address. Headers and bodies are no longer
+// serialized at all; the logger's redaction of authorization / cookie headers
+// stays in place regardless.
+//
+// pino-http serializes the request into a child logger for EVERY request, so
+// that serializer is kept to three plain fields. The client address is added
+// only to lines actually written (customSuccessObject / customErrorObject run
+// only then), and a success at a disabled level is "silent", which skips the
+// completion work entirely.
+const successLevel = () =>
+  logger.isLevelEnabled("debug") ? "debug" : "silent";
+
+const withClientIp = (req, res, value) => ({ ...value, ip: getClientIp(req) });
+
 app.use(
   pinoHttp({
     logger,
+    customLogLevel: (req, res, err) => {
+      if (err || res.statusCode >= 500) return "error";
+      if (res.statusCode >= 400) return "warn";
+      return successLevel();
+    },
+    customSuccessObject: withClientIp,
+    customErrorObject: (req, res, err, value) => withClientIp(req, res, value),
+    serializers: {
+      req: (req) => ({
+        id: req.id,
+        method: req.method,
+        path: typeof req.url === "string" ? req.url.split("?")[0] : req.url,
+      }),
+      res: (res) => ({
+        statusCode: res.statusCode,
+      }),
+    },
   })
 );
 
@@ -162,11 +215,10 @@ app.use("/api/favorites", favoriteRoutes);
 // the existing order (limit -> authenticate -> isAdmin -> handler) is kept,
 // matching how /api/food is already mounted.
 //
-// menuLimiter rather than the tighter favoriteLimiter: limiting is keyed by
-// IP and the campus shares one NAT egress (see the note on sessionLimiter),
-// while DashboardHeader refetches the unread count on every mount. A 200/15min
-// ceiling could therefore lock out the whole campus during normal navigation,
-// which is a worse outcome than the request flooding this guards against.
+// menuLimiter rather than the tighter favoriteLimiter: DashboardHeader
+// refetches the unread count on every mount, so a 200/15min ceiling could lock
+// a student out during normal navigation. The budget is per signed-in user
+// (see middleware/rateLimiter.js), not per campus NAT address.
 app.use('/api/user', menuLimiter, userRoutes);
 app.use('/api/admin', adminRoutes);
 // adminLimiter: this group is already admin-only, and its handlers are the

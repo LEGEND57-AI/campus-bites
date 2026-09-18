@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import {
   MapPin,
   Search,
@@ -10,12 +10,9 @@ import {
 import { useNavigate, useLocation } from "react-router-dom";
 import toast from "react-hot-toast";
 
-import { useSocket } from "../../socket/SocketProvider";
-import { SocketEvents } from "../../socket/constants";
-
 import { useAuth } from "../../context/AuthContext";
 import { useCart } from "../../context/CartContext";
-import { notificationAPI } from "../../services/api";
+import { useUnreadCount } from "../../notifications/useUnreadCount";
 
 const DashboardHeader = ({
   searchQuery,
@@ -25,80 +22,13 @@ const DashboardHeader = ({
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Reactive socket: getSocket() returned null on a fresh load because child
-  // effects run before SocketProvider's, leaving the listener unattached.
-  const socket = useSocket();
-
-  const {
-    user,
-    loading: authLoading,
-  } = useAuth();
+  const { user } = useAuth();
   const { getItemCount } = useCart();
-  const [unreadCount, setUnreadCount] = useState(0);
 
-  const loadUnreadCount = async () => {
-    try {
-      const res = await notificationAPI.getUnreadCount();
-      setUnreadCount(res.data.unreadCount || res.data.count || 0);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  useEffect(() => {
-
-    if (authLoading) return;
-    if (!user) return;
-
-    loadUnreadCount();
-
-  }, [authLoading, user]);
-
-  // Split from the count load above so it can depend on `socket`.
-  //
-  // This component renders on nearly every page, so it mounts and unmounts
-  // constantly. The previous socket.off(NOTIFICATION_NEW) removed every
-  // listener for that event on the shared socket, so navigating away from --
-  // or even re-rendering on -- the Notifications page silently killed that
-  // page's own live-notification listener.
-  useEffect(() => {
-
-    if (!socket) return;
-    if (authLoading) return;
-    if (!user) return;
-
-    const handleNewNotification = () => {
-      setUnreadCount(
-        (prev) => prev + 1
-      );
-    };
-
-    // Read / cleared (from this tab or another tab/device of the same user):
-    // the server sends the fresh unread count.
-    const handleCountSync = (payload) => {
-      if (Number.isInteger(payload?.unreadCount)) {
-        setUnreadCount(payload.unreadCount);
-      }
-    };
-
-    socket.on(
-      SocketEvents.NOTIFICATION_NEW,
-      handleNewNotification
-    );
-    socket.on(SocketEvents.NOTIFICATION_READ, handleCountSync);
-    socket.on(SocketEvents.NOTIFICATION_CLEARED, handleCountSync);
-
-    return () => {
-      socket.off(
-        SocketEvents.NOTIFICATION_NEW,
-        handleNewNotification
-      );
-      socket.off(SocketEvents.NOTIFICATION_READ, handleCountSync);
-      socket.off(SocketEvents.NOTIFICATION_CLEARED, handleCountSync);
-    };
-
-  }, [socket, authLoading, user]);
-
+  // Shared, realtime-maintained count (notifications/useUnreadCount.js). This
+  // header renders on nearly every page; it no longer fetches on every mount --
+  // only when the shared count is missing or stale.
+  const unreadCount = useUnreadCount();
 
   const handleNotification = () => {
     navigate("/notifications");

@@ -89,6 +89,73 @@ const refreshClient = axios.create({
   },
 });
 
+// ================= REFRESHING THE SESSION (ALL TABS) =================
+//
+// Every open tab shares the one httpOnly refresh cookie, and the backend
+// rotates it on each refresh with a compare-and-swap: when two tabs present
+// the same cookie at the same moment (a browser restoring several tabs, a
+// laptop waking up, reloading two tabs), exactly one wins and the others get a
+// 401. That 401 said nothing about the session -- it was still valid -- but the
+// losing tab treated it as a logout, and because the cached user in
+// localStorage is shared, it logged every tab out.
+//
+// So every refresh, from startup (bootstrapSession) or from an expired access
+// token (the response interceptor), runs under one cross-tab Web Lock. Tabs
+// refresh one at a time; each sends the cookie the previous refresh just
+// rotated, so each succeeds. Nothing about token validation changes: an
+// invalid, expired or revoked session is still rejected by the backend.
+//
+// If a refresh still gets a 401 (a browser without the Web Locks API, where
+// the race remains possible), it is retried once: the retry carries whatever
+// cookie is now current. A session that is genuinely gone fails both times.
+const REFRESH_LOCK_NAME = "campuscraves:session-refresh";
+
+// A refresh that never answers must not hold the lock for every tab forever.
+const REFRESH_TIMEOUT_MS = 15000;
+
+function withRefreshLock(task) {
+  const locks =
+    typeof navigator !== "undefined" ? navigator.locks : undefined;
+
+  if (locks && typeof locks.request === "function") {
+    return locks.request(REFRESH_LOCK_NAME, task);
+  }
+
+  return task();
+}
+
+async function requestNewAccessToken() {
+  return withRefreshLock(async () => {
+    const refresh = () =>
+      // No body (undefined, not null): a JSON `null` body is rejected by the
+      // backend's strict JSON parser before the route runs.
+      refreshClient.post("/session/refresh", undefined, {
+        timeout: REFRESH_TIMEOUT_MS,
+      });
+
+    try {
+      const { data } = await refresh();
+      return data.accessToken;
+    } catch (error) {
+      if (error?.response?.status !== 401) {
+        throw error;
+      }
+
+      const { data } = await refresh();
+      return data.accessToken;
+    }
+  });
+}
+
+// True only when the backend actually rejected the session (no cookie, or an
+// invalid / expired / revoked one). A network error, timeout, 429 or 5xx says
+// nothing about the session, so it must not clear the cached user that every
+// tab shares or send this tab to /login.
+export function isSessionRejected(error) {
+  const status = error?.response?.status;
+  return status === 400 || status === 401;
+}
+
 // ================= SILENT SESSION BOOTSTRAP =================
 // Called once when the app first loads. Memory holds no access token
 // yet at this point (a reload always wipes it), so this uses the
@@ -117,9 +184,9 @@ export function bootstrapSession() {
 
   bootstrapInFlight = (async () => {
     try {
-      const { data } = await refreshClient.post("/session/refresh");
-      setAccessToken(data.accessToken);
-      return data.accessToken;
+      const token = await requestNewAccessToken();
+      setAccessToken(token);
+      return token;
     } finally {
       // Cleared on both success and failure so a later, genuinely
       // independent bootstrap attempt (e.g. after logging back in) is
@@ -247,11 +314,8 @@ api.interceptors.response.use(
 
       // ================= REFRESH ACCESS TOKEN =================
 
-      const { data } =
-        await refreshClient.post("/session/refresh");
-
       const newAccessToken =
-        data.accessToken;
+        await requestNewAccessToken();
 
       setAccessToken(newAccessToken);
 
@@ -266,10 +330,15 @@ api.interceptors.response.use(
 
       processQueue(null, refreshError);
 
-      setAccessToken(null);
-      localStorage.removeItem("user");
+      // Only a session the backend actually rejected ends it. A transient
+      // failure (offline, timeout, 429, 5xx) fails this request alone; the
+      // next request tries again.
+      if (isSessionRejected(refreshError)) {
+        setAccessToken(null);
+        localStorage.removeItem("user");
 
-      window.location.href = "/login";
+        window.location.href = "/login";
+      }
 
       return Promise.reject(refreshError);
 

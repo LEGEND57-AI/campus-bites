@@ -27,6 +27,7 @@ import { useSocket } from "../../../socket/SocketProvider";
 import { SocketEvents } from "../../../socket/constants";
 import { useResyncOnReconnect } from "../../../socket/useResyncOnReconnect";
 import { useSingleFlightRefetch } from "../../../hooks/useSingleFlightRefetch";
+import { REALTIME_REFETCH_COALESCE_MS } from "../../../utils/refetchScheduler";
 import { useDebouncedValue } from "../../../hooks/useDebouncedValue";
 import { useLatestRequest, isAbortError } from "../../../hooks/useLatestRequest";
 
@@ -552,8 +553,10 @@ const AdminOrderHistory = () => {
         }
     }, [queryParams, summaryKey]);
 
+    // Only realtime events refetch the summary, so they share the admin-wide
+    // coalescing window: a burst of order events costs one summary request.
     const { refetch: refetchSummary } =
-        useSingleFlightRefetch(refreshSummary, { coalesceMs: 100 });
+        useSingleFlightRefetch(refreshSummary, { coalesceMs: REALTIME_REFETCH_COALESCE_MS });
 
     const refetchSummaryRef = useRef(refetchSummary);
     refetchSummaryRef.current = refetchSummary;
@@ -837,8 +840,13 @@ const AdminOrderHistory = () => {
 
                                 <button
                                     onClick={() => {
+                                        // Opens the picker only. The filter
+                                        // switches on Apply, once a date is
+                                        // chosen: switching here showed (and
+                                        // summed) ALL orders under a "Specific
+                                        // Date" label until then -- and after
+                                        // Cancel.
                                         setTempSelectedDate(selectedDate);
-                                        setDateFilter("specific");
                                         setShowSpecificPopup(true);
                                         setShowRangePopup(false);
                                         setShowDateFilter(false);
@@ -850,8 +858,9 @@ const AdminOrderHistory = () => {
 
                                 <button
                                     onClick={() => {
+                                        // Opens the picker only; see Specific
+                                        // Date above.
                                         setTempDateRange(dateRange);
-                                        setDateFilter("range");
                                         setShowRangePopup(true);
                                         setShowSpecificPopup(false);
                                         setShowDateFilter(false);
@@ -951,8 +960,13 @@ const AdminOrderHistory = () => {
 
                                             <button
                                                 onClick={() => {
-                                                    setSelectedDate(tempSelectedDate);
-                                                    setDateFilter("specific");
+                                                    // No date chosen: nothing to
+                                                    // apply (an empty date would
+                                                    // mean "all orders").
+                                                    if (tempSelectedDate) {
+                                                        setSelectedDate(tempSelectedDate);
+                                                        setDateFilter("specific");
+                                                    }
                                                     setIsCalendarOpen(false);
                                                     setShowSpecificPopup(false);
                                                 }}
@@ -1076,8 +1090,13 @@ const AdminOrderHistory = () => {
 
                                             <button
                                                 onClick={() => {
-                                                    setDateRange(tempDateRange);
-                                                    setDateFilter("range");
+                                                    // Both ends are needed; a
+                                                    // half-chosen range would
+                                                    // mean "all orders".
+                                                    if (tempDateRange.from && tempDateRange.to) {
+                                                        setDateRange(tempDateRange);
+                                                        setDateFilter("range");
+                                                    }
                                                     setShowRangePopup(false);
                                                 }}
                                                 className="h-11 flex-1 sm:flex-none px-6 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-all duration-200 shadow-md hover:shadow-lg"

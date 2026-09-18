@@ -1,13 +1,45 @@
 import { supabase } from "../db.js";
 import { verifyToken } from "./jwt.js";
 
-export async function getUserFromToken(token) {
-  const decoded = verifyToken(token);
+// ================= AUTHENTICATED USER LOOKUP =================
+//
+// Every authenticated request (and socket handshake) verifies the access token
+// and then reads the user row: that read is what rejects a deleted user and
+// gives isAdmin the CURRENT role rather than the one in the token. It was also
+// one extra database round trip on every API call.
+//
+// Two savings, neither of which weakens those checks:
+//
+// - Concurrent lookups for the same user share one query. A page load fires
+//   several requests at once (Home sends five in parallel); they now cost one
+//   lookup instead of five. Shared only while the query is in flight, so the
+//   answer is exactly as fresh as before -- for admins too.
+//
+// - Non-admin users are remembered for USER_CACHE_TTL_MS, keyed by the user id
+//   from a token whose signature and expiry were just verified (the token is
+//   always verified; only the row read is skipped). An admin is never served
+//   from this cache, so a cached entry can only ever carry a non-admin role:
+//   it can never grant admin rights, and an admin who is demoted loses access
+//   on their very next request, exactly as before. The staleness it allows is
+//   bounded and in the safe direction: a student promoted to admin waits up to
+//   the TTL for admin access, and a student row deleted directly in the
+//   database stays usable for at most the TTL (the application itself has no
+//   code path that changes roles or deletes users).
+//
+// Session revocation is unaffected: access tokens carry no session id, so
+// logout / logout-all / password reset have never ended an access token early
+// -- they revoke refresh sessions, which this does not touch.
+const USER_CACHE_TTL_MS = 30_000;
+const USER_CACHE_MAX_ENTRIES = 10_000;
 
+const cachedUsers = new Map(); // userId -> { user, expiresAt }
+const pendingLookups = new Map(); // userId -> Promise<user>
+
+const lookupUser = async (userId) => {
   const { data: user, error } = await supabase
     .from("users")
     .select("id, email, name, phone, role")
-    .eq("id", decoded.userId)
+    .eq("id", userId)
     .single();
 
   if (error || !user) {
@@ -15,6 +47,54 @@ export async function getUserFromToken(token) {
   }
 
   return user;
+};
+
+export async function getUserFromToken(token) {
+  const decoded = verifyToken(token);
+  const userId = decoded?.userId;
+
+  if (typeof userId !== "string" || !userId) {
+    throw new Error("Invalid token");
+  }
+
+  const cached = cachedUsers.get(userId);
+
+  if (cached) {
+    if (cached.expiresAt > Date.now()) {
+      return { ...cached.user };
+    }
+    cachedUsers.delete(userId);
+  }
+
+  let pending = pendingLookups.get(userId);
+
+  if (!pending) {
+    pending = lookupUser(userId).finally(() => {
+      pendingLookups.delete(userId);
+    });
+    pendingLookups.set(userId, pending);
+  }
+
+  const user = await pending;
+
+  if (user.role !== "admin") {
+    if (cachedUsers.size >= USER_CACHE_MAX_ENTRIES) {
+      cachedUsers.delete(cachedUsers.keys().next().value);
+    }
+    cachedUsers.set(userId, {
+      user: { ...user },
+      expiresAt: Date.now() + USER_CACHE_TTL_MS,
+    });
+  }
+
+  return { ...user };
+}
+
+// Drop a remembered user (their row just changed).
+export function invalidateCachedUser(userId) {
+  if (userId !== undefined && userId !== null) {
+    cachedUsers.delete(String(userId));
+  }
 }
 
 /**

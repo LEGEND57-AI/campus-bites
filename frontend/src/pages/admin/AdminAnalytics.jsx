@@ -25,6 +25,7 @@ import { useSocket } from "../../socket/SocketProvider";
 import { SocketEvents } from "../../socket/constants";
 import { useResyncOnReconnect } from "../../socket/useResyncOnReconnect";
 import { useSingleFlightRefetch } from "../../hooks/useSingleFlightRefetch";
+import { REALTIME_REFETCH_COALESCE_MS } from "../../utils/refetchScheduler";
 import RevenueTrendChart from "../../components/admin/RevenueTrendChart";
 import { formatRupees } from "../../utils/revenueChart";
 
@@ -196,9 +197,9 @@ const AdminAnalytics = () => {
   // Every load -- first load, range change, realtime event, reconnect -- runs
   // through one single-flight queue, so at most one analytics request is ever
   // in flight and triggers that arrive meanwhile coalesce into one follow-up.
-  // Realtime events additionally share a short window, so the paired
-  // order-updated + analytics-updated of a single admin action cost one
-  // request.
+  // Realtime events additionally share a coalescing window, so the paired
+  // order-updated + analytics-updated of a single admin action -- and a burst
+  // of events during a rush -- cost one request.
   const { refetch: refetchAnalytics } = useSingleFlightRefetch(
     () => {
       if (range === "specific" && !specificDate) return undefined;
@@ -208,7 +209,7 @@ const AdminAnalytics = () => {
 
       return fetchAnalytics(isBackground);
     },
-    { coalesceMs: 100 }
+    { coalesceMs: REALTIME_REFETCH_COALESCE_MS }
   );
 
   useEffect(() => {

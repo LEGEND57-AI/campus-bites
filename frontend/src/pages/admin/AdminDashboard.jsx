@@ -16,6 +16,7 @@ import { useSocket } from "../../socket/SocketProvider";
 import { SocketEvents } from "../../socket/constants";
 import { useResyncOnReconnect } from "../../socket/useResyncOnReconnect";
 import { useSingleFlightRefetch } from "../../hooks/useSingleFlightRefetch";
+import { REALTIME_REFETCH_COALESCE_MS } from "../../utils/refetchScheduler";
 
 // The IST calendar date (YYYY-MM-DD) an instant falls on. CampusCraves runs on
 // India time, so "today" must not depend on the browser's own timezone.
@@ -104,28 +105,30 @@ const AdminDashboard = () => {
 
   // One request at a time per data set; triggers that arrive while one is
   // running coalesce into a single follow-up (see useSingleFlightRefetch).
-  // Stats get a short coalescing window because a single admin action emits
-  // both order-updated and analytics-updated, which should share one request.
+  // Realtime-triggered refetches share a coalescing window: a single admin
+  // action emits both order-updated and analytics-updated, and a lunch rush
+  // emits several events per order -- they should cost one request, not one
+  // each. Initial load and reconnect pass { immediate: true }.
   const {
     refetch: refetchStats,
-  } = useSingleFlightRefetch(fetchStats, { coalesceMs: 100 });
+  } = useSingleFlightRefetch(fetchStats, { coalesceMs: REALTIME_REFETCH_COALESCE_MS });
 
   const {
     refetch: refetchRecentOrders,
     markStale: markRecentOrdersStale,
-  } = useSingleFlightRefetch(fetchRecentOrders);
+  } = useSingleFlightRefetch(fetchRecentOrders, { coalesceMs: REALTIME_REFETCH_COALESCE_MS });
 
   // 🔥 AUTO REFRESH
   useEffect(() => {
     refetchStats({ immediate: true });
-    refetchRecentOrders();
+    refetchRecentOrders({ immediate: true });
   }, [refetchStats, refetchRecentOrders]);
 
   // Updates emitted while the socket was down are never replayed, so re-read
   // both once per reconnect (the first connection is skipped).
   useResyncOnReconnect(socket, () => {
     refetchStats({ immediate: true });
-    refetchRecentOrders();
+    refetchRecentOrders({ immediate: true });
   });
 
   // Split out from the initial fetch above so it can depend on `socket`

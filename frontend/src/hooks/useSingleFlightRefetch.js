@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
+import { createRefetchScheduler } from "../utils/refetchScheduler";
 
 // Runs `load` so that at most one request is in flight at a time.
 //
@@ -15,8 +16,10 @@ import { useCallback, useEffect, useRef } from "react";
 //
 // `coalesceMs` (optional) delays the start of an idle refetch briefly so that
 // events arriving together (e.g. order-updated and analytics-updated emitted
-// for the same change) share one request. Pass { immediate: true } to skip
-// the delay, e.g. for the first load.
+// for the same change) share one request, and spaces follow-ups requested
+// while a load is running by the same window. Pass { immediate: true } to skip
+// the delay, e.g. for the first load or a user action. The scheduling rules
+// live in utils/refetchScheduler.js.
 //
 // The latest `load` is always the one that runs, so a queued follow-up uses
 // the current filters/props rather than those captured when it was queued.
@@ -24,74 +27,23 @@ export function useSingleFlightRefetch(load, { coalesceMs = 0 } = {}) {
   const loadRef = useRef(load);
   loadRef.current = load;
 
-  const inFlightRef = useRef(null);
-  const queuedRef = useRef(false);
-  const pendingTimerRef = useRef(null);
+  const schedulerRef = useRef(null);
 
-  const start = useCallback(() => {
-    const run = (async () => {
-      try {
-        do {
-          queuedRef.current = false;
-          await loadRef.current();
-        } while (queuedRef.current);
-      } finally {
-        inFlightRef.current = null;
-      }
-    })();
-
-    inFlightRef.current = run;
-    return run;
-  }, []);
+  if (schedulerRef.current === null) {
+    schedulerRef.current = createRefetchScheduler(
+      () => loadRef.current(),
+      { coalesceMs }
+    );
+  }
 
   const refetch = useCallback(
-    ({ immediate = false } = {}) => {
-      if (inFlightRef.current) {
-        queuedRef.current = true;
-        return inFlightRef.current;
-      }
-
-      if (coalesceMs > 0 && !immediate) {
-        if (!pendingTimerRef.current) {
-          pendingTimerRef.current = setTimeout(() => {
-            pendingTimerRef.current = null;
-
-            if (inFlightRef.current) {
-              queuedRef.current = true;
-            } else {
-              start();
-            }
-          }, coalesceMs);
-        }
-
-        return undefined;
-      }
-
-      if (pendingTimerRef.current) {
-        clearTimeout(pendingTimerRef.current);
-        pendingTimerRef.current = null;
-      }
-
-      return start();
-    },
-    [coalesceMs, start]
-  );
-
-  const markStale = useCallback(() => {
-    if (inFlightRef.current) {
-      queuedRef.current = true;
-    }
-  }, []);
-
-  useEffect(
-    () => () => {
-      if (pendingTimerRef.current) {
-        clearTimeout(pendingTimerRef.current);
-        pendingTimerRef.current = null;
-      }
-    },
+    (options) => schedulerRef.current.refetch(options),
     []
   );
+
+  const markStale = useCallback(() => schedulerRef.current.markStale(), []);
+
+  useEffect(() => () => schedulerRef.current.cancelPending(), []);
 
   return { refetch, markStale };
 }

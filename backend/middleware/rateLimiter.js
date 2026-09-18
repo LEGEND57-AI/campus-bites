@@ -1,46 +1,97 @@
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
-import { isIP } from "node:net";
+import { getClientIp } from "../utils/clientIp.js";
+import { verifyAccessToken, verifyRefreshToken } from "../utils/jwt.js";
 
-// ================= CLIENT IDENTITY =================
+// ================= WHO A REQUEST COUNTS AGAINST =================
 //
-// Which address every limiter below counts against.
+// Two kinds of bucket:
 //
-// The default is req.ip, and in this deployment that is the wrong value.
-// Production runs browser -> Cloudflare -> Render router -> Express, but
-// `trust proxy` is 1, so Express walks back a single hop and lands on the
-// LAST X-Forwarded-For entry -- Render's internal router. Logs confirmed it:
-// req.ip resolved to ::1 or 10.x addresses, one of which was shared by 8 of
-// 10 users. Everyone behind a given internal hop shared a bucket, so one
-// person could exhaust the login or OTP budget for everyone else, while the
-// same client scattered across hops collected several budgets.
+// - Authenticated identity, for everything a signed-in user does. Keyed by the
+//   user id from a SERVER-VERIFIED credential: req.user when authenticate has
+//   already run, otherwise the access token in the Authorization header after
+//   its signature and expiry are checked here (verifyAccessToken, the same
+//   check authenticate performs). A campus shares one or a few NAT egress
+//   addresses, so an IP-only key made every student on the Wi-Fi share one
+//   budget -- in load testing, 50 students on one IP got 78% 429s within three
+//   minutes. Nothing the client sends is taken at face value: no x-user-id-style
+//   header, and a token that fails verification contributes nothing.
 //
-// CF-Connecting-IP is used instead because Cloudflare sets it itself on every
-// proxied request and refuses one supplied by the caller -- an outside request
-// carrying that header is rejected at the edge with 403, so it cannot be
-// forged through Cloudflare. X-Forwarded-For is deliberately NOT used: its
-// length varies with the chain (4 entries in one logged request, 3 in
-// another), so no fixed index identifies the client. remoteAddress is only
-// the local Render connection, and true-client-ip is an Enterprise alias that
-// carries no additional guarantee here.
+// - Client IP (utils/clientIp.js), for requests with no verified identity:
+//   login, sign-up, OTP, password reset, and any request whose token is
+//   missing or invalid. Those are exactly the abuse-sensitive, unauthenticated
+//   cases, and IP is the only handle they offer.
 //
-// ipKeyGenerator is the library's own helper and is not optional: for IPv6 it
-// masks to a /56 so a client holding a prefix cannot rotate addresses for a
-// fresh bucket. express-rate-limit v8 enforces this -- a custom keyGenerator
-// touching req.ip without it throws ERR_ERL_KEY_GEN_IPV6 at startup.
+// Failing safe: a limiter that prefers an authenticated identity but finds
+// none falls back to the IP bucket -- it never skips limiting.
 //
-// Anything missing, duplicated, malformed or not a real IP falls through to
-// req.ip, which is exactly the behaviour that existed before this change. The
-// address is used only as a bucket key: never logged, never returned.
-const clientIpKeyGenerator = (req) => {
-  const header = req.headers["cf-connecting-ip"];
+// Keys are namespaced "user:<id>:<limiter>" / "ip:<address>:<limiter>". Each
+// limiter has its own store as well; the name keeps keys self-describing.
+//
+// ipKeyGenerator is the library's own helper and is not optional for the IP
+// half: for IPv6 it masks to a /56 so a client holding a prefix cannot rotate
+// addresses for a fresh bucket.
 
-  // A repeated header arrives as an array; only a single string is trusted.
-  const candidate = typeof header === "string" ? header.trim() : "";
+const BEARER = /^Bearer[ ]+(\S+)$/i; // same pattern as middleware/auth.js
 
-  // isIP returns 0 for anything that is not a valid IPv4 or IPv6 address.
-  const clientIp = isIP(candidate) !== 0 ? candidate : req.ip;
+// The verified user id for this request, or null. Cached on the request so
+// several limiters on one route verify the token once.
+const verifiedUserId = (req) => {
+  if (req.user?.id) {
+    return String(req.user.id);
+  }
 
-  return ipKeyGenerator(clientIp ?? "");
+  if (req.rateLimitUserId !== undefined) {
+    return req.rateLimitUserId;
+  }
+
+  let userId = null;
+  const header = req.headers.authorization;
+  const match = typeof header === "string" ? header.match(BEARER) : null;
+
+  if (match) {
+    try {
+      const payload = verifyAccessToken(match[1]);
+      if (payload && typeof payload.userId === "string" && payload.userId) {
+        userId = payload.userId;
+      }
+    } catch {
+      // Invalid, expired or forged: no identity; the IP bucket applies.
+    }
+  }
+
+  req.rateLimitUserId = userId;
+  return userId;
+};
+
+// The session refresh/logout endpoints carry no access token -- only the
+// httpOnly refresh cookie. Its signature is verified here (the same check the
+// route itself performs first); a forged or garbage cookie falls to the IP.
+const verifiedRefreshUserId = (req) => {
+  const token = req.cookies?.refreshToken;
+  if (typeof token !== "string" || !token) return null;
+
+  try {
+    const payload = verifyRefreshToken(token);
+    return payload && typeof payload.userId === "string" && payload.userId
+      ? payload.userId
+      : null;
+  } catch {
+    return null;
+  }
+};
+
+const ipKey = (req, name) => `ip:${ipKeyGenerator(getClientIp(req))}:${name}`;
+
+const ipKeyed = (name) => (req) => ipKey(req, name);
+
+const userKeyed = (name) => (req) => {
+  const userId = verifiedUserId(req);
+  return userId ? `user:${userId}:${name}` : ipKey(req, name);
+};
+
+const sessionKeyed = (name) => (req) => {
+  const userId = verifiedRefreshUserId(req);
+  return userId ? `user:${userId}:${name}` : ipKey(req, name);
 };
 
 // ================= COMMON CONFIG =================
@@ -48,7 +99,6 @@ const clientIpKeyGenerator = (req) => {
 const commonConfig = {
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: clientIpKeyGenerator,
 
   handler: (req, res) => {
 
@@ -79,6 +129,8 @@ export const loginLimiter = rateLimit({
 
   ...commonConfig,
 
+  keyGenerator: ipKeyed("login"),
+
   windowMs: 15 * 60 * 1000,
 
   max: process.env.NODE_ENV === "production"
@@ -99,6 +151,8 @@ export const otpLimiter = rateLimit({
 
   ...commonConfig,
 
+  keyGenerator: ipKeyed("otp"),
+
   windowMs: 10 * 60 * 1000,
 
   max: process.env.NODE_ENV === "production"
@@ -117,11 +171,11 @@ export const otpLimiter = rateLimit({
 // Guards POST /session/refresh and /session/logout, which authenticate purely
 // from the httpOnly refresh cookie and were previously unlimited.
 //
-// skipSuccessfulRequests is the important part. Rate limiting here is keyed by
-// IP, and a campus behind one NAT egress shares a single bucket -- with an
-// access-token lifetime of 15m, a few hundred students refreshing normally
-// would exhaust any tight limit and be force-logged-out en masse (api.js
-// redirects to /login on any refresh failure). Counting only failures means
+// Keyed by the user of a signature-verified refresh cookie, so students behind
+// one campus NAT no longer share a bucket; a missing, garbage or forged cookie
+// is keyed by IP instead.
+//
+// skipSuccessfulRequests still matters: counting only failures means
 // legitimate traffic never consumes budget, while a flood of invalid or
 // replayed cookies still gets throttled. That is also the real threat model:
 // an HS256-signed refresh JWT cannot be meaningfully brute-forced, so what is
@@ -133,6 +187,8 @@ export const otpLimiter = rateLimit({
 export const sessionLimiter = rateLimit({
 
   ...commonConfig,
+
+  keyGenerator: sessionKeyed("session"),
 
   windowMs: 15 * 60 * 1000,
 
@@ -153,6 +209,8 @@ export const uploadLimiter = rateLimit({
 
   ...commonConfig,
 
+  keyGenerator: userKeyed("upload"),
+
   windowMs: 15 * 60 * 1000,
 
   max: process.env.NODE_ENV === "production"
@@ -163,9 +221,14 @@ export const uploadLimiter = rateLimit({
 
 // ================= MENU =================
 
+// Shared by /api/food, /api/categories, /api/user, /api/notifications and
+// /api/push: one budget per signed-in user across those reads. The public menu
+// endpoints need no token, so an anonymous caller is counted by IP.
 export const menuLimiter = rateLimit({
 
   ...commonConfig,
+
+  keyGenerator: userKeyed("menu"),
 
   windowMs: 15 * 60 * 1000,
 
@@ -177,14 +240,38 @@ export const menuLimiter = rateLimit({
 
 // ================= ORDERS =================
 
-export const orderLimiter = rateLimit({
+// Placing an order is the spam-sensitive operation: each one reserves a daily
+// token, writes an order, notifies the kitchen and the student. Only POST
+// /api/orders counts against this, per signed-in student.
+export const orderCreateLimiter = rateLimit({
 
   ...commonConfig,
+
+  keyGenerator: userKeyed("order-create"),
 
   windowMs: 15 * 60 * 1000,
 
   max: process.env.NODE_ENV === "production"
-    ? 50
+    ? 30
+    : 100000,
+
+});
+
+// Viewing the order list, tracking an order and cancelling are ordinary use --
+// the tracking page, the orders page and the profile read these repeatedly.
+// They no longer share the creation quota (a student browsing their own orders
+// was locked out after ~9 minutes in load testing), but are still bounded per
+// user.
+export const orderReadLimiter = rateLimit({
+
+  ...commonConfig,
+
+  keyGenerator: userKeyed("order-read"),
+
+  windowMs: 15 * 60 * 1000,
+
+  max: process.env.NODE_ENV === "production"
+    ? 600
     : 100000,
 
 });
@@ -194,6 +281,8 @@ export const orderLimiter = rateLimit({
 export const favoriteLimiter = rateLimit({
 
   ...commonConfig,
+
+  keyGenerator: userKeyed("favorite"),
 
   windowMs: 15 * 60 * 1000,
 
@@ -205,9 +294,13 @@ export const favoriteLimiter = rateLimit({
 
 // ================= PAYMENT =================
 
+// Per signed-in student for create-order / verify. The Razorpay webhook shares
+// this limiter and carries no user token, so it is counted by IP.
 export const paymentLimiter = rateLimit({
 
   ...commonConfig,
+
+  keyGenerator: userKeyed("payment"),
 
   windowMs: 15 * 60 * 1000,
 
@@ -219,14 +312,21 @@ export const paymentLimiter = rateLimit({
 
 // ================= ADMIN =================
 
+// Per signed-in admin: two admins on the canteen Wi-Fi no longer share one
+// budget. The admin queue refetches when realtime order events arrive; those
+// refetches are coalesced client-side (AdminOrders), and this ceiling leaves
+// room for a lunch rush -- in load testing a busy queue needed ~350 requests
+// in its first few minutes and hit the old 300 / 15 min per-IP cap.
 export const adminLimiter = rateLimit({
 
   ...commonConfig,
 
+  keyGenerator: userKeyed("admin"),
+
   windowMs: 15 * 60 * 1000,
 
   max: process.env.NODE_ENV === "production"
-    ? 300      // 🔥 was 100 — raised to give admins headroom for manual actions + polling
-    : 1000,
+    ? 1500
+    : 10000,
 
 });

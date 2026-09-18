@@ -26,6 +26,7 @@ import { useSocket } from "../socket/SocketProvider";
 import { SocketEvents } from "../socket/constants";
 
 import { notificationAPI } from "../services/api";
+import { unreadCountStore, useUnreadCount } from "../notifications/useUnreadCount";
 
 
 const CATEGORY_MAP = {
@@ -90,7 +91,11 @@ const Notifications = () => {
     //   unreadCount > 0             -> "Mark all as read"
     //   unreadCount 0, list has any -> "Clear all"
     //   empty list                  -> no action
-    const [unreadCount, setUnreadCount] = useState(0);
+    // It is the app-wide shared count (the header shows the same number),
+    // read fresh from the server when this page opens -- one request shared
+    // with the header's -- and kept current by realtime events in
+    // SocketProvider.
+    const unreadCount = useUnreadCount({ maxAgeMs: 0 });
 
     // "read" | "clear" | null while a bulk request is in flight; the ref also
     // blocks a second click before React re-renders.
@@ -114,19 +119,11 @@ const Notifications = () => {
 
             try {
 
-                const [{ data }, countResponse] = await Promise.all([
-                    notificationAPI.getNotifications(
+                const { data } =
+                    await notificationAPI.getNotifications(
                         pageNumber,
                         10
-                    ),
-                    pageNumber === 1
-                        ? notificationAPI.getUnreadCount().catch(() => null)
-                        : Promise.resolve(null),
-                ]);
-
-                if (countResponse?.data && Number.isInteger(countResponse.data.count)) {
-                    setUnreadCount(countResponse.data.count);
-                }
+                    );
 
                 if (append) {
 
@@ -215,12 +212,8 @@ const Notifications = () => {
 
             });
 
-            // New notifications arrive unread; this is what turns "Clear all"
-            // back into "Mark all as read".
-            if (!notification.is_read) {
-                setUnreadCount((count) => count + 1);
-            }
-
+            // The unread count (which turns "Clear all" back into "Mark all as
+            // read") is updated by the shared store in SocketProvider.
             setHasMore(true);
 
         };
@@ -239,8 +232,6 @@ const Notifications = () => {
                 setNotifications((prev) => prev.map((n) => (ids.has(n.id) ? { ...n, is_read: true } : n)));
             }
 
-            if (Number.isInteger(payload.unreadCount)) setUnreadCount(payload.unreadCount);
-
         };
 
         // Cleared / deleted in this tab or another tab/device of the same user.
@@ -255,8 +246,6 @@ const Notifications = () => {
                 const ids = new Set(payload.ids);
                 setNotifications((prev) => prev.filter((n) => !ids.has(n.id)));
             }
-
-            if (Number.isInteger(payload.unreadCount)) setUnreadCount(payload.unreadCount);
 
         };
 
@@ -302,7 +291,7 @@ const Notifications = () => {
 
             const { data } = await notificationAPI.markAsRead(id);
 
-            if (Number.isInteger(data?.unreadCount)) setUnreadCount(data.unreadCount);
+            unreadCountStore.applyServerCount(data?.unreadCount);
 
         } catch (err) {
 
@@ -339,7 +328,7 @@ const Notifications = () => {
                 prev.map((n) => (!n.is_read && isAtOrBefore(n, upTo) ? { ...n, is_read: true } : n))
             );
 
-            if (Number.isInteger(data?.unreadCount)) setUnreadCount(data.unreadCount);
+            unreadCountStore.applyServerCount(data?.unreadCount);
 
             toast.success("All notifications marked as read");
 
@@ -376,7 +365,7 @@ const Notifications = () => {
             setNotifications((prev) => prev.filter((n) => !(n.is_read && isAtOrBefore(n, upTo))));
 
             if (Number.isInteger(data?.unreadCount)) {
-                setUnreadCount(data.unreadCount);
+                unreadCountStore.applyServerCount(data.unreadCount);
                 if (data.unreadCount === 0) setHasMore(false);
             }
 

@@ -1,6 +1,7 @@
 import express from 'express';
 import { supabase } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
+import { invalidateCachedUser } from '../utils/auth.js';
 import { body, validationResult } from 'express-validator';
 
 const router = express.Router();
@@ -67,6 +68,10 @@ phone
       .single();
 
     if (error) throw error;
+
+    // authenticate may be serving this user from its short-lived cache.
+    invalidateCachedUser(req.user.id);
+
     res.json(user);
   } catch (error) {
 

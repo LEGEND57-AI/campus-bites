@@ -27,6 +27,7 @@ import { useSocket } from "../../socket/SocketProvider";
 import { SocketEvents } from "../../socket/constants";
 import { useResyncOnReconnect } from "../../socket/useResyncOnReconnect";
 import { useSingleFlightRefetch } from "../../hooks/useSingleFlightRefetch";
+import { REALTIME_REFETCH_COALESCE_MS } from "../../utils/refetchScheduler";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useLatestRequest, isAbortError } from "../../hooks/useLatestRequest";
 
@@ -69,6 +70,34 @@ const PAYMENT_PARAM = {
 };
 
 const ACTIVE_STATUSES = ["Pending", "Accepted", "Preparing", "Ready"];
+
+// Realtime order events refresh the queue (rows + stat cards) at most once per
+// REALTIME_REFETCH_COALESCE_MS, however many events arrive. During a lunch rush
+// every order emits several events (placed, paid, ready, completed);
+// refetching per event made ~1.5 requests per event and ran the admin into the
+// rate limit. An order already on screen still changes instantly (merged in
+// place below), so the window only delays brand-new rows and the stat cards.
+
+// Merge a realtime order row into the list, or drop it when it no longer
+// belongs to the current view (it finished, or its status/payment no longer
+// matches the filters). Search cannot be affected: a status update never
+// changes the token or the customer. The payload is a flat orders row with no
+// nested user/order_items, so a spread is used rather than a replace -- it
+// keeps the joined data the cards render.
+const applyRealtimeOrder = (rows, updatedOrder, params) => {
+  const current = rows.find((order) => order.id === updatedOrder.id);
+  if (!current) return rows;
+
+  const merged = { ...current, ...updatedOrder };
+  const stillMatches =
+    ACTIVE_STATUSES.includes(merged.status) &&
+    (!params.status || params.status.split(",").includes(merged.status)) &&
+    (!params.payment_method || merged.payment_method === params.payment_method);
+
+  return stillMatches
+    ? rows.map((order) => (order.id === updatedOrder.id ? merged : order))
+    : rows.filter((order) => order.id !== updatedOrder.id);
+};
 
 const EMPTY_QUEUE_SUMMARY = { pending: 0, preparing: 0, ready: 0 };
 
@@ -318,11 +347,20 @@ const AdminOrders = () => {
   const summaryKeyRef = useRef(null);
   const summaryDirtyRef = useRef(true);
 
+  // Realtime changes already merged into the list, by order id, with the
+  // sequence number of the event. A list response requested BEFORE an event
+  // predates it; re-applying the event on top keeps that response from briefly
+  // putting the old status back on screen. Entries are dropped once a response
+  // requested after them lands.
+  const realtimeSeqRef = useRef(0);
+  const realtimePatchesRef = useRef(new Map());
+
   // Only one list request runs at a time. A request made while one is in
-  // flight (a realtime event, Refresh, a status action) queues a single
-  // follow-up that starts after it, so the newest data always lands last.
+  // flight queues a single follow-up after it, so the newest data always lands
+  // last; realtime-triggered ones are coalesced (see useSingleFlightRefetch).
   const loadOrders = useCallback(async () => {
     const params = queryParamsRef.current;
+    const seqAtRequest = realtimeSeqRef.current;
     const key = JSON.stringify(params);
     const sameQuery = loadedQueryKeyRef.current === key;
     const pages = sameQuery ? pagesLoadedRef.current : 1;
@@ -359,7 +397,17 @@ const AdminOrders = () => {
       setLoadingMore(false);
       setLoadMoreFailed(false);
 
-      setOrders(data.orders);
+      let rows = data.orders;
+
+      for (const [id, patch] of realtimePatchesRef.current) {
+        if (patch.seq > seqAtRequest) {
+          rows = applyRealtimeOrder(rows, patch.order, params);
+        } else {
+          realtimePatchesRef.current.delete(id);
+        }
+      }
+
+      setOrders(rows);
       setHasMore(Boolean(data.pagination?.hasMore));
       pagesLoadedRef.current = Math.max(Math.ceil(data.orders.length / QUEUE_PAGE_SIZE), 1);
       loadedQueryKeyRef.current = key;
@@ -402,13 +450,13 @@ const AdminOrders = () => {
     }
   }, [beginListRequest, cancelMoreRequest]);
 
-  const {
-    refetch: refetchOrders,
-    markStale: markOrdersStale,
-  } = useSingleFlightRefetch(loadOrders);
+  const { refetch: refetchOrders } = useSingleFlightRefetch(loadOrders, {
+    coalesceMs: REALTIME_REFETCH_COALESCE_MS,
+  });
 
-  // The data changed (realtime event, action, Refresh, reconnect, new day):
-  // re-read the rows on screen AND the stat-card counts.
+  // The data changed: re-read the rows on screen AND the stat-card counts.
+  // Called with no options from realtime events (coalesced); user actions,
+  // Refresh, reconnect and the new-day reset pass { immediate: true }.
   const fetchOrders = useCallback(
     (options) => {
       summaryDirtyRef.current = true;
@@ -524,36 +572,21 @@ const AdminOrders = () => {
         return;
       }
 
-      // A list request already in flight may have been answered before this
-      // change was made; make sure a fresh one follows so it cannot win.
-      markOrdersStale();
+      // Shown at once: merged in place, or removed when it no longer belongs
+      // to the current view. Remembered so a list response requested before
+      // this event cannot put the old status back (see loadOrders).
+      realtimeSeqRef.current += 1;
+      realtimePatchesRef.current.set(updatedOrder.id, {
+        order: updatedOrder,
+        seq: realtimeSeqRef.current,
+      });
 
-      // An order that no longer belongs to the current view (it finished, or
-      // its status/payment no longer matches the filters) leaves the list at
-      // once; otherwise it is merged in place. Search cannot be affected: a
-      // status update never changes the token or the customer.
       const params = queryParamsRef.current;
-      const merged = {
-        ...ordersRef.current.find((order) => order.id === updatedOrder.id),
-        ...updatedOrder,
-      };
-      const stillMatches =
-        ACTIVE_STATUSES.includes(merged.status) &&
-        (!params.status || params.status.split(",").includes(merged.status)) &&
-        (!params.payment_method || merged.payment_method === params.payment_method);
-
-      setOrders((prev) =>
-        stillMatches
-          ? prev.map((order) =>
-            order.id === updatedOrder.id
-              ? { ...order, ...updatedOrder }
-              : order
-          )
-          : prev.filter((order) => order.id !== updatedOrder.id)
-      );
+      setOrders((prev) => applyRealtimeOrder(prev, updatedOrder, params));
 
       // The stat-card counts are server-side; refresh them (and the rows) in
-      // the background. The cards on screen stay visible.
+      // the background, coalesced with any other events arriving now. The
+      // cards on screen stay visible.
       fetchOrders();
     };
 
@@ -563,12 +596,17 @@ const AdminOrders = () => {
       socket.off(SocketEvents.ORDER_UPDATED, handleOrderUpdate);
     };
 
-  }, [socket, fetchOrders, markOrdersStale]);
+  }, [socket, fetchOrders]);
 
   // Updates emitted while the socket was down are never replayed, so refetch
   // the list once per reconnect. The initial connect is skipped: the mount
   // effect above already loaded it.
-  useResyncOnReconnect(socket, fetchOrders);
+  const resyncOrders = useCallback(
+    () => fetchOrders({ immediate: true }),
+    [fetchOrders]
+  );
+
+  useResyncOnReconnect(socket, resyncOrders);
 
   useEffect(() => {
     let timeoutId;
@@ -596,7 +634,7 @@ const AdminOrders = () => {
         setActiveStat("");
         setPage(1);
 
-        fetchOrders();
+        fetchOrders({ immediate: true });
 
         toast.success("🌅 New day started. Orders refreshed.");
 
@@ -650,7 +688,7 @@ const AdminOrders = () => {
     try {
       await adminAPI.updateOrderStatus(orderId, status);
       toast.success(`Order marked as ${status}`);
-      fetchOrders();
+      fetchOrders({ immediate: true });
     } catch (err) {
       console.error("Failed to update order status:", err);
       toast.error("Failed to update order status");
@@ -674,7 +712,7 @@ const AdminOrders = () => {
     try {
       await adminAPI.markPaymentReceived(orderId);
       toast.success("Cash payment received — order is now Preparing");
-      fetchOrders();
+      fetchOrders({ immediate: true });
     } catch (err) {
       console.error("Failed to update payment:", err);
       toast.error("Failed to update payment");
@@ -714,7 +752,7 @@ const AdminOrders = () => {
       });
 
       toast.success("Order cancelled successfully");
-      fetchOrders();
+      fetchOrders({ immediate: true });
     } catch (err) {
       console.error(err);
       toast.error("Failed to cancel order");
@@ -815,7 +853,7 @@ const AdminOrders = () => {
         note: data?.refundType ? "" : data?.message || "",
       });
 
-      fetchOrders();
+      fetchOrders({ immediate: true });
 
     } catch (err) {
       console.error(err);
@@ -953,7 +991,7 @@ const AdminOrders = () => {
           </div>
 
           <button
-            onClick={fetchOrders}
+            onClick={() => fetchOrders({ immediate: true })}
             disabled={refreshing}
             className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition disabled:opacity-60 disabled:cursor-not-allowed"
           >

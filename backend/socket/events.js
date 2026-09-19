@@ -1,4 +1,5 @@
 import { joinUserRoom, joinAdminRoom } from "./rooms.js";
+import { handshakePredatesSweep } from "./userSockets.js";
 import logger from "../utils/logger.js";
 
 export function registerSocketEvents(io) {
@@ -14,6 +15,15 @@ export function registerSocketEvents(io) {
 
         await joinUserRoom(socket);
         await joinAdminRoom(socket);
+
+        // The user's sessions were revoked while this handshake was in flight,
+        // after the token check but before the socket joined its room, so the
+        // sweep could not reach it (see userSockets.js). Checked after joining:
+        // a sweep that runs later than this finds the socket in its room.
+        if (handshakePredatesSweep(socket)) {
+            socket.disconnect(true);
+            return;
+        }
 
         socket.on("disconnect", (reason) => {
             logger.debug(

@@ -33,7 +33,7 @@ const USER_CACHE_TTL_MS = 30_000;
 const USER_CACHE_MAX_ENTRIES = 10_000;
 
 const cachedUsers = new Map(); // userId -> { user, expiresAt }
-const pendingLookups = new Map(); // userId -> Promise<user>
+const pendingLookups = new Map(); // userId -> { promise, stale }
 
 const lookupUser = async (userId) => {
   const { data: user, error } = await supabase
@@ -66,18 +66,25 @@ export async function getUserFromToken(token) {
     cachedUsers.delete(userId);
   }
 
-  let pending = pendingLookups.get(userId);
+  let flight = pendingLookups.get(userId);
 
-  if (!pending) {
-    pending = lookupUser(userId).finally(() => {
-      pendingLookups.delete(userId);
+  if (!flight) {
+    flight = { stale: false };
+    flight.promise = lookupUser(userId).finally(() => {
+      // Only unregister this lookup -- an invalidation may already have
+      // replaced it with a newer one for the same user.
+      if (pendingLookups.get(userId) === flight) {
+        pendingLookups.delete(userId);
+      }
     });
-    pendingLookups.set(userId, pending);
+    pendingLookups.set(userId, flight);
   }
 
-  const user = await pending;
+  const user = await flight.promise;
 
-  if (user.role !== "admin") {
+  // A lookup that started before invalidateCachedUser() ran may have read the
+  // row as it was before the change, so it never populates the cache.
+  if (user.role !== "admin" && !flight.stale) {
     if (cachedUsers.size >= USER_CACHE_MAX_ENTRIES) {
       cachedUsers.delete(cachedUsers.keys().next().value);
     }
@@ -90,10 +97,20 @@ export async function getUserFromToken(token) {
   return { ...user };
 }
 
-// Drop a remembered user (their row just changed).
+// Drop a remembered user (their row just changed). A lookup still in flight
+// may have read the old row: it is marked stale, so it cannot re-populate the
+// cache when it finishes, and unregistered, so requests from now on start a
+// fresh lookup instead of joining it.
 export function invalidateCachedUser(userId) {
   if (userId !== undefined && userId !== null) {
-    cachedUsers.delete(String(userId));
+    const id = String(userId);
+    cachedUsers.delete(id);
+
+    const flight = pendingLookups.get(id);
+    if (flight) {
+      flight.stale = true;
+      pendingLookups.delete(id);
+    }
   }
 }
 

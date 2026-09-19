@@ -9,6 +9,7 @@
 import "./utils/validateEnv.js";
 
 import http from "http";
+import { readFileSync } from "fs";
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -207,6 +208,23 @@ app.get('/health', (req, res) => {
 // Your existing API health route
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'CampusCraves API is running' });
+});
+
+// Which build is running. Render sets RENDER_GIT_COMMIT to the deployed
+// commit; anywhere else (local, tests) it is "unknown". The only values read
+// are that commit, NODE_ENV and package.json's version -- all non-secret; the
+// environment is never exposed as a whole. Fixed at startup, and marked
+// no-store so a proxy can never answer with a previous deploy's commit.
+const BUILD_INFO = Object.freeze({
+  name: "CampusCraves",
+  version: JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version,
+  environment: process.env.NODE_ENV || "development",
+  commit: process.env.RENDER_GIT_COMMIT || "unknown",
+});
+
+app.get("/api/version", (req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.json(BUILD_INFO);
 });
 
 // ================== API ROUTES ==================

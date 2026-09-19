@@ -20,6 +20,7 @@ import {
   createSession,
   revokeAllSessions,
 } from "../services/sessionService.js";
+import { disconnectUserSockets } from "../socket/userSockets.js";
 import { getRefreshCookieOptions } from "./session.js";
 import { getClientIp } from "../utils/clientIp.js";
 
@@ -708,6 +709,9 @@ router.post("/reset-password", otpResetLimiter, async (req, res) => {
     // need an RPC, which is deliberately out of scope here.
     try {
       await revokeAllSessions(updatedUser.id);
+
+      // Sessions are revoked; close the user's open sockets as well.
+      disconnectUserSockets(updatedUser.id);
     } catch (revokeError) {
       // user id only -- never the email, password, OTP or any token.
       console.error(

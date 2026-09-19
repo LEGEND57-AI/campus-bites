@@ -17,6 +17,7 @@ import {
 import { authenticate } from "../middleware/auth.js";
 import { requireTrustedOrigin } from "../middleware/requireTrustedOrigin.js";
 import { sessionLimiter } from "../middleware/rateLimiter.js";
+import { disconnectUserSockets } from "../socket/userSockets.js";
 import { supabase } from "../db.js";
 
 const router = express.Router();
@@ -129,6 +130,9 @@ router.post("/refresh", requireTrustedOrigin, async (req, res) => {
                 await revokeAllSessions(
                     reusedSession.user_id
                 );
+
+                // Every session is gone; drop the user's live sockets too.
+                disconnectUserSockets(reusedSession.user_id);
 
                 return res
                     .clearCookie("refreshToken")
@@ -280,6 +284,10 @@ router.post("/logout-all", authenticate, async (req, res) => {
     try {
 
         await revokeAllSessions(req.user.id);
+
+        // Close this user's open sockets (every tab and device) now, instead
+        // of leaving them subscribed until each client next fails auth.
+        disconnectUserSockets(req.user.id);
 
         return res
             .clearCookie("refreshToken")

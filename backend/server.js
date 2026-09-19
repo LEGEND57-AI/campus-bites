@@ -16,6 +16,7 @@ import helmet from "helmet";
 import {
   menuLimiter,
   adminLimiter,
+  webhookLimiter,
 } from "./middleware/rateLimiter.js";
 
 import authRoutes from './routes/auth.js';
@@ -121,8 +122,13 @@ app.use(
 // below so the request body stays a raw Buffer — Razorpay signs the exact
 // raw bytes it sends, and re-serializing a parsed JSON object would not
 // reliably reproduce them, breaking signature verification.
+//
+// webhookLimiter goes first, ahead of the body parser, so a flood is refused
+// before its body is read; it counts only rejected (4xx) requests, never a
+// signed delivery (see middleware/rateLimiter.js).
 app.use(
   "/api/payment/webhook",
+  webhookLimiter,
   express.raw({ type: "application/json" }),
   paymentWebhookRoutes
 );

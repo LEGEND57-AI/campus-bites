@@ -2,7 +2,6 @@ import express from "express";
 import crypto from "crypto";
 import { supabase } from "../db.js";
 import { razorpay } from "../utils/razorpay.js";
-import { paymentLimiter } from "../middleware/rateLimiter.js";
 import { generateDailyToken } from "../utils/tokenGenerator.js";
 import { createNotification } from "../utils/notificationService.js";
 import { emitOrderUpdate, emitAdminOrderUpdate, emitAnalyticsUpdate } from "../socket/emitters.js";
@@ -21,9 +20,9 @@ import logger from "../utils/logger.js";
 // express.raw() so req.body is the exact raw byte buffer Razorpay signed.
 // It must never go through the `authenticate` middleware — Razorpay calls
 // this endpoint server-to-server with no JWT, only its own HMAC signature.
+// Rate limiting (webhookLimiter) is applied where it is mounted in server.js,
+// ahead of the raw body parser.
 const router = express.Router();
-
-router.use(paymentLimiter);
 
 router.post("/", async (req, res) => {
   const log = req.log || logger;

@@ -6,8 +6,12 @@ import SibApiV3Sdk from "sib-api-v3-sdk";
 import { supabase } from "../db.js";
 import {
   loginLimiter,
-  otpLimiter,
+  loginIpLimiter,
+  otpSendLimiter,
+  otpVerifyLimiter,
+  otpResetLimiter,
 } from "../middleware/rateLimiter.js";
+import { normalizeEmail } from "../utils/email.js";
 import {
   generateAccessToken,
   generateRefreshToken,
@@ -30,8 +34,8 @@ const PASSWORD_RESET_VERIFICATION_TTL_MS = 15 * 60 * 1000;
 
 // How many guesses a single OTP challenge is worth, per account.
 //
-// otpLimiter throttles by IP, which an attacker with a proxy pool simply
-// rotates around; this budget follows the account instead. Five keeps the
+// The route limiters (otpVerifyLimiter) cap requests per IP and per email
+// over a time window; this budget is per OTP challenge instead. Five keeps the
 // chance of guessing a six-digit code at 5/10^6 while still tolerating the
 // mistypes real users make. It is not a lockout: issuing a new OTP resets the
 // counter, so the budget guards one challenge rather than the account.
@@ -177,7 +181,7 @@ const generateEmailTemplate = (otp, type = "verify") => {
 };
 
 // ================= REGISTER =================
-router.post("/register", otpLimiter, async (req, res) => {
+router.post("/register", otpSendLimiter, async (req, res) => {
   let { name, email, phone, password } = req.body;
 
   if (!name || !email || !password) {
@@ -201,7 +205,19 @@ router.post("/register", otpLimiter, async (req, res) => {
     });
   }
 
-  email = email.trim().toLowerCase();
+  // Same process-killing throw as /verify-otp; see the note there. The truthy
+  // check above lets a number, object or array through, and email.trim() on
+  // one threw outside the try -- one unauthenticated request with
+  // `"email": 12345` terminated the server. Placed here, like the equivalent
+  // check in /reset-password, so the rules above keep answering first; it only
+  // replaces that crash with this handler's existing 400.
+  if (typeof email !== "string") {
+    return res.status(400).json({
+      error: "Missing required fields",
+    });
+  }
+
+  email = normalizeEmail(email);
 
   try {
 
@@ -294,7 +310,7 @@ router.post("/register", otpLimiter, async (req, res) => {
 });
 
 // ================= VERIFY OTP =================
-router.post("/verify-otp", otpLimiter, async (req, res) => {
+router.post("/verify-otp", otpVerifyLimiter, async (req, res) => {
   let { email, otp, type } = req.body;
 
   // Type-checked before the normalisation below, which is the first use and
@@ -319,7 +335,7 @@ router.post("/verify-otp", otpLimiter, async (req, res) => {
     });
   }
 
-  email = email.trim().toLowerCase();
+  email = normalizeEmail(email);
 
   try {
     // Charges one guess against this account's budget and returns the row in
@@ -328,8 +344,9 @@ router.post("/verify-otp", otpLimiter, async (req, res) => {
     // would let concurrent requests share a single attempt, so a correct guess
     // is charged too and the counter is reset to zero on success below.
     //
-    // otpLimiter above still throttles by IP; this is the account-level half,
-    // which an attacker rotating IP addresses cannot sidestep.
+    // otpVerifyLimiter above caps requests per IP and per email; this is the
+    // per-challenge half, which an attacker rotating IP addresses cannot
+    // sidestep either.
     const { data: rows, error } = await supabase.rpc("consume_otp_attempt", {
       p_email: email,
       p_max: MAX_OTP_ATTEMPTS,
@@ -421,7 +438,7 @@ router.post("/verify-otp", otpLimiter, async (req, res) => {
 });
 
 // ================= RESEND OTP =================
-router.post("/resend-otp", otpLimiter, async (req, res) => {
+router.post("/resend-otp", otpSendLimiter, async (req, res) => {
   let { email } = req.body;
 
   // Same process-killing throw as /verify-otp above; see the note there. This
@@ -434,7 +451,7 @@ router.post("/resend-otp", otpLimiter, async (req, res) => {
     });
   }
 
-  email = email.trim().toLowerCase();
+  email = normalizeEmail(email);
 
   const genericResponse = {
     message: "If an account exists for this email, a new OTP has been sent.",
@@ -490,7 +507,7 @@ router.post("/resend-otp", otpLimiter, async (req, res) => {
 });
 
 // ================= FORGOT PASSWORD =================
-router.post("/forgot-password", otpLimiter, async (req, res) => {
+router.post("/forgot-password", otpSendLimiter, async (req, res) => {
   let { email } = req.body;
 
   // Same process-killing throw as /verify-otp above; see the note there. As
@@ -503,7 +520,7 @@ router.post("/forgot-password", otpLimiter, async (req, res) => {
     });
   }
 
-  email = email.trim().toLowerCase();
+  email = normalizeEmail(email);
 
   const genericResponse = {
     message: "If an account exists for this email, a reset OTP has been sent.",
@@ -560,7 +577,7 @@ router.post("/forgot-password", otpLimiter, async (req, res) => {
 });
 
 // ================= RESET PASSWORD =================
-router.post("/reset-password", otpLimiter, async (req, res) => {
+router.post("/reset-password", otpResetLimiter, async (req, res) => {
   try {
     let { email, newPassword } = req.body;
 
@@ -603,7 +620,7 @@ router.post("/reset-password", otpLimiter, async (req, res) => {
       });
     }
 
-    email = email.trim().toLowerCase();
+    email = normalizeEmail(email);
 
     const { data: user, error } = await supabase
       .from("users")
@@ -714,7 +731,9 @@ router.post("/reset-password", otpLimiter, async (req, res) => {
 
 // ================= GOOGLE LOGIN =================
 
-router.post("/google", loginLimiter, async (req, res) => {
+// IP layer only: the body carries a Google access token, not an email, and
+// there is no password to guess -- Google verifies the token.
+router.post("/google", loginIpLimiter, async (req, res) => {
 
   try {
 
@@ -945,7 +964,7 @@ router.post("/login", loginLimiter, async (req, res) => {
     });
   }
 
-  email = email.trim().toLowerCase();
+  email = normalizeEmail(email);
 
   // A real bcrypt hash of random bytes, never matched to any account.
   // Comparing against this when no matching user exists means a

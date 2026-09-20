@@ -35,6 +35,17 @@ dotenv.config();
 //   VAPID_SUBJECT             webpush.setVapidDetails() throws "No subject set
 //   VAPID_PUBLIC_KEY          in vapidDetails.subject." while
 //   VAPID_PRIVATE_KEY         utils/pushNotification.js is being evaluated.
+//   GOOGLE_CLIENT_ID          the expected `aud` for every Google sign-in
+//                             (routes/auth.js). This one does NOT already
+//                             break the application today -- it is required
+//                             here because without it there is no value to
+//                             compare a Google token's audience against, and
+//                             an audience check that compares against nothing
+//                             is not a check. verifyGoogleAccessToken fails
+//                             closed if it is absent, so the cost of omitting
+//                             it is that every Google sign-in is refused;
+//                             refusing at startup, by name, is the clearer
+//                             failure.
 //
 // Note that several of the above are already hard startup crashes, just with
 // messages that name no environment variable and stop at the first problem
@@ -49,6 +60,7 @@ const REQUIRED_ALWAYS = [
   "VAPID_SUBJECT",
   "VAPID_PUBLIC_KEY",
   "VAPID_PRIVATE_KEY",
+  "GOOGLE_CLIENT_ID",
 ];
 
 // Variables that are essential in production but genuinely optional for local

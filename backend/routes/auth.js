@@ -43,6 +43,98 @@ const PASSWORD_RESET_VERIFICATION_TTL_MS = 15 * 60 * 1000;
 const MAX_OTP_ATTEMPTS = 5;
 
 
+// ================= GOOGLE TOKEN VERIFICATION =================
+
+// Google's tokeninfo endpoint. The userinfo endpoint used previously answers
+// "does this access token work?" -- it never says which OAuth client the token
+// was issued to. tokeninfo returns the token's own metadata, including `aud`,
+// which is the one field that pins a token to this application.
+const GOOGLE_TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo";
+
+// Verifies that a Google access token was issued for THIS application and
+// belongs to a Google-verified email address.
+//
+// Without the `aud` check below, any access token minted for any other Google
+// OAuth client -- every one of which returns a perfectly valid userinfo
+// response -- was enough to be signed in here as that token's owner. The
+// token did not have to have anything to do with CampusCraves.
+//
+// `email_verified` is checked for a separate reason: a Google account can
+// carry an address its owner never proved control of, and the account row
+// created further down is keyed on that address alone.
+//
+// Returns { ok: true, email } on success, or { ok: false, reason } where
+// `reason` is a short fixed string for the server log only. It is never
+// returned to the caller: every failure answers the route's single generic
+// 401, so a wrong-audience token is indistinguishable from an expired or
+// malformed one.
+//
+// Exported so tests/googleAuth.test.js can exercise each rejection directly
+// rather than only through the route; the route remains its only caller.
+export async function verifyGoogleAccessToken(accessToken) {
+  const expectedAudience = process.env.GOOGLE_CLIENT_ID;
+
+  // validateEnv.js makes this a startup failure, so it cannot be absent in a
+  // running process. Checked anyway because the cost of being wrong is that
+  // every token would compare equal to `undefined` and the audience check
+  // would silently pass nothing -- the exact hole this function exists to
+  // close.
+  if (typeof expectedAudience !== "string" || expectedAudience.trim() === "") {
+    return { ok: false, reason: "GOOGLE_CLIENT_ID is not configured" };
+  }
+
+  let response;
+
+  try {
+    response = await fetch(
+      `${GOOGLE_TOKENINFO_URL}?access_token=${encodeURIComponent(accessToken)}`
+    );
+  } catch {
+    // Network failure reaching Google. Deliberately not distinguished from a
+    // bad token in the response -- see the note on `reason` above.
+    return { ok: false, reason: "tokeninfo request failed" };
+  }
+
+  // Google answers 400 for a malformed, revoked or expired token, so token
+  // lifetime needs no separate check here: an expired token never reaches the
+  // body below.
+  if (!response.ok) {
+    return { ok: false, reason: "tokeninfo rejected the token" };
+  }
+
+  let info;
+
+  try {
+    info = await response.json();
+  } catch {
+    return { ok: false, reason: "tokeninfo returned an unreadable body" };
+  }
+
+  // THE AUDIENCE CHECK. Everything else in this function guards a detail;
+  // this line is the fix.
+  if (info?.aud !== expectedAudience) {
+    return { ok: false, reason: "token audience does not match this client" };
+  }
+
+  const email = typeof info?.email === "string" ? info.email.trim() : "";
+
+  if (email === "") {
+    return { ok: false, reason: "token carries no email" };
+  }
+
+  // tokeninfo reports this as the STRING "true" for access tokens and as a
+  // boolean for id tokens. Both spellings are accepted; nothing else is, so a
+  // missing claim fails closed rather than being read as truthy.
+  const emailVerified = info?.email_verified;
+
+  if (emailVerified !== true && emailVerified !== "true") {
+    return { ok: false, reason: "email is not verified by Google" };
+  }
+
+  return { ok: true, email };
+}
+
+
 // ================= BREVO API =================
 
 const client = SibApiV3Sdk.ApiClient.instance;
@@ -736,7 +828,9 @@ router.post("/reset-password", otpResetLimiter, async (req, res) => {
 // ================= GOOGLE LOGIN =================
 
 // IP layer only: the body carries a Google access token, not an email, and
-// there is no password to guess -- Google verifies the token.
+// there is no password to guess -- the token is verified against Google, and
+// verifyGoogleAccessToken additionally requires it to have been issued for
+// this application.
 router.post("/google", loginIpLimiter, async (req, res) => {
 
   try {
@@ -753,10 +847,34 @@ router.post("/google", loginIpLimiter, async (req, res) => {
     }
 
 
-    // VERIFY GOOGLE ACCESS TOKEN by fetching the user's profile.
-    // (useGoogleLogin on the frontend returns an OAuth access_token,
-    // not a JWT id_token — so we verify it against Google's userinfo
-    // endpoint instead of using verifyIdToken.)
+    // VERIFY THE TOKEN FIRST. This establishes that the token was issued for
+    // this application (`aud`) and that Google has verified the address, and
+    // it runs before any profile data is read or any account row is touched.
+    // (useGoogleLogin on the frontend returns an OAuth access_token, not a
+    // JWT id_token, so this goes through Google's tokeninfo endpoint rather
+    // than verifyIdToken -- see verifyGoogleAccessToken above.)
+
+    const verification = await verifyGoogleAccessToken(googleAccessToken);
+
+    if (!verification.ok) {
+
+      // The reason is logged, never returned. The token itself and the
+      // tokeninfo payload are never logged at all.
+      console.error("Google token verification failed:", verification.reason);
+
+      return res.status(401).json({
+        error: "Invalid Google access token",
+      });
+
+    }
+
+    // Identity comes from the verified tokeninfo response above, and only
+    // from there. The userinfo call below is read for a display name.
+    const email = verification.email;
+
+
+    // PROFILE DATA. No longer a security boundary -- it contributes the
+    // display name for a newly created account and nothing else.
 
     const googleRes = await fetch(
       `https://www.googleapis.com/oauth2/v3/userinfo?access_token=${googleAccessToken}`
@@ -776,22 +894,10 @@ router.post("/google", loginIpLimiter, async (req, res) => {
 
     const {
 
-      email,
       name,
       picture,
 
     } = payload;
-
-
-    if (!email) {
-
-      return res.status(400).json({
-
-        error: "Google account email not found",
-
-      });
-
-    }
 
 
     // CHECK USER IN DATABASE
@@ -851,6 +957,12 @@ router.post("/google", loginIpLimiter, async (req, res) => {
 
               password_hash: null,
 
+              // Safe because this line is now only reachable once
+              // verifyGoogleAccessToken has confirmed Google's own
+              // `email_verified` claim for this address. It is not "verified
+              // because Google returned a profile" -- that was the previous
+              // behavior, and a profile alone proves nothing about the
+              // address.
               is_verified: true,
 
               role: "student",

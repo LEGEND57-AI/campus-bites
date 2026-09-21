@@ -9,15 +9,17 @@ import { FavoriteProvider } from "./context/FavoriteContext";
 
 import ProtectedRoute from "./components/ProtectedRoute";
 import AdminRoute from "./components/AdminRoute";
+import HomeRoute from "./components/HomeRoute";
 import ChunkErrorBoundary from "./components/ChunkErrorBoundary";
 
 // Kept eagerly imported. Login is where the catch-all route sends anyone who
-// is not signed in, and Dashboard is "/" -- the page a signed-in user lands on
-// immediately. Loading either on demand would only add a spinner to the very
-// first paint. The route guards are eager for the same reason: routing must
-// never have to wait on a chunk to decide where a user belongs.
+// is not signed in. Dashboard -- what "/" shows a signed-in student -- is
+// imported eagerly by HomeRoute for the same reason. Loading either on demand
+// would only add a spinner to the very first paint. The route guards are
+// eager too: routing must never have to wait on a chunk to decide where a
+// user belongs. (The public landing page, which "/" shows signed-out
+// visitors, is a lazy chunk -- see HomeRoute.)
 import Login from "./pages/Login";
-import Dashboard from "./pages/Dashboard";
 
 // Everything below is reached only after a navigation, so it is split out of
 // the initial bundle. The admin pages in particular carry recharts,
@@ -117,15 +119,12 @@ function App() {
           <Route path="/verify-otp" element={<VerifyOTP />} />
           <Route path="/reset-password" element={<ResetPassword />} />
 
+          {/* ================= ENTRY ================= */}
+          {/* Signed out: public landing page. Signed in: Dashboard
+              (students) or /admin (admins), exactly as before. */}
+          <Route path="/" element={<HomeRoute />} />
+
           {/* ================= STUDENT ================= */}
-          <Route
-            path="/"
-            element={
-              <ProtectedRoute>
-                <Dashboard />
-              </ProtectedRoute>
-            }
-          />
 
           <Route
             path="/menu"

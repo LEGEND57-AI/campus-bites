@@ -15,6 +15,9 @@ import { AlertCircle } from "lucide-react";
  * lets a screen reader read the message as part of the field rather than as
  * loose text. role="alert" announces it when it appears after a submit, and
  * the icon means the error is not signalled by colour alone.
+ *
+ * The text is `rose-600`, not `red-600`: design.md §2.6 standardises on rose
+ * because red-500/600 on white falls short of 4.5:1 for small text.
  */
 const FieldError = ({ id, message }) => {
   if (!message) {
@@ -32,7 +35,7 @@ const FieldError = ({ id, message }) => {
         gap-1.5
         text-[13px]
         leading-snug
-        text-red-600
+        text-rose-600
       "
     >
       <AlertCircle

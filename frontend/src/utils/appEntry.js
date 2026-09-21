@@ -24,6 +24,19 @@ import { useEffect, useSyncExternalStore } from "react";
 // sees branded loader -> app. Outside entry events those loading states show
 // the quiet spinner.
 //
+// One exception: the public landing page. "/" for a visitor with no session
+// is the site's front door, not an app entry, so it renders straight away
+// with no branded loader in front of it:
+//   - no saved session at all: known before React renders (see
+//     hasCachedUser), so the presentation is never started;
+//   - saved session that turns out to be expired: the branded loader covers
+//     the session check as for any signed-in entry (the visitor may well be
+//     signed in), then ends the moment "/" resolves to the landing page,
+//     instead of being held for ENTRY_LOADER_MIN_MS;
+//   - return after inactivity while the landing page is on screen: no
+//     re-entry presentation -- it would only cover the same public page.
+// The landing page takes part by registering itself (registerPublicSurface).
+//
 // The record lives in sessionStorage under its own namespaced key: it is per
 // tab, survives a refresh, is gone when the tab is closed, and never touches
 // the auth/session data CampusCraves keeps elsewhere. JavaScript cannot see
@@ -109,10 +122,49 @@ const startPresenting = () => {
   if (!state.presenting) setState({ presenting: true });
 };
 
+/**
+ * Whether this tab holds a saved session for AuthContext to restore. Mirrors
+ * the exact condition AuthContext's restoreSession() uses to conclude, with
+ * no network request, that there is nothing to restore -- so "false" here
+ * means the visitor IS signed out, not merely that we have not checked yet.
+ * Read-only: nothing here writes or clears auth data.
+ */
+export function hasCachedUser() {
+  try {
+    const stored = localStorage.getItem("user");
+    return Boolean(stored) && stored !== "undefined";
+  } catch {
+    // Storage unavailable: assume a session may exist, i.e. keep the
+    // ordinary entry behaviour rather than guess the visitor is signed out.
+    return true;
+  }
+}
+
+// "/" with no saved session renders the public landing page (HomeRoute).
+const isPublicLandingEntry = () =>
+  isBrowser && window.location.pathname === "/" && !hasCachedUser();
+
 if (isBrowser) {
-  if (loadKind !== "refresh") startPresenting();
+  if (loadKind !== "refresh" && !isPublicLandingEntry()) startPresenting();
   // The page is active now.
   writeLastActive();
+}
+
+// ---------------- public surfaces ----------------
+// The public landing page registers while it is mounted (including while its
+// chunk is still downloading). While any is registered, no entry
+// presentation runs: one already running (a saved session that turned out
+// to be expired) ends immediately, without waiting out ENTRY_LOADER_MIN_MS,
+// and a return after inactivity does not start a new one.
+let publicSurfaces = 0;
+
+export function registerPublicSurface() {
+  publicSurfaces += 1;
+  clearTimeout(minTimer);
+  if (state.presenting) setState({ presenting: false });
+  return () => {
+    publicSurfaces -= 1;
+  };
 }
 
 // ---------------- full-screen loading states ----------------
@@ -149,7 +201,11 @@ export function useAppEntryLifecycle() {
     const markActive = () => {
       const now = Date.now();
 
-      if (hiddenAt != null && now - hiddenAt >= APP_REENTRY_THRESHOLD_MS) {
+      if (
+        hiddenAt != null &&
+        now - hiddenAt >= APP_REENTRY_THRESHOLD_MS &&
+        publicSurfaces === 0
+      ) {
         startPresenting();
       }
 

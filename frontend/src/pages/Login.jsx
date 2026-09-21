@@ -1,23 +1,20 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
 import { useGoogleLogin } from "@react-oauth/google";
 import { useAuth } from "../context/AuthContext";
 import toast from "react-hot-toast";
 
-import {
-  Mail,
-  Lock,
-  ArrowRight,
-  Zap,
-  MapPin,
-  CreditCard,
-  Eye,
-  EyeOff,
-} from "lucide-react";
+import { Mail, Lock } from "lucide-react";
 
 import logo from "../assets/CampusCraves-Logo.png";
-import FieldError from "../components/auth/FieldError";
+import AuthShell from "../components/auth/AuthShell";
+import AuthField from "../components/auth/AuthField";
+import FormError from "../components/auth/FormError";
+import {
+  SubmitButton,
+  GoogleButton,
+  AuthDivider,
+} from "../components/auth/AuthButtons";
 
 
 const Login = () => {
@@ -26,7 +23,6 @@ const Login = () => {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
@@ -161,442 +157,127 @@ const Login = () => {
   // ================= UI =================
 
   return (
-    <div
-      className="
-        min-h-[100dvh]
-        bg-gradient-to-br
-        from-blue-50
-        via-white
-        to-slate-100
-        flex
-        items-center
-        justify-center
-        p-3 sm:p-4 md:p-6
-      "
-    >
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="
-          w-full
-          max-w-[420px]
-          sm:max-w-[480px]
-          lg:max-w-6xl
-          bg-white
-          rounded-[24px]
-          sm:rounded-[28px]
-          lg:rounded-[35px]
-          shadow-[0_20px_60px_rgba(0,0,0,0.08)]
-          overflow-hidden
-          grid
-          lg:grid-cols-2
-        "
-      >
+    <AuthShell>
+      <img
+        src={logo}
+        alt=""
+        width={64}
+        height={64}
+        className="mx-auto mb-4 w-14 sm:w-16"
+      />
 
-        {/* ================= LEFT SIDE (desktop only) ================= */}
+      {/* The page's single <h1>. It lives here rather than in the marketing
+          panel so that it survives below `lg`, where that panel is removed. */}
+      <h1 className="text-center text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+        Ready to Crave?
+      </h1>
 
-        <div
-          className="
-            hidden
-            lg:flex
-            relative
-            flex-col
-            justify-between
-            bg-gradient-to-br
-            from-[#001f9e]
-            via-[#0044ff]
-            to-[#0095ff]
-            p-8
-            xl:p-10
-            text-white
-            overflow-hidden
-          "
-        >
-          {/* BACKGROUND CIRCLES */}
-          <div className="absolute -top-24 -right-24 w-[280px] h-[280px] rounded-full bg-white/10" />
-          <div className="absolute -bottom-20 -left-20 w-[220px] h-[220px] rounded-full bg-cyan-300/15" />
+      <p className="mt-2 text-center text-sm text-slate-500 sm:text-base">
+        Sign in and discover your favorite campus meals.
+      </p>
 
-          {/* BRAND NAME */}
-          <div className="relative z-10 text-center">
-            <h2 className="text-2xl xl:text-3xl font-black">
-              <span className="text-white">Campus</span>
-              <span className="text-cyan-300"> Craves</span>
-            </h2>
-          </div>
+      {/* noValidate hands validation to the checks above. The inputs keep
+          their `required` attribute for assistive tech, but the browser's
+          own bubble would otherwise pre-empt the inline messages. */}
+      <form noValidate onSubmit={handleSubmit} className="mt-7 space-y-4">
 
-          {/* HERO TEXT */}
-          <div className="relative z-10 space-y-5 xl:space-y-6">
-            <h1
+        <AuthField
+          label="Email address"
+          type="email"
+          icon={Mail}
+          value={email}
+          onChange={(e) => {
+            setEmail(e.target.value);
+            clearError("email");
+          }}
+          placeholder="you@campus.edu"
+          autoComplete="email"
+          error={errors.email}
+        />
+
+        <AuthField
+          label="Password"
+          type="password"
+          icon={Lock}
+          value={password}
+          onChange={(e) => {
+            setPassword(e.target.value);
+            clearError("password");
+          }}
+          placeholder="Enter your password"
+          autoComplete="current-password"
+          error={errors.password}
+        />
+
+        {/* REMEMBER + FORGOT */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <input
+              id="login-remember"
+              type="checkbox"
+              checked={remember}
+              onChange={() => setRemember(!remember)}
               className="
-                text-[40px]
-                xl:text-[52px]
-                2xl:text-[60px]
-                font-black
-                leading-[0.95]
-                tracking-tight
+                size-5 rounded border-slate-300 text-blue-600
+                focus-visible:outline-none focus-visible:ring-2
+                focus-visible:ring-primary focus-visible:ring-offset-2
               "
-            >
-              Your Campus.
-              <br />
-              Your Cravings.
-              <br />
-              <span className="text-cyan-300">Delivered.</span>
-            </h1>
-
-            <p className="text-base xl:text-lg text-blue-100 max-w-[420px] leading-relaxed">
-              Skip the lines. Order your favorite campus meals,
-              track your orders in real-time and enjoy seamless
-              cashless payments.
-            </p>
+            />
+            <label htmlFor="login-remember" className="text-sm text-slate-700">
+              Remember me
+            </label>
           </div>
 
-          {/* FEATURES */}
-          <div className="relative z-10 space-y-4 xl:space-y-5">
-
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 xl:w-14 xl:h-14 rounded-2xl bg-white/15 backdrop-blur-md flex items-center justify-center shrink-0">
-                <Zap size={24} className="xl:hidden" />
-                <Zap size={28} className="hidden xl:block" />
-              </div>
-              <div>
-                <h3 className="text-base xl:text-lg font-bold">Quick Order</h3>
-                <p className="text-sm text-blue-100">Place your meals in seconds</p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 xl:w-14 xl:h-14 rounded-2xl bg-white/15 backdrop-blur-md flex items-center justify-center shrink-0">
-                <MapPin size={24} className="xl:hidden" />
-                <MapPin size={28} className="hidden xl:block" />
-              </div>
-              <div>
-                <h3 className="text-base xl:text-lg font-bold">Live Tracking</h3>
-                <p className="text-sm text-blue-100">Follow your order in real time</p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 xl:w-14 xl:h-14 rounded-2xl bg-white/15 backdrop-blur-md flex items-center justify-center shrink-0">
-                <CreditCard size={24} className="xl:hidden" />
-                <CreditCard size={28} className="hidden xl:block" />
-              </div>
-              <div>
-                <h3 className="text-base xl:text-lg font-bold">Cashless Payment</h3>
-                <p className="text-sm text-blue-100">Secure, fast & hassle-free</p>
-              </div>
-            </div>
-
-          </div>
+          {/* -mr-2 px-2 py-2 keeps the 44px touch target §17.2 asks for while
+              leaving the label optically aligned with the field edge. */}
+          <button
+            type="button"
+            onClick={handleForgotPassword}
+            disabled={isResetting}
+            className="
+              -mr-2 rounded-lg px-2 py-2 text-sm font-semibold text-blue-600
+              transition-colors hover:text-blue-700 hover:underline
+              focus-visible:outline-none focus-visible:ring-2
+              focus-visible:ring-primary focus-visible:ring-offset-2
+              disabled:opacity-50
+            "
+          >
+            {isResetting ? "Sending OTP…" : "Forgot password?"}
+          </button>
         </div>
 
-        {/* ================= RIGHT SIDE ================= */}
+        {/* Credentials failure. §8.3 places a form-level error above the
+            submit button: it describes the pair, and which of the two was
+            wrong is deliberately not revealed. */}
+        <FormError id="login-form-error" message={errors.form} />
 
-        <div
+        <SubmitButton loading={isLoading} loadingLabel="Signing in">
+          Sign in
+        </SubmitButton>
+
+        <AuthDivider />
+
+        <GoogleButton
+          onClick={() => googleAuth()}
+          loading={googleLoading}
+          label="Continue with Google"
+        />
+      </form>
+
+      <p className="mt-6 text-center text-sm text-slate-500">
+        Don&apos;t have an account?{" "}
+        <Link
+          to="/signup"
           className="
-            flex
-            items-center
-            justify-center
-            px-5
-            sm:px-8
-            lg:px-10
-            py-6
-            sm:py-8
+            rounded font-semibold text-blue-600 hover:underline
+            focus-visible:outline-none focus-visible:ring-2
+            focus-visible:ring-primary focus-visible:ring-offset-2
           "
         >
-          <div className="w-full max-w-[400px] mx-auto">
-
-            {/* MOBILE LOGO */}
-            <div className="lg:hidden flex justify-center mb-4">
-              <img src={logo} alt="CampusCraves" className="w-14 sm:w-16" />
-            </div>
-
-            {/* DESKTOP LOGO */}
-            <div className="hidden lg:flex justify-center mb-4">
-              <img src={logo} alt="CampusCraves" className="w-16 xl:w-20 drop-shadow-lg" />
-            </div>
-
-            <h2
-              className="
-                text-center
-                text-2xl
-                sm:text-3xl
-                lg:text-4xl
-                font-black
-                text-slate-900
-              "
-            >
-              Ready to Crave? 😋
-            </h2>
-
-            <p className="text-center text-slate-500 mt-2 text-sm sm:text-base lg:text-lg">
-              Sign in and discover your favorite campus meals.
-            </p>
-
-            {/* ================= FORM ================= */}
-
-            {/* noValidate hands validation to the checks above. The inputs keep
-                their `required` attribute for assistive tech, but the browser's
-                own bubble would otherwise pre-empt the inline messages. */}
-            <form noValidate onSubmit={handleSubmit} className="mt-6 sm:mt-8 space-y-4 sm:space-y-5">
-
-              {/* EMAIL */}
-              <div>
-                <label className="block text-sm font-semibold text-slate-800 mb-1">
-                  Email Address
-                </label>
-
-                <div className="relative">
-                  <Mail
-                    size={18}
-                    className="absolute left-3.5 sm:left-4 top-1/2 -translate-y-1/2 text-slate-400"
-                  />
-
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => {
-                      setEmail(e.target.value);
-                      clearError("email");
-                    }}
-                    placeholder="Enter your email address"
-                    required
-                    aria-invalid={errors.email ? "true" : undefined}
-                    aria-describedby={errors.email ? "login-email-error" : undefined}
-                    className={`
-                      w-full
-                      h-11
-                      sm:h-12
-                      rounded-xl
-                      sm:rounded-2xl
-                      border
-                      pl-11
-                      sm:pl-12
-                      pr-4
-                      text-sm
-                      sm:text-base
-                      text-slate-600
-                      outline-none
-                      focus:ring-4
-                      transition
-                      ${errors.email
-                        ? "border-red-300 focus:border-red-500 focus:ring-red-100"
-                        : "border-slate-200 focus:border-blue-500 focus:ring-blue-100"}
-                    `}
-                  />
-                </div>
-
-                <FieldError id="login-email-error" message={errors.email} />
-              </div>
-
-              {/* PASSWORD */}
-              <div>
-                <label className="block text-sm font-semibold text-slate-800 mb-1">
-                  Password
-                </label>
-
-                <div className="relative">
-                  <Lock
-                    size={18}
-                    className="absolute left-3.5 sm:left-4 top-1/2 -translate-y-1/2 text-slate-400"
-                  />
-
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    value={password}
-                    onChange={(e) => {
-                      setPassword(e.target.value);
-                      clearError("password");
-                    }}
-                    placeholder="Enter your password"
-                    required
-                    aria-invalid={errors.password || errors.form ? "true" : undefined}
-                    aria-describedby={
-                      errors.password
-                        ? "login-password-error"
-                        : errors.form
-                          ? "login-form-error"
-                          : undefined
-                    }
-                    className={`
-                      w-full
-                      h-11
-                      sm:h-12
-                      rounded-xl
-                      sm:rounded-2xl
-                      border
-                      pl-11
-                      sm:pl-12
-                      pr-11
-                      sm:pr-12
-                      text-sm
-                      sm:text-base
-                      text-slate-600
-                      outline-none
-                      focus:ring-4
-                      transition
-                      ${errors.password || errors.form
-                        ? "border-red-300 focus:border-red-500 focus:ring-red-100"
-                        : "border-slate-200 focus:border-blue-500 focus:ring-blue-100"}
-                    `}
-                  />
-
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="
-                      absolute
-                      right-3.5
-                      sm:right-4
-                      top-1/2
-                      -translate-y-1/2
-                      text-slate-400
-                      hover:text-blue-600
-                    "
-                  >
-                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
-                </div>
-
-                <FieldError id="login-password-error" message={errors.password} />
-
-                {/* Credentials failure. Sits under the password field because
-                    that is where the spec places it, but it describes the pair
-                    -- which of the two was wrong is deliberately not revealed. */}
-                <FieldError id="login-form-error" message={errors.form} />
-              </div>
-
-              {/* REMEMBER + FORGOT */}
-              <div className="flex items-center justify-between text-xs sm:text-sm flex-wrap gap-2">
-                <label className="flex items-center gap-2 text-slate-600">
-                  <input
-                    type="checkbox"
-                    checked={remember}
-                    onChange={() => setRemember(!remember)}
-                    className="w-4 h-4"
-                  />
-                  Remember me
-                </label>
-
-                <button
-                  type="button"
-                  onClick={handleForgotPassword}
-                  disabled={isResetting}
-                  className="text-blue-600 font-semibold hover:underline"
-                >
-                  {isResetting ? "Sending OTP..." : "Forgot Password?"}
-                </button>
-              </div>
-
-              {/* LOGIN BUTTON */}
-              <motion.button
-                whileTap={{ scale: 0.97 }}
-                type="submit"
-                disabled={isLoading}
-                className="
-                  w-full
-                  h-11
-                  sm:h-12
-                  rounded-xl
-                  sm:rounded-2xl
-                  bg-gradient-to-r
-                  from-blue-600
-                  to-cyan-500
-                  text-white
-                  font-bold
-                  text-sm
-                  sm:text-base
-                  lg:text-lg
-                  shadow-lg
-                  shadow-blue-200
-                  flex
-                  items-center
-                  justify-center
-                  gap-2
-                  sm:gap-3
-                  hover:scale-[1.02]
-                  transition
-                  disabled:opacity-60
-                "
-              >
-                {isLoading ? (
-                  "Signing In..."
-                ) : (
-                  <>
-                    Sign In
-                    <ArrowRight size={18} />
-                  </>
-                )}
-              </motion.button>
-
-              {/* GOOGLE LOGIN */}
-              <div className="flex items-center gap-3 sm:gap-4">
-                <div className="h-[1px] bg-slate-200 flex-1" />
-                <span className="text-slate-500 text-xs sm:text-sm">OR</span>
-                <div className="h-[1px] bg-slate-200 flex-1" />
-              </div>
-
-              {/* GOOGLE LOGIN — custom button, matches Sign In button on every screen size */}
-              <button
-                type="button"
-                onClick={() => googleAuth()}
-                disabled={googleLoading}
-                className="
-                  w-full
-                  h-11
-                  sm:h-12
-                  rounded-xl
-                  sm:rounded-2xl
-                  border
-                  border-slate-200
-                  bg-white
-                  text-slate-700
-                  font-semibold
-                  text-sm
-                  sm:text-base
-                  flex
-                  items-center
-                  justify-center
-                  gap-2.5
-                  sm:gap-3
-                  hover:bg-slate-50
-                  hover:border-slate-300
-                  active:scale-[0.98]
-                  transition
-                  disabled:opacity-60
-                  disabled:cursor-not-allowed
-                "
-              >
-                {googleLoading ? (
-                  "Signing with Google..."
-                ) : (
-                  <>
-                    <svg width="18" height="18" viewBox="0 0 48 48">
-                      <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4C12.955 4 4 12.955 4 24s8.955 20 20 20s20-8.955 20-20c0-1.341-.138-2.65-.389-3.917" />
-                      <path fill="#FF3D00" d="m6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4C16.318 4 9.656 8.337 6.306 14.691" />
-                      <path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.9 11.9 0 0 1 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44" />
-                      <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 0 1-4.087 5.571l.003-.002l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917" />
-                    </svg>
-                    Continue with Google
-                  </>
-                )}
-              </button>
-
-              {/* SIGNUP LINK */}
-              <p className="text-center text-slate-500 text-sm sm:text-base">
-                Don't have an account?
-                <Link to="/signup" className="ml-2 font-bold text-blue-600 hover:underline">
-                  Create Account
-                </Link>
-              </p>
-
-            </form>
-
-          </div>
-        </div>
-
-      </motion.div>
-    </div>
+          Create account
+        </Link>
+      </p>
+    </AuthShell>
   );
 };
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import logo from "../assets/CampusCraves-Logo.png";
+import { hasCachedUser } from "../utils/appEntry";
 import "./BrandLoader.css";
 
 // Full-screen CampusCraves loader (approved design "v4").
@@ -26,6 +27,23 @@ const MOTES = [
 const CONTINUE_WINDOW_MS = 1500;
 let lastLoaderVisibleAt = 0;
 
+// Reassurance for the one case where this loader stays up long enough to look
+// stuck: a saved session being restored while the backend is slow to answer
+// (AuthContext retries the silent refresh rather than deciding the visitor is
+// signed out). The loader is otherwise unchanged.
+//
+// The first step is deliberately later than ENTRY_LOADER_MIN_MS (1600ms), so a
+// normal entry -- which ends at that minimum -- never shows any text at all.
+// The second lands around the point where the first refresh attempt gives way
+// to a retry, so the wording changes just as the wait stops looking ordinary.
+//
+// Wording stays in the product's own terms: what the app is doing, never what
+// the backend returned.
+const STATUS_STEPS = [
+  { afterMs: 2500, text: "Connecting to CampusCraves…" },
+  { afterMs: 12000, text: "Waking up the server…" },
+];
+
 const markVisible = () => {
   lastLoaderVisibleAt = Date.now();
 };
@@ -47,6 +65,8 @@ export default function BrandLoader() {
     () => Date.now() - lastLoaderVisibleAt < CONTINUE_WINDOW_MS
   );
 
+  const [status, setStatus] = useState(null);
+
   useEffect(() => {
     markVisible();
     const timer = setInterval(markVisible, 500);
@@ -55,6 +75,25 @@ export default function BrandLoader() {
       clearInterval(timer);
       markVisible();
     };
+  }, []);
+
+  useEffect(() => {
+    // Only while this tab is restoring a saved session. hasCachedUser() is
+    // appEntry's existing read-only check -- the same one HomeRoute and the
+    // entry presentation already consult -- so no auth logic is repeated
+    // here and nothing about the session is decided here.
+    //
+    // A signed-out visitor, and any other full-screen wait (a lazy route
+    // chunk), therefore sees exactly the loader that shipped before.
+    if (!hasCachedUser()) {
+      return undefined;
+    }
+
+    const timers = STATUS_STEPS.map(({ afterMs, text }) =>
+      setTimeout(() => setStatus(text), afterMs)
+    );
+
+    return () => timers.forEach(clearTimeout);
   }, []);
 
   return (
@@ -107,6 +146,11 @@ export default function BrandLoader() {
           <div className="cc-line__light" />
         </div>
       </div>
+
+      {/* Absolutely positioned, so the scene above stays exactly where it is
+          whether or not this is present -- a fast entry is pixel-identical to
+          before. */}
+      {status && <p className="cc-status">{status}</p>}
 
       <span className="cc-sr">Loading CampusCraves</span>
     </div>

@@ -10,6 +10,20 @@ import {
 const AuthContext = createContext();
 export const useAuth = () => useContext(AuthContext);
 
+// Backoff between silent-refresh attempts when restoring a saved session and
+// the backend answers with something that is not a verdict on that session
+// (offline, timeout, 429, 5xx). One entry per retry, so this is two retries
+// after the first attempt.
+//
+// Sized for the case that produced the bug: a backend that has spun down and
+// answers 502/503 for a few seconds while it wakes. Those replies come back
+// immediately, so both retries cost about 5.5s in total. A backend that has
+// stopped answering altogether is bounded instead by the refresh timeout in
+// services/api.js, once per attempt.
+const TRANSIENT_RETRY_DELAYS_MS = [1500, 4000];
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -27,6 +41,8 @@ export const AuthProvider = ({ children }) => {
   // just display data -- so keeping it in localStorage for instant UI
   // paint is fine; it gets thrown away below if the refresh fails.
   useEffect(() => {
+    let cancelled = false;
+
     const restoreSession = async () => {
       const storedUser = localStorage.getItem('user');
 
@@ -35,31 +51,76 @@ export const AuthProvider = ({ children }) => {
         return;
       }
 
+      let parsedUser;
+
       try {
-        const parsedUser = JSON.parse(storedUser);
-        const freshToken = await bootstrapSession();
+        parsedUser = JSON.parse(storedUser);
+      } catch {
+        // The cached profile itself is unreadable. That is not a session
+        // failure, so there is nothing here worth retrying.
+        localStorage.removeItem('user');
+        setLoading(false);
+        return;
+      }
 
-        setToken(freshToken);
-        setUser(parsedUser);
-      } catch (error) {
-        // This tab has no working session, so it starts signed out either way.
-        setAccessToken(null);
-        setUser(null);
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          const freshToken = await bootstrapSession();
 
-        // The cached user is shared by every open tab. Clear it only when the
-        // backend actually rejected the session (refresh cookie missing,
-        // expired or revoked). A transient failure -- offline, timeout, 429,
-        // 5xx -- proves nothing about the session, and must not sign out the
-        // other tabs or the next page load.
-        if (isSessionRejected(error)) {
-          localStorage.removeItem('user');
+          if (cancelled) return;
+
+          setToken(freshToken);
+          setUser(parsedUser);
+          break;
+        } catch (error) {
+          if (cancelled) return;
+
+          // The backend actually rejected the session (refresh cookie
+          // missing, expired or revoked). It is genuinely gone: clear the
+          // cached user, which every tab shares, and start signed out.
+          if (isSessionRejected(error)) {
+            setAccessToken(null);
+            setUser(null);
+            localStorage.removeItem('user');
+            break;
+          }
+
+          // Anything else -- offline, timeout, 429, 5xx -- proves nothing
+          // about the session, which is why the cached user is deliberately
+          // kept below. Settling as signed out on this branch was the bug:
+          // "/" would resolve to the public landing page for a visitor whose
+          // session was fine, and the next reload (by then against a warm
+          // backend) would restore it and land on the dashboard.
+          //
+          // So retry instead of guessing. `loading` stays true throughout, so
+          // the branded entry loader already on screen simply covers the
+          // retry rather than handing over to the wrong page.
+          if (attempt < TRANSIENT_RETRY_DELAYS_MS.length) {
+            await delay(TRANSIENT_RETRY_DELAYS_MS[attempt]);
+            if (cancelled) return;
+            continue;
+          }
+
+          // Out of attempts. The backend is unreachable rather than slow, so
+          // fall back to the signed-out shell -- a usable public page beats an
+          // endless loader. The cached user stays put, so the next load (or
+          // the next tab) restores the session as soon as the backend answers.
+          setAccessToken(null);
+          setUser(null);
+          break;
         }
-      } finally {
+      }
+
+      if (!cancelled) {
         setLoading(false);
       }
     };
 
     restoreSession();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // 🔄 SYNC TOKEN AFTER SILENT REFRESH

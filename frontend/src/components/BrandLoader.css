@@ -257,6 +257,32 @@
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
 }
 
+/* ---------------- slow-entry status ---------------- */
+/* Only rendered when a saved session is taking an unusual time to restore
+   (BrandLoader.jsx). Positioned out of flow so the centred scene never
+   moves: with no status, the loader is exactly as it was. */
+.cc-status {
+  position: absolute;
+  left: 50%;
+  translate: -50% 0;
+  bottom: clamp(32px, 9vh, 72px);
+  margin: 0;
+  max-width: min(78vw, 34ch);
+  text-align: center;
+  font-size: clamp(13px, 3.2vw, 14px);
+  line-height: 1.5;
+  font-weight: 500;
+  /* slate-500: 4.8:1 on white, quiet but legible. */
+  color: #64748b;
+  opacity: 0;
+  animation: cc-status-in 420ms var(--cc-ease-cine) forwards;
+}
+
+@keyframes cc-status-in {
+  from { opacity: 0; translate: -50% 5px; }
+  to   { opacity: 1; translate: -50% 0; }
+}
+
 /* ---------------- continuing loader ---------------- */
 /* When one full-screen loader hands over to another almost immediately
    (session restore -> lazy page chunk), the second one continues in the
@@ -362,5 +388,8 @@
   .cc-rig { transform: none; }
   .cc-glow { opacity: 0.42; }
   .cc-shadow, .cc-line { opacity: 1; }
+  /* The blanket `animation: none` above would otherwise leave this at its
+     starting opacity of 0, i.e. invisible. */
+  .cc-status { opacity: 1; translate: -50% 0; }
   .cc-dust, .cc-sweep, .cc-line__light { display: none; }
 }

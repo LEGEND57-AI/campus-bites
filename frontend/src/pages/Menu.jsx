@@ -8,7 +8,6 @@ import React, {
 import { useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Search } from "lucide-react";
-import toast from "react-hot-toast";
 
 import { useCart } from "../context/CartContext";
 import { foodAPI, categoryAPI } from "../services/api";
@@ -150,10 +149,6 @@ const Menu = () => {
           "Failed to load food items:",
           error
         );
-
-        if (!append) {
-          toast.error("Failed to load menu");
-        }
       } finally {
         if (append) {
           loadingMoreRef.current = false;

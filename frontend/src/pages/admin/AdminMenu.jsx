@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { adminAPI, categoryAPI, uploadAPI } from '../../services/api';
 import { motion, AnimatePresence } from 'framer-motion';
 import Swal from 'sweetalert2';
-import toast from 'react-hot-toast';
 import {
   Plus,
   Edit,
@@ -52,8 +51,8 @@ const AdminMenu = () => {
     try {
       const { data } = await adminAPI.getMenu();
       setItems(data || []);
-    } catch {
-      toast.error('Failed to load menu');
+    } catch (error) {
+      console.error("Failed to load menu:", error);
     } finally {
       setLoading(false);
     }
@@ -63,8 +62,8 @@ const AdminMenu = () => {
     try {
       const { data } = await categoryAPI.getAll();
       setCategories(data || []);
-    } catch {
-      toast.error('Failed to load categories');
+    } catch (error) {
+      console.error("Failed to load categories:", error);
     }
   };
 
@@ -127,10 +126,8 @@ const AdminMenu = () => {
         image_url: data.url,
       }));
 
-      toast.success('Image uploaded successfully');
     } catch (err) {
       console.error(err);
-      toast.error('Upload failed');
     } finally {
       setUploading(false);
     }
@@ -139,10 +136,10 @@ const AdminMenu = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!formData.name.trim()) return toast.error('Enter item name');
-    if (!formData.price) return toast.error('Enter price');
-    if (!formData.category_id) return toast.error('Select category');
-    if (!formData.image_url) return toast.error('Upload image first');
+    if (!formData.name.trim()) return;
+    if (!formData.price) return;
+    if (!formData.category_id) return;
+    if (!formData.image_url) return;
 
     try {
       const payload = {
@@ -152,17 +149,14 @@ const AdminMenu = () => {
 
       if (editingItem) {
         await adminAPI.updateMenu(editingItem.id, payload);
-        toast.success('Item updated successfully');
       } else {
         await adminAPI.createMenu(payload);
-        toast.success('Item added successfully');
       }
 
       fetchMenu();
       closeModal();
     } catch (err) {
       console.error(err);
-      toast.error('Operation failed');
     }
   };
 
@@ -207,17 +201,11 @@ const AdminMenu = () => {
         !item.available
       );
 
-      toast.success(
-        item.available
-          ? 'Marked as Out of Stock'
-          : 'Marked as In Stock'
-      );
 
       fetchMenu();
 
     } catch (err) {
       console.error(err);
-      toast.error('Failed to update stock');
     }
   };
 

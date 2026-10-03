@@ -6,7 +6,6 @@ import React, {
   useCallback,
   useMemo,
 } from "react";
-import toast from "react-hot-toast";
 import { foodAPI } from "../services/api";
 
 const CartContext = createContext();
@@ -48,8 +47,9 @@ export const CartProvider = ({ children }) => {
   // ADD TO CART
   // ==========================
 
-  // Reads `items` to decide which toast to show, so it must be rebuilt when
-  // items change -- capturing a stale list here would show the wrong message.
+  // Reads `items` to resolve whether the item is already in the cart, so it
+  // must be rebuilt when items change -- capturing a stale list here would
+  // append a duplicate row instead of incrementing the existing one.
   const addToCart = useCallback((foodItem) => {
 
     const existingItem = items.find(
@@ -81,14 +81,6 @@ export const CartProvider = ({ children }) => {
 
     });
 
-    toast.success(
-      existingItem
-        ? `Added another ${foodItem.name}`
-        : `${foodItem.name} added to cart`,
-      {
-        id: `cart-${foodItem.id}`,
-      }
-    );
 
   }, [items]);
 
@@ -122,12 +114,6 @@ export const CartProvider = ({ children }) => {
 
     });
 
-    if (newQuantity <= 0) {
-      toast.success("Item removed from cart", {
-        id: `remove-${id}`,
-      });
-    }
-
   }, [items]);
 
   // ==========================
@@ -135,17 +121,14 @@ export const CartProvider = ({ children }) => {
   // ==========================
 
   // Empty deps are genuine here, not a shortcut: this reads no state from the
-  // closure. setItems is a functional update and both setItems and toast are
-  // stable, so the identity can safely live for the provider's whole lifetime.
+  // closure. setItems is a functional update and is stable, so the identity
+  // can safely live for the provider's whole lifetime.
   const removeItem = useCallback((id) => {
 
     setItems((prevItems) =>
       prevItems.filter((i) => i.id !== id)
     );
 
-    toast.success("Item removed from cart", {
-      id: `remove-${id}`,
-    });
 
   }, []);
 
@@ -157,9 +140,6 @@ export const CartProvider = ({ children }) => {
 
     setItems([]);
 
-    toast.success("Cart cleared", {
-      id: "clear-cart",
-    });
 
   }, []);
 
@@ -185,10 +165,6 @@ export const CartProvider = ({ children }) => {
         page += 1;
       }
 
-      let addedCount = 0;
-      let unavailableCount = 0;
-      let priceChanged = false;
-
       setItems((prevItems) => {
 
         const updatedCart = [...prevItems];
@@ -200,16 +176,8 @@ export const CartProvider = ({ children }) => {
             (food) => food.id === item.food_items.id
           );
 
-          if (
-            latestItem &&
-            Number(latestItem.price) !== Number(item.price_at_time)
-          ) {
-            priceChanged = true;
-          }
-
-          // Item unavailable
+          // Item unavailable: skip it, keeping the rest of the reorder.
           if (!latestItem) {
-            unavailableCount++;
             return;
           }
 
@@ -234,53 +202,16 @@ export const CartProvider = ({ children }) => {
 
           }
 
-          addedCount += item.quantity;
-
         });
 
         return updatedCart;
 
       });
 
-      if (addedCount > 0) {
-
-        toast.success(
-          `${addedCount} item${addedCount > 1 ? "s" : ""} added to cart 🛒`
-        );
-
-      }
-
-      if (unavailableCount > 0 && addedCount > 0) {
-
-        toast(
-          `${unavailableCount} item${unavailableCount > 1 ? "s are" : " is"} currently unavailable`,
-          {
-            icon: "⚠️",
-          }
-        );
-
-      }
-
-      if (addedCount === 0) {
-
-        toast.error("All items in this order are currently unavailable.");
-
-      }
-
-      if (priceChanged) {
-        toast(
-          "Some item prices have been updated based on the latest menu.",
-          {
-            icon: "💰",
-          }
-        );
-      }
-
     } catch (err) {
 
       console.error(err);
 
-      toast.error("Failed to reorder items");
 
       return false;
 

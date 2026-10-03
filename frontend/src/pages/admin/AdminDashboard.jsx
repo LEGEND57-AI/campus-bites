@@ -10,7 +10,6 @@ import {
   ChefHat,
   CircleCheckBig,
 } from "lucide-react";
-import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { useSocket } from "../../socket/SocketProvider";
 import { SocketEvents } from "../../socket/constants";
@@ -74,7 +73,6 @@ const AdminDashboard = () => {
 
     } catch (err) {
       console.error(err);
-      toast.error('Failed to load stats');
     } finally {
       setLoading(false);
     }
@@ -99,7 +97,6 @@ const AdminDashboard = () => {
 
     } catch (err) {
       console.error(err);
-      toast.error('Failed to load recent orders');
     }
   };
 

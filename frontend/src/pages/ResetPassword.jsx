@@ -12,7 +12,6 @@ import {
 } from "lucide-react";
 
 import api from "../services/api";
-import toast from "react-hot-toast";
 
 
 const ResetPassword = () => {
@@ -46,7 +45,6 @@ const ResetPassword = () => {
 
     if (!email) {
 
-      toast.error("Invalid request");
 
       return;
 
@@ -55,9 +53,6 @@ const ResetPassword = () => {
 
     if (newPassword.length < 6) {
 
-      toast.error(
-        "Password must be at least 6 characters"
-      );
 
       return;
 
@@ -66,7 +61,6 @@ const ResetPassword = () => {
 
     if (newPassword !== confirmPassword) {
 
-      toast.error("Passwords do not match");
 
       return;
 
@@ -86,9 +80,6 @@ const ResetPassword = () => {
       });
 
 
-      toast.success(
-        "Password updated successfully 🎉"
-      );
 
 
       navigate("/login");
@@ -96,12 +87,7 @@ const ResetPassword = () => {
 
     } catch (error) {
 
-
-      toast.error(
-        error.response?.data?.error ||
-        "Reset failed"
-      );
-
+      console.error("Password reset failed:", error);
 
     } finally {
 

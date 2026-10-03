@@ -1,7 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import Swal from "sweetalert2";
-import toast from "react-hot-toast";
 import { Pencil, Trash2, Plus, X, UploadCloud, Tag } from "lucide-react";
 
 import { categoryAPI, uploadAPI } from "../../services/api";
@@ -38,7 +37,6 @@ const AdminCategories = () => {
             setCategories(data);
         } catch (error) {
             console.error(error);
-            toast.error("Failed to load categories");
         } finally {
             setLoading(false);
         }
@@ -82,17 +80,14 @@ const AdminCategories = () => {
 
         try {
             await categoryAPI.deleteCategory(category.id);
-            toast.success("Category deleted successfully");
             fetchCategories();
         } catch (error) {
             console.error(error);
-            toast.error(error.response?.data?.error || "Cannot delete category");
         }
     };
 
     const handleSaveCategory = async () => {
         if (!formData.name.trim()) {
-            toast.error("Category name is required");
             return;
         }
 
@@ -107,14 +102,12 @@ const AdminCategories = () => {
 
             if (!editingCategory) {
                 await categoryAPI.createCategory(formData.name, image_url);
-                toast.success("Category added successfully");
             } else {
                 await categoryAPI.updateCategory(
                     editingCategory.id,
                     formData.name,
                     image_url
                 );
-                toast.success("Category updated successfully");
             }
 
             resetForm();
@@ -123,7 +116,6 @@ const AdminCategories = () => {
             fetchCategories();
         } catch (error) {
             console.error(error);
-            toast.error(error.response?.data?.error || "Failed to save category");
         } finally {
             setUploading(false);
         }

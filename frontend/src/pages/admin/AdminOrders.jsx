@@ -3,7 +3,6 @@ import { REFUND_STATE_STYLES } from "../../utils/refundInfo";
 import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
-import toast from "react-hot-toast";
 import Swal from "sweetalert2";
 import { adminAPI } from "../../services/api";
 import {
@@ -388,7 +387,6 @@ const AdminOrders = () => {
 
       if (!data || !Array.isArray(data.orders)) {
         setOrders([]);
-        toast.error(data?.error || "Invalid orders data");
         return;
       }
 
@@ -431,13 +429,7 @@ const AdminOrders = () => {
       if (err?.response?.status === 429) {
         rateLimitedRef.current = true;
         const retryAfter = err?.response?.data?.retryAfter;
-        toast.error(
-          retryAfter
-            ? `Too many requests. Retrying in ${retryAfter}s.`
-            : "Too many requests. Please wait a moment."
-        );
       } else {
-        toast.error("Failed to fetch orders");
         setOrders([]);
         setHasMore(false);
       }
@@ -636,7 +628,6 @@ const AdminOrders = () => {
 
         fetchOrders({ immediate: true });
 
-        toast.success("🌅 New day started. Orders refreshed.");
 
         // Schedule next midnight automatically
         scheduleMidnightReset();
@@ -687,11 +678,9 @@ const AdminOrders = () => {
 
     try {
       await adminAPI.updateOrderStatus(orderId, status);
-      toast.success(`Order marked as ${status}`);
       fetchOrders({ immediate: true });
     } catch (err) {
       console.error("Failed to update order status:", err);
-      toast.error("Failed to update order status");
     }
   };
 
@@ -711,11 +700,9 @@ const AdminOrders = () => {
 
     try {
       await adminAPI.markPaymentReceived(orderId);
-      toast.success("Cash payment received — order is now Preparing");
       fetchOrders({ immediate: true });
     } catch (err) {
       console.error("Failed to update payment:", err);
-      toast.error("Failed to update payment");
     }
   };
 
@@ -751,11 +738,9 @@ const AdminOrders = () => {
         cancel_reason: result.value,
       });
 
-      toast.success("Order cancelled successfully");
       fetchOrders({ immediate: true });
     } catch (err) {
       console.error(err);
-      toast.error("Failed to cancel order");
     }
   };
 

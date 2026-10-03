@@ -17,7 +17,6 @@ import {
 
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import toast from "react-hot-toast";
 
 import { useSocket } from "../socket/SocketProvider";
 import { SocketEvents } from "../socket/constants";
@@ -173,9 +172,6 @@ const Orders = () => {
 
             console.error(error);
 
-            toast.error(
-                "Failed to load orders"
-            );
 
         } finally {
 

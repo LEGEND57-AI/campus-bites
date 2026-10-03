@@ -19,7 +19,6 @@ import { ShoppingBag } from "lucide-react";
 
 import { motion } from "framer-motion";
 import { useNavigate, useParams } from "react-router-dom";
-import toast from "react-hot-toast";
 
 import { orderAPI } from "../services/api";
 import { useSocket } from "../socket/SocketProvider";
@@ -52,7 +51,6 @@ const TrackOrder = () => {
         } catch (err) {
 
             console.error(err);
-            toast.error("Failed to load order");
 
         } finally {
 

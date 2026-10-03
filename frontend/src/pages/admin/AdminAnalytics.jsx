@@ -1,7 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { analyticsAPI } from "../../services/api";
 import { Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   TrendingUp,
@@ -172,14 +171,6 @@ const AdminAnalytics = () => {
 
       if (err?.response?.status === 429) {
         rateLimitedRef.current = true;
-        const retryAfter = err?.response?.data?.retryAfter;
-        toast.error(
-          retryAfter
-            ? `Too many requests. Retrying in ${retryAfter}s.`
-            : 'Too many requests. Please wait a moment.'
-        );
-      } else {
-        toast.error('Failed to load analytics');
       }
 
     } finally {
@@ -272,7 +263,6 @@ const AdminAnalytics = () => {
 
   const handleApplyDate = () => {
     if (!pendingDate) {
-      toast.error('Please select a date');
       return;
     }
 

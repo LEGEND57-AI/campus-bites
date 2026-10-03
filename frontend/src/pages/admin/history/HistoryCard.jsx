@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import toast from "react-hot-toast";
 import { getRefundInfo } from "../../../utils/refundInfo";
 import {
     CheckCircle2,
@@ -104,8 +103,6 @@ const HistoryCard = ({ order, onViewDetails }) => {
     const handleMenuAction = (action) => {
         setMenuOpen(false);
         if (action === "view") onViewDetails(order);
-        if (action === "print") toast("Print Receipt coming soon", { icon: "🖨️" });
-        if (action === "download") toast("Download Invoice coming soon", { icon: "📄" });
     };
 
     return (

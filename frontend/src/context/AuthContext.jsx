@@ -1,7 +1,6 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { authAPI, setAccessToken, bootstrapSession, isSessionRejected } from '../services/api';
 import api from '../services/api';
-import toast from 'react-hot-toast';
 import {
   requestNotificationPermission,
   registerPushSubscription,
@@ -199,7 +198,6 @@ export const AuthProvider = ({ children }) => {
         password
       });
 
-      toast.success("OTP sent! Check email 📩");
 
       return {
         success: true,
@@ -221,11 +219,9 @@ export const AuthProvider = ({ children }) => {
     try {
       await api.post('/auth/forgot-password', { email });
 
-      toast.success('OTP sent to your email 📩');
       return true;
 
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to send OTP');
       return false;
     }
   };
@@ -238,11 +234,9 @@ export const AuthProvider = ({ children }) => {
         newPassword
       });
 
-      toast.success('Password updated! Please login.');
       return true;
 
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Reset failed');
       return false;
     }
   };
@@ -259,9 +253,6 @@ export const AuthProvider = ({ children }) => {
       );
 
       if (!data?.user) {
-        toast.error(
-          'Google authentication failed'
-        );
         return {
           success: false
         };
@@ -297,10 +288,6 @@ export const AuthProvider = ({ children }) => {
 
     } catch (error) {
 
-      toast.error(
-        error.response?.data?.error ||
-        'Google login failed'
-      );
 
       return {
         success: false
@@ -330,7 +317,6 @@ export const AuthProvider = ({ children }) => {
     setToken(null);
     setUser(null);
 
-    toast.success("Logged out successfully");
 
   };
 

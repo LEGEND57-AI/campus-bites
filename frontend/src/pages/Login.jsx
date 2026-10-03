@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useGoogleLogin } from "@react-oauth/google";
 import { useAuth } from "../context/AuthContext";
-import toast from "react-hot-toast";
 
 import { Mail, Lock } from "lucide-react";
 
@@ -96,7 +95,6 @@ const Login = () => {
       return;
     }
 
-    toast.success("Welcome back 🚀");
     navigate(result?.user?.role === "admin" ? "/admin" : "/");
   };
 
@@ -111,22 +109,18 @@ const Login = () => {
         const result = await googleLogin(tokenResponse.access_token);
 
         if (!result?.success) {
-          toast.error("Google login failed");
           return;
         }
 
-        toast.success("Welcome to CampusCraves 🚀");
         navigate(result?.user?.role === "admin" ? "/admin" : "/");
 
       } catch (error) {
         console.error(error);
-        toast.error("Something went wrong");
       } finally {
         setGoogleLoading(false);
       }
     },
     onError: () => {
-      toast.error("Google Sign In failed");
     },
   });
 
@@ -146,12 +140,10 @@ const Login = () => {
     setIsResetting(false);
 
     if (success) {
-      toast.success("OTP sent 📩");
       navigate(`/verify-otp?email=${encodeURIComponent(email)}&type=reset`);
       return;
     }
 
-    toast.error("Failed to send OTP");
   };
 
   // ================= UI =================

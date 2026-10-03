@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useGoogleLogin } from "@react-oauth/google";
-import toast from "react-hot-toast";
 
 import { User, Mail, Phone, Lock } from "lucide-react";
 
@@ -115,7 +114,6 @@ const Signup = () => {
       return;
     }
 
-    toast.success("OTP sent to your email 📩");
 
     navigate(`/verify-otp?email=${encodeURIComponent(result.email)}`);
   };
@@ -131,22 +129,18 @@ const Signup = () => {
         const result = await googleLogin(tokenResponse.access_token);
 
         if (!result?.success) {
-          toast.error("Google signup failed");
           return;
         }
 
-        toast.success("Welcome to CampusCraves 🚀");
         navigate(result?.user?.role === "admin" ? "/admin" : "/");
 
       } catch (error) {
         console.error(error);
-        toast.error("Something went wrong");
       } finally {
         setGoogleLoading(false);
       }
     },
     onError: () => {
-      toast.error("Google Sign Up failed");
     },
   });
 

@@ -11,7 +11,6 @@ import {
 } from "lucide-react";
 
 import api from "../services/api";
-import toast from "react-hot-toast";
 
 const VerifyOTP = () => {
 
@@ -186,7 +185,6 @@ const VerifyOTP = () => {
 
     if (!email) {
 
-      toast.error("Invalid request");
 
       return;
 
@@ -195,7 +193,6 @@ const VerifyOTP = () => {
 
     if (finalOtp.length !== 6) {
 
-      toast.error("Enter complete OTP");
 
       return;
 
@@ -212,7 +209,6 @@ const VerifyOTP = () => {
         type,
       });
 
-      toast.success("OTP verified successfully!");
 
       if (type === "reset") {
         navigate(`/reset-password?email=${email}`);
@@ -222,9 +218,7 @@ const VerifyOTP = () => {
 
     } catch (error) {
 
-      toast.error(
-        error.response?.data?.error || "Invalid OTP"
-      );
+      console.error("OTP verification failed:", error);
 
     } finally {
 
@@ -252,7 +246,6 @@ const VerifyOTP = () => {
       });
 
 
-      toast.success("New OTP sent!");
 
       setOtp([
         "",
@@ -274,12 +267,7 @@ const VerifyOTP = () => {
 
     } catch (error) {
 
-
-      toast.error(
-        error.response?.data?.error ||
-        "Failed to resend OTP"
-      );
-
+      console.error("Failed to resend OTP:", error);
 
     } finally {
 

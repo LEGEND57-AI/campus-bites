@@ -4,7 +4,6 @@ import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import "../../../styles/datepicker.css";
 import { motion, AnimatePresence } from "framer-motion";
-import toast from "react-hot-toast";
 import { adminAPI } from "../../../services/api";
 import SummaryCard from "./SummaryCard";
 import HistoryCard from "./HistoryCard";
@@ -398,7 +397,6 @@ const AdminOrderHistory = () => {
                 loadedSummaryKeyRef.current = null;
                 setHasMore(false);
                 setInitialLoadFailed(true);
-                toast.error("Failed to fetch order history");
             }
 
         } finally {

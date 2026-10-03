@@ -6,7 +6,6 @@ import React, {
     useState,
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import toast from "react-hot-toast";
 import {
     Bell,
     Check,
@@ -157,9 +156,6 @@ const Notifications = () => {
 
                 console.error(err);
 
-                toast.error(
-                    "Failed to load notifications"
-                );
 
             } finally {
 
@@ -305,7 +301,6 @@ const Notifications = () => {
                 );
             }
 
-            toast.error("Failed to mark notification as read");
 
         }
 
@@ -330,13 +325,11 @@ const Notifications = () => {
 
             unreadCountStore.applyServerCount(data?.unreadCount);
 
-            toast.success("All notifications marked as read");
 
         } catch (err) {
 
             console.error(err);
 
-            toast.error("Failed to mark all notifications as read");
 
         } finally {
 
@@ -371,13 +364,11 @@ const Notifications = () => {
 
             setConfirmClearOpen(false);
 
-            toast.success("All notifications cleared");
 
         } catch (err) {
 
             console.error(err);
 
-            toast.error("Failed to clear notifications");
 
         } finally {
 
@@ -423,7 +414,6 @@ const Notifications = () => {
                 });
             }
 
-            toast.error("Failed to delete notification");
 
         }
 

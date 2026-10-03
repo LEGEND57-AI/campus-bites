@@ -2,7 +2,6 @@ import React, { useState, useRef } from "react";
 import { ArrowLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useCart } from "../context/CartContext";
-import toast from "react-hot-toast";
 import { orderAPI } from "../services/api";
 import ConfirmOrderModal from "../components/cart/ConfirmOrderModal";
 import { paymentAPI } from "../services/api";
@@ -150,7 +149,6 @@ const NewCart = () => {
     try {
 
       if (items.length === 0) {
-        toast.error("Your cart is empty");
         releaseOnlinePayment();
         return;
       }
@@ -206,7 +204,6 @@ const NewCart = () => {
               await paymentAPI.verifyPayment(verifyPayload);
 
 
-            toast.success("Payment Successful 🎉");
 
             clearCart();
 
@@ -234,10 +231,6 @@ const NewCart = () => {
 
             console.error(error);
 
-            toast.error(
-              error.response?.data?.error ||
-              "Payment verification failed"
-            );
 
           }
 
@@ -249,9 +242,6 @@ const NewCart = () => {
             // can start a genuinely new attempt.
             releaseOnlinePayment();
 
-            toast("Payment Cancelled", {
-              icon: "❌",
-            });
           },
         },
 
@@ -291,12 +281,6 @@ const NewCart = () => {
       // order" would be wrong, since the order was created and only the
       // checkout script was missing. Both branches are fixed text: nothing from
       // the underlying load event reaches the user.
-      toast.error(
-        error?.isRazorpayLoadError
-          ? "Could not load the payment gateway. Please check your connection and try again."
-          : error.response?.data?.error ||
-          "Failed to create payment order"
-      );
 
     }
 
@@ -340,7 +324,6 @@ const NewCart = () => {
       // fingerprint and a stale entry would only ever be a dead record.
       writeStoredIdempotency(null);
 
-      toast.success("Order placed successfully 🎉");
 
       clearCart();
 
@@ -380,10 +363,6 @@ const NewCart = () => {
         writeStoredIdempotency(null);
       }
 
-      toast.error(
-        error.response?.data?.error ||
-        "Failed to place order"
-      );
 
     }
 
@@ -601,7 +580,6 @@ const NewCart = () => {
                         onIncrease={() => {
 
                           if (item.quantity >= 10) {
-                            toast.error("Maximum 10 quantity allowed");
                             return;
                           }
 

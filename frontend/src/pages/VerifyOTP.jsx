@@ -11,6 +11,8 @@ import {
 } from "lucide-react";
 
 import api from "../services/api";
+import ErrorMessage from "../components/common/ErrorMessage";
+import { describeError } from "../utils/errorMessage";
 
 const VerifyOTP = () => {
 
@@ -36,6 +38,9 @@ const VerifyOTP = () => {
   const [loading, setLoading] = useState(false);
 
   const [resendLoading, setResendLoading] = useState(false);
+
+  // Failure of the last verify or resend attempt.
+  const [otpError, setOtpError] = useState(null);
 
 
   // RESEND TIMER
@@ -209,6 +214,7 @@ const VerifyOTP = () => {
         type,
       });
 
+      setOtpError(null);
 
       if (type === "reset") {
         navigate(`/reset-password?email=${email}`);
@@ -219,6 +225,12 @@ const VerifyOTP = () => {
     } catch (error) {
 
       console.error("OTP verification failed:", error);
+
+      // A wrong and an expired code both answer 400; the backend keeps them
+      // indistinguishable on purpose, so the message does too.
+      setOtpError(
+        describeError(error, "That code didn't work. Check it, or request a new one.")
+      );
 
     } finally {
 
@@ -261,6 +273,8 @@ const VerifyOTP = () => {
 
       setExpiryTimer(900);
 
+      setOtpError(null);
+
 
       inputsRef.current[0]?.focus();
 
@@ -268,6 +282,10 @@ const VerifyOTP = () => {
     } catch (error) {
 
       console.error("Failed to resend OTP:", error);
+
+      setOtpError(
+        describeError(error, "Couldn't send a new code. Please try again.")
+      );
 
     } finally {
 
@@ -552,6 +570,9 @@ const VerifyOTP = () => {
               OTP expires in {minutes}:{seconds}
 
             </div>
+
+
+            <ErrorMessage message={otpError} className="mb-5 text-left" />
 
 
             {/* BUTTON */}

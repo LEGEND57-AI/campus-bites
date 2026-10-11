@@ -13,6 +13,8 @@ import { orderAPI } from "../../services/api";
 import { useCart } from "../../context/CartContext";
 import { formatPrice } from "../../utils/formatPrice";
 import { getOrderStatusLabel } from "../../utils/orderStatusLabel";
+import ErrorMessage from "../common/ErrorMessage";
+import { describeError } from "../../utils/errorMessage";
 
 const OrderMobileCard = ({ order }) => {
 
@@ -20,6 +22,8 @@ const OrderMobileCard = ({ order }) => {
     const { reorderItems } = useCart();
     const [showMenu, setShowMenu] = useState(false);
     const [showCancelModal, setShowCancelModal] = useState(false);
+    const [cancelError, setCancelError] = useState(null);
+    const [cancelling, setCancelling] = useState(false);
     const menuRef = useRef(null);
 
     useEffect(() => {
@@ -74,10 +78,13 @@ const OrderMobileCard = ({ order }) => {
     };
 
     const handleCancelOrder = async () => {
+        setCancelling(true);
+
         try {
 
             await orderAPI.cancelOrder(order.id);
 
+            setCancelError(null);
             setShowCancelModal(false);
             setShowMenu(false);
 
@@ -85,10 +92,17 @@ const OrderMobileCard = ({ order }) => {
 
         } catch (err) {
 
-            alert(
-                err.response?.data?.error ||
-                "Failed to cancel order."
+            console.error("Failed to cancel order:", err);
+
+            // Was a native alert() carrying the backend's own error string.
+            // The modal stays open with a safe message so the user can retry.
+            setCancelError(
+                describeError(err, "Couldn't cancel this order. Please try again.")
             );
+
+        } finally {
+
+            setCancelling(false);
 
         }
     };
@@ -541,9 +555,12 @@ overflow-hidden
 
                             </div>
 
+                            <ErrorMessage message={cancelError} className="mt-4 text-left" />
+
                             <div className="mt-6 space-y-3">
 
                                 <button
+                                    disabled={cancelling}
                                     onClick={() => setShowCancelModal(false)}
                                     className="
             w-full
@@ -558,6 +575,7 @@ overflow-hidden
                                 </button>
 
                                 <button
+                                    disabled={cancelling}
                                     onClick={handleCancelOrder}
                                     className="
             w-full

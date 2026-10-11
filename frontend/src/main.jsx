@@ -8,10 +8,16 @@ import './index.css';
 import { AuthProvider } from './context/AuthContext';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { SocketProvider } from "./socket/SocketProvider";
+import AppErrorBoundary from './components/AppErrorBoundary';
 
 
+// AppErrorBoundary sits above every provider, so a render exception anywhere --
+// including in AuthProvider or SocketProvider, which ChunkErrorBoundary inside
+// App cannot see -- lands on a recoverable screen rather than unmounting the
+// tree and leaving an empty #root.
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
+    <AppErrorBoundary>
     <GoogleOAuthProvider
       clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID}
     >
@@ -28,6 +34,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         </AuthProvider>
       </BrowserRouter>
     </GoogleOAuthProvider>
+    </AppErrorBoundary>
   </React.StrictMode>
 );
 

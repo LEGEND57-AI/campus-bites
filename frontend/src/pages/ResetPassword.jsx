@@ -12,6 +12,12 @@ import {
 } from "lucide-react";
 
 import api from "../services/api";
+import ErrorMessage from "../components/common/ErrorMessage";
+import { describeError } from "../utils/errorMessage";
+
+// Copied from the /reset-password handler: 8+ characters with at least one
+// lowercase letter, one uppercase letter and one digit.
+const STRONG_PASSWORD = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
 
 
 const ResetPassword = () => {
@@ -35,6 +41,31 @@ const ResetPassword = () => {
 
   const [loading, setLoading] = useState(false);
 
+  const [resetError, setResetError] = useState(null);
+
+  // Inline messages under each input, keyed by field.
+  const [fieldErrors, setFieldErrors] = useState({});
+
+  // The same rules backend/routes/auth.js applies on /reset-password, checked
+  // here only so a mismatch or weak password is reported before a round trip.
+  // The backend stays authoritative.
+  const validate = () => {
+    const next = {};
+
+    if (newPassword.length < 8) {
+      next.newPassword = "Password must be at least 8 characters long.";
+    } else if (!STRONG_PASSWORD.test(newPassword)) {
+      next.newPassword =
+        "Include at least one uppercase letter, one lowercase letter and one number.";
+    }
+
+    if (newPassword !== confirmPassword) {
+      next.confirmPassword = "Passwords do not match.";
+    }
+
+    return next;
+  };
+
 
 
   // Submit
@@ -51,16 +82,14 @@ const ResetPassword = () => {
     }
 
 
-    if (newPassword.length < 6) {
+    const nextErrors = validate();
 
+    setFieldErrors(nextErrors);
 
-      return;
+    if (Object.keys(nextErrors).length > 0) {
 
-    }
-
-
-    if (newPassword !== confirmPassword) {
-
+      // Nothing was sent, so an earlier server message no longer applies.
+      setResetError(null);
 
       return;
 
@@ -79,7 +108,7 @@ const ResetPassword = () => {
 
       });
 
-
+      setResetError(null);
 
 
       navigate("/login");
@@ -88,6 +117,18 @@ const ResetPassword = () => {
     } catch (error) {
 
       console.error("Password reset failed:", error);
+
+      // 403 here means the verified-OTP window has closed, not a permissions
+      // problem, so it gets its own sentence. A 400 is one of the password
+      // rules in backend/routes/auth.js, restated rather than passed through.
+      setResetError(
+        error.response?.status === 403
+          ? "Your reset code has expired. Go back to sign in and request a new one."
+          : describeError(
+              error,
+              "Couldn't update your password. Use at least 8 characters with an uppercase letter, a lowercase letter and a number."
+            )
+      );
 
     } finally {
 
@@ -348,6 +389,8 @@ const ResetPassword = () => {
 
               {/* NEW PASSWORD */}
 
+              <div>
+
               <div className="relative">
 
 
@@ -363,12 +406,20 @@ const ResetPassword = () => {
                   value={newPassword}
 
 
-                  onChange={(e) =>
-                    setNewPassword(e.target.value)
-                  }
+                  onChange={(e) => {
+                    setNewPassword(e.target.value);
+                    // Either field changing makes both messages stale.
+                    setFieldErrors({});
+                  }}
 
 
                   placeholder="New Password"
+
+                  aria-invalid={Boolean(fieldErrors.newPassword)}
+
+                  aria-describedby={
+                    fieldErrors.newPassword ? "reset-new-password-error" : undefined
+                  }
 
 
                   className="
@@ -426,9 +477,22 @@ const ResetPassword = () => {
 
               </div>
 
+              {fieldErrors.newPassword && (
+                <p
+                  id="reset-new-password-error"
+                  className="mt-1.5 text-left text-sm text-rose-600"
+                >
+                  {fieldErrors.newPassword}
+                </p>
+              )}
+
+              </div>
+
 
               {/* CONFIRM PASSWORD */}
 
+
+              <div>
 
               <div className="relative">
 
@@ -447,14 +511,21 @@ const ResetPassword = () => {
                   value={confirmPassword}
 
 
-                  onChange={(e) =>
+                  onChange={(e) => {
                     setConfirmPassword(
                       e.target.value
-                    )
-                  }
+                    );
+                    setFieldErrors({});
+                  }}
 
 
                   placeholder="Confirm Password"
+
+                  aria-invalid={Boolean(fieldErrors.confirmPassword)}
+
+                  aria-describedby={
+                    fieldErrors.confirmPassword ? "reset-confirm-password-error" : undefined
+                  }
 
 
                   className="
@@ -512,6 +583,19 @@ const ResetPassword = () => {
 
               </div>
 
+              {fieldErrors.confirmPassword && (
+                <p
+                  id="reset-confirm-password-error"
+                  className="mt-1.5 text-left text-sm text-rose-600"
+                >
+                  {fieldErrors.confirmPassword}
+                </p>
+              )}
+
+              </div>
+
+
+              <ErrorMessage message={resetError} className="text-left" />
 
 
               {/* BUTTON */}

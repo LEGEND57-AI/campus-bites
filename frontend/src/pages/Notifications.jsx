@@ -19,6 +19,8 @@ import DashboardHeader from "../components/dashboard/DashboardHeader";
 import MobileBottomNav from "../components/dashboard/MobileBottomNav";
 import NotificationCard from "../components/notifications/NotificationCard";
 import NotificationSkeleton from "../components/notifications/NotificationSkeleton";
+import ErrorMessage from "../components/common/ErrorMessage";
+import { describeError } from "../utils/errorMessage";
 import ClearNotificationsModal from "../components/notifications/ClearNotificationsModal";
 
 import { useSocket } from "../socket/SocketProvider";
@@ -100,6 +102,12 @@ const Notifications = () => {
     // blocks a second click before React re-renders.
     const [pendingAction, setPendingAction] = useState(null);
     const actionInFlightRef = useRef(false);
+
+    // Every action here already rolls its optimistic update back on failure, so
+    // the list stays truthful -- but it did so without saying anything, which
+    // read as "nothing happened". One banner covers all four actions: they are
+    // mutually exclusive (actionInFlightRef) and share one region of the page.
+    const [actionError, setActionError] = useState(null);
     const [confirmClearOpen, setConfirmClearOpen] = useState(false);
 
     // Latest list for the socket handlers (membership checks without stale
@@ -289,9 +297,15 @@ const Notifications = () => {
 
             unreadCountStore.applyServerCount(data?.unreadCount);
 
+            setActionError(null);
+
         } catch (err) {
 
             console.error(err);
+
+            setActionError(
+                describeError(err, "Couldn't mark that notification as read.")
+            );
 
             // Only undo what this call changed. If it was already read there
             // is nothing to restore.
@@ -325,10 +339,16 @@ const Notifications = () => {
 
             unreadCountStore.applyServerCount(data?.unreadCount);
 
+            setActionError(null);
+
 
         } catch (err) {
 
             console.error(err);
+
+            setActionError(
+                describeError(err, "Couldn't mark your notifications as read.")
+            );
 
 
         } finally {
@@ -364,10 +384,16 @@ const Notifications = () => {
 
             setConfirmClearOpen(false);
 
+            setActionError(null);
+
 
         } catch (err) {
 
             console.error(err);
+
+            setActionError(
+                describeError(err, "Couldn't clear your notifications.")
+            );
 
 
         } finally {
@@ -390,9 +416,15 @@ const Notifications = () => {
 
             await notificationAPI.deleteNotification(id);
 
+            setActionError(null);
+
         } catch (err) {
 
             console.error(err);
+
+            setActionError(
+                describeError(err, "Couldn't delete that notification.")
+            );
 
             if (removed) {
                 setNotifications((prev) => {
@@ -580,6 +612,12 @@ const Notifications = () => {
                                     {renderHeaderAction()}
                                 </div>
                             </div>
+
+                            {/* Failure of the last action, above the list where
+                                the actions live. No retry button: the user
+                                simply presses the control again, and the next
+                                success clears this. */}
+                            <ErrorMessage message={actionError} />
 
 
                             {/* LIST */}

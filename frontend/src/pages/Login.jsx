@@ -9,6 +9,7 @@ import logo from "../assets/CampusCraves-Logo.png";
 import AuthShell from "../components/auth/AuthShell";
 import AuthField from "../components/auth/AuthField";
 import FormError from "../components/auth/FormError";
+import { describeError } from "../utils/errorMessage";
 import {
   SubmitButton,
   GoogleButton,
@@ -86,12 +87,26 @@ const Login = () => {
     setIsLoading(false);
 
     if (!result?.success) {
-      // Always this fixed wording, never result.error -- the backend answers
-      // "Invalid credentials" and deliberately gives the same response whether
-      // the account exists, is unverified, or the password is simply wrong.
-      // Passing its text through would both leak backend phrasing and risk
-      // narrowing that down for someone probing which emails are registered.
-      setErrors({ form: "Invalid email or password." });
+      // Never result.error -- the backend answers "Invalid credentials" and
+      // deliberately gives the same response whether the account exists, is
+      // unverified, or the password is simply wrong. Passing its text through
+      // would both leak backend phrasing and risk narrowing that down for
+      // someone probing which emails are registered.
+      //
+      // Only a 400/401 is that rejection. A timeout, dropped connection, rate
+      // limit or server error says nothing about the password, so it gets its
+      // own wording rather than sending the user off to reset a correct one.
+      const status = result?.requestError?.response?.status;
+      const credentialsRejected = status === 400 || status === 401;
+
+      setErrors({
+        form: credentialsRejected
+          ? "Invalid email or password."
+          : describeError(
+              result?.requestError,
+              "Couldn't sign you in. Please try again."
+            ),
+      });
       return;
     }
 
@@ -105,10 +120,16 @@ const Login = () => {
     onSuccess: async (tokenResponse) => {
       try {
         setGoogleLoading(true);
+        setErrors((prev) => ({ ...prev, form: undefined }));
 
         const result = await googleLogin(tokenResponse.access_token);
 
         if (!result?.success) {
+          // googleLogin() reports only success/failure, so the wording is fixed.
+          setErrors((prev) => ({
+            ...prev,
+            form: "Google sign-in didn't work. Please try again or use your email and password.",
+          }));
           return;
         }
 
@@ -116,11 +137,19 @@ const Login = () => {
 
       } catch (error) {
         console.error(error);
+        setErrors((prev) => ({
+          ...prev,
+          form: describeError(error, "Google sign-in didn't work. Please try again."),
+        }));
       } finally {
         setGoogleLoading(false);
       }
     },
     onError: () => {
+      setErrors((prev) => ({
+        ...prev,
+        form: "Google sign-in didn't complete. Please try again.",
+      }));
     },
   });
 
@@ -136,14 +165,22 @@ const Login = () => {
     }
 
     setIsResetting(true);
-    const success = await requestPasswordReset(email);
+    setErrors((prev) => ({ ...prev, form: undefined }));
+    const result = await requestPasswordReset(email);
     setIsResetting(false);
 
-    if (success) {
+    if (result?.success) {
       navigate(`/verify-otp?email=${encodeURIComponent(email)}&type=reset`);
       return;
     }
 
+    setErrors((prev) => ({
+      ...prev,
+      form: describeError(
+        result?.requestError,
+        "Couldn't send a reset code. Please try again."
+      ),
+    }));
   };
 
   // ================= UI =================

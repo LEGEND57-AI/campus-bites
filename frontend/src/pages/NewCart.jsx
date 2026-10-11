@@ -6,6 +6,8 @@ import { orderAPI } from "../services/api";
 import ConfirmOrderModal from "../components/cart/ConfirmOrderModal";
 import { paymentAPI } from "../services/api";
 import { loadRazorpay } from "../utils/loadRazorpay";
+import ErrorMessage from "../components/common/ErrorMessage";
+import { describeError } from "../utils/errorMessage";
 
 import Sidebar from "../components/dashboard/Sidebar";
 import DashboardHeader from "../components/dashboard/DashboardHeader";
@@ -101,6 +103,10 @@ const NewCart = () => {
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
   const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
   const [isStartingPayment, setIsStartingPayment] = useState(false);
+
+  // Why the last checkout attempt failed. Shown under the order summary; never
+  // retried automatically -- the user decides whether to try again.
+  const [checkoutError, setCheckoutError] = useState(null);
 
   // Re-entrancy guard for the online-payment path, held in a ref rather than
   // relying on isStartingPayment: a setState is asynchronous, so two clicks
@@ -231,6 +237,12 @@ const NewCart = () => {
 
             console.error(error);
 
+            // Fixed wording whatever the cause: Razorpay has already taken the
+            // payment by the time this handler runs, so "try again" would
+            // invite a second charge.
+            setCheckoutError(
+              "We couldn't confirm your payment. If money was deducted, don't pay again — check your Orders page first."
+            );
 
           }
 
@@ -267,6 +279,8 @@ const NewCart = () => {
 
       razorpay.open();
 
+      setCheckoutError(null);
+
     } catch (error) {
 
       setIsVerifyingPayment(false);
@@ -281,6 +295,11 @@ const NewCart = () => {
       // order" would be wrong, since the order was created and only the
       // checkout script was missing. Both branches are fixed text: nothing from
       // the underlying load event reaches the user.
+      setCheckoutError(
+        error?.isRazorpayLoadError
+          ? "Could not load the payment gateway. Please check your connection and try again."
+          : describeError(error, "Couldn't start the payment. Please try again.")
+      );
 
     }
 
@@ -324,6 +343,7 @@ const NewCart = () => {
       // fingerprint and a stale entry would only ever be a dead record.
       writeStoredIdempotency(null);
 
+      setCheckoutError(null);
 
       clearCart();
 
@@ -363,6 +383,13 @@ const NewCart = () => {
         writeStoredIdempotency(null);
       }
 
+      // ConfirmOrderModal sits over the page and has no error slot, so it is
+      // closed to reveal the message. Placing the order again reuses the kept
+      // idempotency key, so it cannot create a duplicate.
+      setShowConfirm(false);
+      setCheckoutError(
+        describeError(error, "Couldn't place your order. Please try again.")
+      );
 
     }
 
@@ -615,6 +642,8 @@ const NewCart = () => {
                     onPlaceOrder={handleCheckout}
                     disabled={isStartingPayment}
                   />
+
+                  <ErrorMessage message={checkoutError} className="mt-4" />
 
                   {/* Security Info */}
 

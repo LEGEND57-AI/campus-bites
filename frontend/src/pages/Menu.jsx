@@ -21,6 +21,8 @@ import MobileBottomNav from "../components/dashboard/MobileBottomNav";
 import FoodCard from "../components/FoodCard";
 import CategoryFilter from "../components/CategoryFilter";
 import LoadingSkeleton from "../components/LoadingSkeleton";
+import ErrorMessage from "../components/common/ErrorMessage";
+import { describeError } from "../utils/errorMessage";
 
 const PAGE_SIZE = 12;
 
@@ -53,6 +55,12 @@ const Menu = () => {
   const [loading, setLoading] = useState(true);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+
+  // A failed load used to leave `hasLoadedOnce` false with an empty list, which
+  // is the skeleton's condition -- so a request that errored or timed out sat on
+  // skeletons forever. The four outcomes are now distinct: loading, loaded with
+  // items, loaded empty, and failed. Null means "no failure outstanding".
+  const [loadError, setLoadError] = useState(null);
 
   // ================= REFS =================
 
@@ -115,6 +123,7 @@ const Menu = () => {
         const newItems = data?.items || [];
 
         setHasLoadedOnce(true);
+        setLoadError(null);
 
         if (append) {
           setFoodItems((previousItems) => {
@@ -149,6 +158,14 @@ const Menu = () => {
           "Failed to load food items:",
           error
         );
+
+        // A superseded request (category switch, new search) must not post its
+        // failure over whatever the current one is showing.
+        if (requestId === requestIdRef.current) {
+          setLoadError(
+            describeError(error, "Unable to load the menu right now.")
+          );
+        }
       } finally {
         if (append) {
           loadingMoreRef.current = false;
@@ -496,10 +513,20 @@ const Menu = () => {
             {loading ||
             (
               foodItems.length === 0 &&
-              !hasLoadedOnce
+              !hasLoadedOnce &&
+              !loadError
             ) ? (
 
               <LoadingSkeleton />
+
+            ) : loadError && foodItems.length === 0 ? (
+
+              <ErrorMessage
+                panel
+                message={loadError}
+                onRetry={() => fetchFoodItems(1, false)}
+                retryLabel="Retry"
+              />
 
             ) : foodItems.length === 0 ? (
 

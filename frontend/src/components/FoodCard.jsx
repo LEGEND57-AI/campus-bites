@@ -7,6 +7,7 @@ import {
 import { useState, memo } from "react";
 import { useFavorite } from "../context/FavoriteContext";
 import { favoriteAPI } from "../services/api";
+import { describeError } from "../utils/errorMessage";
 import Logo from "../assets/CampusCraves-Logo.png";
 import { useCart } from "../context/CartContext";
 
@@ -25,6 +26,7 @@ const FoodCard = ({
     loadFavorites,
   } = useFavorite();
   const [loading, setLoading] = useState(false);
+  const [favoriteError, setFavoriteError] = useState(null);
 
   // Local quantity shown on the stepper. Parent cart state stays the
   // source of truth if item.quantity is passed in; otherwise this
@@ -56,8 +58,16 @@ const FoodCard = ({
         await favoriteAPI.add(item.id);
       }
       await loadFavorites();
+      setFavoriteError(null);
     } catch (error) {
       console.error(error);
+
+      // The heart does not move when this fails -- loadFavorites() is what
+      // repaints it -- so the card is already truthful. This line says why,
+      // because an unchanged icon reads as a missed tap rather than a failure.
+      setFavoriteError(
+        describeError(error, "Couldn't update your favourites.")
+      );
     } finally {
       setLoading(false);
     }
@@ -560,6 +570,17 @@ const FoodCard = ({
               </button>
             )}
           </div>
+
+          {/* Only present after a failed favourite toggle, so the card's
+              normal height is unchanged. */}
+          {favoriteError && (
+            <p
+              role="alert"
+              className="mt-2 text-[11px] leading-snug text-rose-600"
+            >
+              {favoriteError}
+            </p>
+          )}
         </div>
       </div>
     </>

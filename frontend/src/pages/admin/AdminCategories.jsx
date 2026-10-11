@@ -4,6 +4,9 @@ import Swal from "sweetalert2";
 import { Pencil, Trash2, Plus, X, UploadCloud, Tag } from "lucide-react";
 
 import { categoryAPI, uploadAPI } from "../../services/api";
+import ErrorMessage from "../../components/common/ErrorMessage";
+import { describeError } from "../../utils/errorMessage";
+import { showErrorModal } from "../../utils/showErrorModal";
 
 const AdminCategories = () => {
     const [categories, setCategories] = useState([]);
@@ -17,12 +20,22 @@ const AdminCategories = () => {
         image_url: "",
     });
 
+    // Failure feedback for the add/edit modal (save, upload, validation). Delete
+    // is SweetAlert2-confirmed, so its failure comes back as a modal instead.
+    const [formError, setFormError] = useState(null);
+
+    // `uploading` only covered saves that included an image, so a plain rename
+    // or text-only create had no in-flight guard and a double click could send
+    // it twice. `saving` covers the whole save.
+    const [saving, setSaving] = useState(false);
+
     const resetForm = () => {
         setFormData({
             name: "",
             image: null,
             image_url: "",
         });
+        setFormError(null);
     };
 
     const closeModal = () => {
@@ -62,6 +75,7 @@ const AdminCategories = () => {
             image: null,
             image_url: category.image_url || "",
         });
+        setFormError(null);
         setShowModal(true);
     };
 
@@ -83,13 +97,20 @@ const AdminCategories = () => {
             fetchCategories();
         } catch (error) {
             console.error(error);
+            showErrorModal(error, `Couldn't delete ${category.name}.`);
         }
     };
 
     const handleSaveCategory = async () => {
+        if (saving) return;
+
         if (!formData.name.trim()) {
+            // Still aborts the save; since toasts were removed it did so silently.
+            setFormError("Enter a category name.");
             return;
         }
+
+        setSaving(true);
 
         try {
             let image_url = formData.image_url;
@@ -116,8 +137,18 @@ const AdminCategories = () => {
             fetchCategories();
         } catch (error) {
             console.error(error);
+            // The modal stays open with the form intact, so saving again retries.
+            setFormError(
+                describeError(
+                    error,
+                    editingCategory
+                        ? "Couldn't update this category."
+                        : "Couldn't add this category."
+                )
+            );
         } finally {
             setUploading(false);
+            setSaving(false);
         }
     };
 
@@ -226,6 +257,8 @@ const AdminCategories = () => {
                                 )}
                             </div>
 
+                            <ErrorMessage message={formError} />
+
                             <div className="flex flex-col sm:flex-row gap-3 pt-2">
                                 <button
                                     type="button"
@@ -237,12 +270,14 @@ const AdminCategories = () => {
 
                                 <button
                                     onClick={handleSaveCategory}
-                                    disabled={uploading}
+                                    disabled={saving}
                                     className="flex-1 rounded-2xl bg-gradient-to-r from-blue-500 to-indigo-600 py-3 font-bold text-white shadow-lg hover:shadow-xl transition disabled:opacity-50"
                                 >
                                     {uploading
                                         ? "Uploading..."
-                                        : editingCategory
+                                        : saving
+                                            ? "Saving..."
+                                            : editingCategory
                                             ? "Update Category"
                                             : "Add Category"}
                                 </button>

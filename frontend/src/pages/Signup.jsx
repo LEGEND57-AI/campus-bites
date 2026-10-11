@@ -9,6 +9,7 @@ import logo from "../assets/CampusCraves-Logo.png";
 import AuthShell from "../components/auth/AuthShell";
 import AuthField from "../components/auth/AuthField";
 import FormError from "../components/auth/FormError";
+import { describeError } from "../utils/errorMessage";
 import {
   SubmitButton,
   GoogleButton,
@@ -125,10 +126,16 @@ const Signup = () => {
     onSuccess: async (tokenResponse) => {
       try {
         setGoogleLoading(true);
+        setErrors((prev) => ({ ...prev, form: undefined }));
 
         const result = await googleLogin(tokenResponse.access_token);
 
         if (!result?.success) {
+          // googleLogin() reports only success/failure, so the wording is fixed.
+          setErrors((prev) => ({
+            ...prev,
+            form: "Google sign-up didn't work. Please try again or sign up with your email.",
+          }));
           return;
         }
 
@@ -136,11 +143,19 @@ const Signup = () => {
 
       } catch (error) {
         console.error(error);
+        setErrors((prev) => ({
+          ...prev,
+          form: describeError(error, "Google sign-up didn't work. Please try again."),
+        }));
       } finally {
         setGoogleLoading(false);
       }
     },
     onError: () => {
+      setErrors((prev) => ({
+        ...prev,
+        form: "Google sign-up didn't complete. Please try again.",
+      }));
     },
   });
 

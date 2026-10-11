@@ -9,6 +9,8 @@ import MobileBottomNav from "../components/dashboard/MobileBottomNav";
 
 import { userAPI } from "../services/api";
 import { useAuth } from "../context/AuthContext";
+import ErrorMessage from "../components/common/ErrorMessage";
+import { describeError } from "../utils/errorMessage";
 
 const PersonalInformation = () => {
 
@@ -17,6 +19,7 @@ const PersonalInformation = () => {
 
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+    const [saveError, setSaveError] = useState(null);
 
     const [form, setForm] = useState({
         name: "",
@@ -73,6 +76,8 @@ const PersonalInformation = () => {
 
             const res = await userAPI.updateProfile(form);
 
+            setSaveError(null);
+
             // Sync AuthContext (and localStorage) so the header,
             // sidebar, and anywhere else using useAuth() update instantly
             updateUser(res?.data || form);
@@ -82,6 +87,11 @@ const PersonalInformation = () => {
         } catch (err) {
 
             console.error(err);
+
+            // The form keeps what was typed, so pressing Save again retries it.
+            setSaveError(
+                describeError(err, "Couldn't save your changes. Please try again.")
+            );
 
         } finally {
 
@@ -216,6 +226,8 @@ const PersonalInformation = () => {
                                         </div>
 
                                     </div>
+
+                                    <ErrorMessage message={saveError} className="mt-6" />
 
                                     <button
                                         type="submit"

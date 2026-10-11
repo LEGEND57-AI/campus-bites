@@ -181,9 +181,14 @@ export const AuthProvider = ({ children }) => {
       // "Invalid email or password" toast, so a failed sign-in produced two
       // notifications, one of them in backend wording. The {success:false}
       // contract is unchanged; only where the message is shown has moved.
+      //
+      // `requestError` lets Login.jsx tell a credentials rejection (400/401)
+      // apart from a timeout, network failure, rate limit or server error,
+      // which previously all read as "Invalid email or password".
       return {
         success: false,
         error: error.response?.data?.error || 'Login failed',
+        requestError: error,
       };
     }
   };
@@ -215,14 +220,17 @@ export const AuthProvider = ({ children }) => {
   };
 
   // 🔑 FORGOT PASSWORD
+  // Resolves to { success, requestError }. The backend answers an unknown
+  // email with the same success as a known one, so only a rate limit, server
+  // error, timeout or network failure lands in the catch.
   const requestPasswordReset = async (email) => {
     try {
       await api.post('/auth/forgot-password', { email });
 
-      return true;
+      return { success: true };
 
     } catch (error) {
-      return false;
+      return { success: false, requestError: error };
     }
   };
 

@@ -5,6 +5,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
 import Swal from "sweetalert2";
 import { adminAPI } from "../../services/api";
+import { showErrorModal } from "../../utils/showErrorModal";
 import {
   Search,
   Download,
@@ -681,6 +682,7 @@ const AdminOrders = () => {
       fetchOrders({ immediate: true });
     } catch (err) {
       console.error("Failed to update order status:", err);
+      showErrorModal(err, "Couldn't update this order's status.");
     }
   };
 
@@ -703,6 +705,7 @@ const AdminOrders = () => {
       fetchOrders({ immediate: true });
     } catch (err) {
       console.error("Failed to update payment:", err);
+      showErrorModal(err, "Couldn't record this payment.");
     }
   };
 
@@ -740,7 +743,8 @@ const AdminOrders = () => {
 
       fetchOrders({ immediate: true });
     } catch (err) {
-      console.error(err);
+      console.error("Failed to cancel order:", err);
+      showErrorModal(err, "Couldn't cancel this order.");
     }
   };
 

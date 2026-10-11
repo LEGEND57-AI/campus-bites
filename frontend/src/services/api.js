@@ -67,8 +67,29 @@ const processQueue = (token = null, error = null) => {
 };
 
 // Axios Instance
+// A request that is never answered used to hang forever: the promise never
+// settled, so the `finally` blocks that clear loading state never ran and a
+// page sat on its skeletons indefinitely. A backend that accepts the TCP
+// connection and then goes quiet -- an instance waking up, a dropped network
+// mid-flight -- produced exactly that.
+//
+// 30s rather than the 15s used for session refresh below: that one blocks the
+// branded entry loader and is retried, so it has to fail fast, whereas these
+// are ordinary data calls where a slow-but-alive backend is worth waiting for.
+// Beyond 30s a student has already decided the app is broken.
+//
+// This is the only timeout on this client. Axios rejects with
+// `code: "ECONNABORTED"` and no `response`, which every existing path already
+// handles correctly: isSessionRejected() is false (it requires status 400/401),
+// so no session is cleared; the response interceptor's 401 branch cannot match
+// a response-less error, so nothing is retried; and the rejection reaches each
+// page's existing catch/finally unchanged.
+const API_TIMEOUT_MS = 30000;
+
 const api = axios.create({
   baseURL: API_URL,
+
+  timeout: API_TIMEOUT_MS,
 
   withCredentials: true,
 

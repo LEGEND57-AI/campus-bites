@@ -13,6 +13,9 @@ import {
 } from 'lucide-react';
 
 import CategoryFilter from '../../components/CategoryFilter';
+import ErrorMessage from '../../components/common/ErrorMessage';
+import { describeError } from '../../utils/errorMessage';
+import { showErrorModal } from '../../utils/showErrorModal';
 
 const AdminMenu = () => {
   const [items, setItems] = useState([]);
@@ -22,6 +25,17 @@ const AdminMenu = () => {
   const [showModal, setShowModal] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [uploading, setUploading] = useState(false);
+
+  // Failure feedback, kept where each action lives: formError inside the
+  // add/edit modal (save, upload, validation), pageError above the grid for the
+  // inline availability toggle. Delete is SweetAlert2-confirmed, so its failure
+  // comes back as a modal instead.
+  const [formError, setFormError] = useState(null);
+  const [pageError, setPageError] = useState(null);
+
+  // Save had no in-flight guard, so a double click could create the same item
+  // twice. The button is disabled while a save is outstanding.
+  const [saving, setSaving] = useState(false);
 
 
   const [formData, setFormData] = useState({
@@ -90,11 +104,13 @@ const AdminMenu = () => {
 
   const closeModal = () => {
     setShowModal(false);
+    setFormError(null);
     resetForm();
   };
 
   const openAdd = () => {
     resetForm();
+    setFormError(null);
     setShowModal(true);
   };
 
@@ -110,6 +126,7 @@ const AdminMenu = () => {
       available: item.available ?? true,
     });
 
+    setFormError(null);
     setShowModal(true);
   };
 
@@ -126,8 +143,11 @@ const AdminMenu = () => {
         image_url: data.url,
       }));
 
+      setFormError(null);
+
     } catch (err) {
       console.error(err);
+      setFormError(describeError(err, "Couldn't upload that image."));
     } finally {
       setUploading(false);
     }
@@ -136,10 +156,16 @@ const AdminMenu = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!formData.name.trim()) return;
-    if (!formData.price) return;
-    if (!formData.category_id) return;
-    if (!formData.image_url) return;
+    if (saving) return;
+
+    // These guards still abort the save; since toasts were removed they did so
+    // without a word. Each now says which field is missing.
+    if (!formData.name.trim()) return setFormError("Enter the item name.");
+    if (!formData.price) return setFormError("Enter a price.");
+    if (!formData.category_id) return setFormError("Select a category.");
+    if (!formData.image_url) return setFormError("Upload an image first.");
+
+    setSaving(true);
 
     try {
       const payload = {
@@ -157,6 +183,14 @@ const AdminMenu = () => {
       closeModal();
     } catch (err) {
       console.error(err);
+      setFormError(
+        describeError(
+          err,
+          editingItem ? "Couldn't update this item." : "Couldn't add this item."
+        )
+      );
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -186,11 +220,7 @@ const AdminMenu = () => {
 
     } catch (err) {
       console.error(err);
-      Swal.fire({
-        title: 'Error',
-        text: 'Failed to delete menu item.',
-        icon: 'error',
-      });
+      showErrorModal(err, "Couldn't delete this menu item.");
     }
   };
 
@@ -201,11 +231,17 @@ const AdminMenu = () => {
         !item.available
       );
 
+      setPageError(null);
 
       fetchMenu();
 
     } catch (err) {
       console.error(err);
+      // The toggle repaints from fetchMenu(), which only runs on success, so a
+      // failed toggle stays in its old position -- this says why.
+      setPageError(
+        describeError(err, `Couldn't change availability for ${item.name}.`)
+      );
     }
   };
 
@@ -258,6 +294,8 @@ const AdminMenu = () => {
           {filteredItems.length} Items
         </span>
       </div>
+
+      <ErrorMessage message={pageError} className="mb-6" />
 
       {/* GRID */}
       {filteredItems.length === 0 ? (
@@ -528,15 +566,21 @@ const AdminMenu = () => {
                   </select>
                 </div>
 
+                <ErrorMessage message={formError} />
+
                 <div className="flex flex-col gap-3 pt-3">
                   <button
                     type="submit"
+                    disabled={saving || uploading}
                     className="w-full py-3 rounded-2xl
                                bg-gradient-to-r from-blue-500 to-indigo-600
                                text-white font-bold text-base
-                               hover:shadow-xl transition"
+                               hover:shadow-xl transition
+                               disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    {editingItem ? 'Update Item' : 'Save Item'}
+                    {saving
+                      ? 'Saving...'
+                      : editingItem ? 'Update Item' : 'Save Item'}
                   </button>
 
                   <button

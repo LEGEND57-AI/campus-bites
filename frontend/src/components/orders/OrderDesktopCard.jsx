@@ -13,6 +13,8 @@ import { downloadReceipt } from "../../utils/downloadReceipt";
 import { orderAPI } from "../../services/api";
 import { formatPrice } from "../../utils/formatPrice";
 import { getOrderStatusLabel } from "../../utils/orderStatusLabel";
+import ErrorMessage from "../common/ErrorMessage";
+import { describeError } from "../../utils/errorMessage";
 
 const OrderDesktopCard = ({ order }) => {
 
@@ -20,6 +22,8 @@ const OrderDesktopCard = ({ order }) => {
   const { reorderItems } = useCart();
   const [showMenu, setShowMenu] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelError, setCancelError] = useState(null);
+  const [cancelling, setCancelling] = useState(false);
   const menuRef = useRef(null);
 
   useEffect(() => {
@@ -78,10 +82,13 @@ const OrderDesktopCard = ({ order }) => {
   };
 
   const handleCancelOrder = async () => {
+    setCancelling(true);
+
     try {
 
       await orderAPI.cancelOrder(order.id);
 
+      setCancelError(null);
       setShowCancelModal(false);
       setShowMenu(false);
 
@@ -89,10 +96,18 @@ const OrderDesktopCard = ({ order }) => {
 
     } catch (err) {
 
-      alert(
-        err.response?.data?.error ||
-        "Failed to cancel order."
+      console.error("Failed to cancel order:", err);
+
+      // Previously a native alert() carrying err.response.data.error straight
+      // from the backend. The modal stays open with a safe message instead, so
+      // the user can read it and press Cancel Order again.
+      setCancelError(
+        describeError(err, "Couldn't cancel this order. Please try again.")
       );
+
+    } finally {
+
+      setCancelling(false);
 
     }
   };
@@ -551,9 +566,12 @@ font-semibold
 
             </div>
 
+            <ErrorMessage message={cancelError} className="mt-5 text-left" />
+
             <div className="flex gap-3 mt-8">
 
               <button
+                disabled={cancelling}
                 onClick={() => setShowCancelModal(false)}
                 className="
                   flex-1
@@ -569,6 +587,7 @@ font-semibold
               </button>
 
               <button
+                disabled={cancelling}
                 onClick={handleCancelOrder}
                 className="
                   flex-1
